@@ -161,9 +161,9 @@ fun PlayerMenu(
 fun PlayerMenuRow(
     icon: ImageVector,
     iconDescription: String,
-    label: @Composable RowScope.() -> Unit,
     onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+    label: @Composable RowScope.() -> Unit,
 ) {
     Row(
         modifier = modifier
@@ -197,8 +197,9 @@ fun ServersMenu(
     servers: List<StreamServer>,
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    PlayerMenu(visible = visible) {
+    PlayerMenu(visible = visible, modifier = modifier) {
         servers.forEachIndexed { index, server ->
             if (index > 0) {
                 HorizontalDivider(
@@ -262,8 +263,9 @@ fun SettingsMenu(
     isFullscreen: Boolean,
     onVolumeChange: (Float) -> Unit,
     onFullscreenToggle: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    PlayerMenu(visible = visible) {
+    PlayerMenu(visible = visible, modifier = modifier) {
         // Volume row
         PlayerMenuRow(
             icon = if (volume == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp,

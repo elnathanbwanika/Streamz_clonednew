@@ -3,6 +3,10 @@ package com.linkstreamz.app
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 
@@ -88,7 +92,7 @@ fun PlayerOverlayPreview() {
         androidx.compose.foundation.layout.Box(
             Modifier
                 .fillMaxSize()
-                .background(androidx.compose.ui.graphics.Color.Black),
+                .background(Color.Black),
         ) {
             PlayerOverlay(
                 state = state,
