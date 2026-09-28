@@ -502,12 +502,14 @@ private fun RoundPlayerButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     description: String,
     onClick: () -> Unit,
+    size: androidx.compose.ui.unit.Dp = 42.dp,
+    iconSize: androidx.compose.ui.unit.Dp = 20.dp,
 ) {
     IconButton(
         onClick = onClick,
-        modifier = Modifier.size(42.dp).background(Color.Black.copy(alpha = 0.45f), CircleShape),
+        modifier = Modifier.size(size).background(Color.Black.copy(alpha = 0.45f), CircleShape),
     ) {
-        Icon(icon, description, tint = Color.White, modifier = Modifier.size(20.dp))
+        Icon(icon, description, tint = Color.White, modifier = Modifier.size(iconSize))
     }
 }
 
@@ -562,15 +564,8 @@ private fun RelatedContent(repository: EventsRepository?, target: PlayerTarget, 
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             items(highlights) { highlight ->
-                                MiniCard(
-                                    title = highlight.title,
-                                    subtitle = highlight.duration,
-                                    home = highlight.home,
-                                    away = highlight.away,
-                                    current = false,
-                                    trailing = {
-                                        Icon(Icons.Default.PlayArrow, null, tint = Muted, modifier = Modifier.size(18.dp))
-                                    },
+                                HighlightCard(
+                                    highlight = highlight,
                                     onClick = { onTarget(HighlightTarget(highlight)) },
                                 )
                             }
@@ -589,22 +584,11 @@ private fun RelatedContent(repository: EventsRepository?, target: PlayerTarget, 
                             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 64.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
+                            val nowMs = System.currentTimeMillis()
                             items(liveEvents) { event ->
-                                MiniCard(
-                                    title = "${event.home.name} vs ${event.away.name}",
-                                    subtitle = listOf(event.sport, event.league).filter { it.isNotBlank() }.joinToString(" | ").uppercase(),
-                                    home = event.home,
-                                    away = event.away,
-                                    current = false,
-                                    trailing = {
-                                        Text(
-                                            "● LIVE",
-                                            color = Accent,
-                                            fontFamily = MonoFont,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                        )
-                                    },
+                                EventCard(
+                                    event = event,
+                                    nowMs = nowMs,
                                     onClick = { onTarget(EventTarget(event)) },
                                 )
                             }
