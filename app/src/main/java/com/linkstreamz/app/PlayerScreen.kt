@@ -194,8 +194,14 @@ fun PlayerScreen(
         onDispose { if (wakeLock.isHeld) wakeLock.release() }
     }
 
-    // Auto-hide timer: poll every second and hide controls after CONTROLS_HIDE_DELAY_MS of inactivity
-    LaunchedEffect(lastInteractionMs) {
+    // Auto-hide timer: hide controls after CONTROLS_HIDE_DELAY_MS of inactivity,
+    // but never while a dropdown menu is open.  Once all menus close the full
+    // delay restarts from that moment so the overlay stays visible long enough.
+    LaunchedEffect(lastInteractionMs, controlsState.openMenu) {
+        // While a menu is open keep the overlay alive but don't start the countdown.
+        while (controlsState.openMenu != OpenMenu.None) {
+            delay(500)
+        }
         delay(CONTROLS_HIDE_DELAY_MS)
         controlsVisible = false
     }

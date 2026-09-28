@@ -110,6 +110,81 @@ fun PlayerOverlayPreview() {
     }
 }
 
+// ── 12-server scroll preview — confirms the list scrolls and extends past the player ──
+
+@Preview(
+    name = "Servers Menu – 12 servers (scroll test)",
+    showBackground = true,
+    showSystemUi = true,
+    widthDp = 390,
+    heightDp = 844, // iPhone-like portrait canvas; player sits at the top
+    backgroundColor = 0xFF000000,
+)
+@Composable
+fun ServersMenuScrollPreview() {
+    val manyServers = (1..12).map { i ->
+        StreamServer(
+            name = "Server $i",
+            url  = "https://example.com/s$i.m3u8",
+            quality = when (i % 3) { 0 -> "HD"; 1 -> "SD"; else -> null },
+        )
+    }
+    val state = rememberPlayerControlsState(
+        isPlaying    = false,
+        servers      = manyServers,
+        selectedServerIndex = 2, // Server 3 is active
+    )
+    // Open the servers menu immediately so the preview shows it
+    state.openMenu = OpenMenu.Servers
+
+    LinkStreamzTheme {
+        androidx.compose.foundation.layout.Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color(0xFF000000)),
+        ) {
+            // Simulate the video player area at the top (dark rectangle)
+            androidx.compose.foundation.layout.Box(
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .background(Color(0xFF1A1A1A)),
+            ) {
+                PlayerOverlay(
+                    state = state,
+                    visible = true,
+                    onPlayPause = {},
+                    onRewind = {},
+                    onForward = {},
+                    onSeek = {},
+                    onServerSelect = { state.selectedServerIndex = it; state.closeMenus() },
+                    onVolumeChange = {},
+                    onFullscreenToggle = {},
+                    onInteraction = {},
+                    modifier = Modifier.matchParentSize(),
+                )
+            }
+
+            // Simulate "More events" content below the player
+            androidx.compose.foundation.layout.Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = (390 * 9 / 16).dp + 8.dp, start = 16.dp, end = 16.dp),
+            ) {
+                repeat(5) { i ->
+                    androidx.compose.foundation.layout.Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .padding(vertical = 4.dp)
+                            .background(Color(0xFF1C1C1C), androidx.compose.foundation.shape.RoundedCornerShape(8.dp)),
+                    )
+                }
+            }
+        }
+    }
+}
+
 
 @Preview(
     name = "Link Streamz Settings",
