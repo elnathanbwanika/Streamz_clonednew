@@ -291,108 +291,36 @@ fun PlayerScreen(
             }
 
             // ── Overlaid controls (auto-hide) ─────────────────────────────
-            // Each child is a direct, independently-aligned Box inside the outer Box,
-            // avoiding the ColumnScope.AnimatedVisibility resolution error.
             if (!locked && error == null) {
-                // Gradient scrim
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .background(
-                            if (controlsVisible)
-                                Brush.verticalGradient(
-                                    listOf(
-                                        Color.Black.copy(alpha = 0.55f),
-                                        Color.Transparent,
-                                        Color.Transparent,
-                                        Color.Black.copy(alpha = 0.72f),
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = controlsVisible,
+                    enter = fadeIn(tween(200)),
+                    exit = fadeOut(tween(300)),
+                    modifier = Modifier.matchParentSize()
+                ) {
+                    Box(Modifier.fillMaxSize()) {
+                        // Gradient scrim
+                        Box(
+                            Modifier
+                                .matchParentSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            Color.Black.copy(alpha = 0.55f),
+                                            Color.Transparent,
+                                            Color.Transparent,
+                                            Color.Black.copy(alpha = 0.72f),
+                                        )
                                     )
                                 )
-                            else Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
                         )
-                )
 
-                // Seek bar + time — pinned to bottom of video
-                Box(
-                    Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                ) {
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = controlsVisible,
-                        enter = fadeIn(tween(200)),
-                        exit = fadeOut(tween(300)),
-                    ) {
-                        OverlaySeekBar(
-                            position = position,
-                            duration = duration,
-                            onSeek = { value ->
-                                if (duration > 0) player.seekTo(value.toLong())
-                                touchControls()
-                            },
-                        )
-                    }
-                }
-
-                // Play/Pause + Skip buttons — centred
-                Box(Modifier.align(Alignment.Center)) {
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = controlsVisible,
-                        enter = fadeIn(tween(200)),
-                        exit = fadeOut(tween(300)),
-                    ) {
+                        // Top-right secondary controls
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(20.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RoundPlayerButton(
-                                icon = Icons.Default.SkipPrevious,
-                                description = "Back",
-                                onClick = { seekBy(-settings.skip) },
-                                size = 56.dp,
-                                iconSize = 28.dp,
-                            )
-                            // Large play/pause
-                            IconButton(
-                                onClick = {
-                                    if (playing) player.pause() else player.play()
-                                    touchControls()
-                                },
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .background(Brush.linearGradient(listOf(Accent2, Accent)), CircleShape),
-                            ) {
-                                Icon(
-                                    if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    "Play",
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(28.dp),
-                                )
-                            }
-                            RoundPlayerButton(
-                                icon = Icons.Default.SkipNext,
-                                description = "Forward",
-                                onClick = { seekBy(settings.skip) },
-                                size = 56.dp,
-                                iconSize = 28.dp,
-                            )
-                        }
-                    }
-                }
-
-                // Top-right secondary controls: Mute, Gear, Fullscreen
-                Box(
-                    Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(16.dp)
-                ) {
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = controlsVisible,
-                        enter = fadeIn(tween(200)),
-                        exit = fadeOut(tween(300)),
-                    ) {
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             RoundPlayerButton(
@@ -404,7 +332,6 @@ fun PlayerScreen(
                                 touchControls()
                             }
 
-                            // Gear icon — opens inline dropdown, only when multiple servers exist
                             if (target.servers.size > 1) {
                                 Box {
                                     RoundPlayerButton(Icons.Default.Settings, "Servers") {
@@ -435,6 +362,56 @@ fun PlayerScreen(
                                 enterFullscreen(activity)
                                 touchControls()
                             }
+                        }
+
+                        // Play/Pause + Skip buttons
+                        Row(
+                            modifier = Modifier.align(Alignment.Center),
+                            horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RoundPlayerButton(
+                                icon = Icons.Default.SkipPrevious,
+                                description = "Back",
+                                onClick = { seekBy(-settings.skip) },
+                                size = 56.dp,
+                                iconSize = 28.dp,
+                            )
+                            IconButton(
+                                onClick = {
+                                    if (playing) player.pause() else player.play()
+                                    touchControls()
+                                },
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .background(Brush.linearGradient(listOf(Accent2, Accent)), CircleShape),
+                            ) {
+                                Icon(
+                                    if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    "Play",
+                                    tint = Color.Black,
+                                    modifier = Modifier.size(28.dp),
+                                )
+                            }
+                            RoundPlayerButton(
+                                icon = Icons.Default.SkipNext,
+                                description = "Forward",
+                                onClick = { seekBy(settings.skip) },
+                                size = 56.dp,
+                                iconSize = 28.dp,
+                            )
+                        }
+
+                        // Seek bar + time
+                        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+                            OverlaySeekBar(
+                                position = position,
+                                duration = duration,
+                                onSeek = { value ->
+                                    if (duration > 0) player.seekTo(value.toLong())
+                                    touchControls()
+                                },
+                            )
                         }
                     }
                 }
