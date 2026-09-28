@@ -80,7 +80,7 @@ data class CustomTarget(
 }
 
 // Auto-hide delay for overlay controls (in milliseconds)
-private const val CONTROLS_HIDE_DELAY_MS = 5_000L
+private const val CONTROLS_HIDE_DELAY_MS = 3_000L
 
 @Composable
 fun PlayerScreen(
@@ -234,7 +234,6 @@ fun PlayerScreen(
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp)
                 .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(16.dp))
                 .background(Color.Black)
                 .pointerInput(locked, duration, settings.skip) {
                     detectTapGestures(
