@@ -1,6 +1,11 @@
 package com.linkstreamz.app
 
 import android.widget.Toast
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,9 +27,6 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -208,7 +210,7 @@ private fun FilterChip(filter: HomeFilter, count: Int, selected: Boolean, onClic
 @Composable
 private fun LoadingList() {
     LazyColumn(
-        contentPadding = PaddingValues(horizontal = 16.dp, bottom = 44.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 44.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
@@ -260,7 +262,7 @@ private fun ServerChooserDialog(target: PlayerTarget, onDismiss: () -> Unit, onP
                         }
                         Text(server.name, color = Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                         server.quality?.let { Text(it, color = Accent, fontFamily = MonoFont, fontSize = 10.5.sp, modifier = Modifier.background(AccentSoft, RoundedCornerShape(8.dp)).padding(4.dp, 4.dp)) }
-                        Icon(Icons.Default.ArrowForwardIos, null, tint = Muted, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.ChevronRight, null, tint = Muted, modifier = Modifier.size(16.dp))
                     }
                 }
             }

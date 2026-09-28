@@ -58,6 +58,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -368,7 +369,10 @@ private fun PlayerOverlay(
     onLock: () -> Unit,
     onSeek: (Float) -> Unit,
 ) {
-    Column(Modifier.matchParentSize().background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .7f), Color.Transparent, Color.Black.copy(alpha = .82f))).clip(RoundedCornerShape(14.dp)), verticalArrangement = Arrangement.SpaceBetween) {
+    Column(
+        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .7f), Color.Transparent, Color.Black.copy(alpha = .82f)))),
+        verticalArrangement = Arrangement.SpaceBetween,
+    ) {
         Row(Modifier.fillMaxWidth().padding(12.dp, 12.dp, 14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Text(
                 when (target) {

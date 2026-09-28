@@ -16,8 +16,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowForwardIos
-import androidx.compose.material.icons.filled.Basketball
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.SportsBasketball
 import androidx.compose.material.icons.filled.CatchingPokemon
 import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.PlayArrow
@@ -239,7 +239,7 @@ private fun QualityChip(text: String) {
 @Composable
 private fun SportIcon(sport: String) {
     val icon = when (sport.lowercase()) {
-        "basketball" -> Icons.Default.Basketball
+        "basketball" -> Icons.Default.SportsBasketball
         "cricket" -> Icons.Default.CatchingPokemon
         else -> Icons.Default.Circle
     }
