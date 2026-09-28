@@ -280,7 +280,7 @@ fun PlayerScreen(
 
             // Lock indicator (always visible when locked)
             if (locked) {
-                Row(Modifier.fillMaxWidth().padding(10.dp).align(Alignment.TopStart), horizontalArrangement = Arrangement.Start) {
+                Row(Modifier.fillMaxWidth().padding(16.dp).align(Alignment.TopStart), horizontalArrangement = Arrangement.Start) {
                     IconButton(
                         onClick = { locked = false; touchControls() },
                         modifier = Modifier.size(44.dp).background(Color.Black.copy(alpha = .68f), CircleShape),
@@ -345,9 +345,13 @@ fun PlayerScreen(
                             horizontalArrangement = Arrangement.spacedBy(20.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            RoundPlayerButton(Icons.Default.SkipPrevious, "Back") {
-                                seekBy(-settings.skip)
-                            }
+                            RoundPlayerButton(
+                                icon = Icons.Default.SkipPrevious,
+                                description = "Back",
+                                onClick = { seekBy(-settings.skip) },
+                                size = 56.dp,
+                                iconSize = 28.dp,
+                            )
                             // Large play/pause
                             IconButton(
                                 onClick = {
@@ -355,19 +359,23 @@ fun PlayerScreen(
                                     touchControls()
                                 },
                                 modifier = Modifier
-                                    .size(64.dp)
+                                    .size(56.dp)
                                     .background(Brush.linearGradient(listOf(Accent2, Accent)), CircleShape),
                             ) {
                                 Icon(
                                     if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
                                     "Play",
                                     tint = Color.Black,
-                                    modifier = Modifier.size(32.dp),
+                                    modifier = Modifier.size(28.dp),
                                 )
                             }
-                            RoundPlayerButton(Icons.Default.SkipNext, "Forward") {
-                                seekBy(settings.skip)
-                            }
+                            RoundPlayerButton(
+                                icon = Icons.Default.SkipNext,
+                                description = "Forward",
+                                onClick = { seekBy(settings.skip) },
+                                size = 56.dp,
+                                iconSize = 28.dp,
+                            )
                         }
                     }
                 }
@@ -376,7 +384,7 @@ fun PlayerScreen(
                 Box(
                     Modifier
                         .align(Alignment.TopEnd)
-                        .padding(10.dp)
+                        .padding(16.dp)
                 ) {
                     androidx.compose.animation.AnimatedVisibility(
                         visible = controlsVisible,
@@ -473,7 +481,7 @@ private fun OverlaySeekBar(
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .padding(horizontal = 16.dp, vertical = 16.dp),
     ) {
         Row(
             Modifier.fillMaxWidth(),
@@ -501,9 +509,9 @@ private fun OverlaySeekBar(
 private fun RoundPlayerButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     description: String,
-    onClick: () -> Unit,
     size: androidx.compose.ui.unit.Dp = 42.dp,
     iconSize: androidx.compose.ui.unit.Dp = 20.dp,
+    onClick: () -> Unit,
 ) {
     IconButton(
         onClick = onClick,
