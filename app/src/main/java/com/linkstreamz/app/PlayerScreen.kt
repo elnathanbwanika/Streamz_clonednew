@@ -6,16 +6,12 @@ import android.content.pm.ActivityInfo
 import android.os.PowerManager
 import android.view.View
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -102,6 +98,8 @@ fun PlayerScreen(
     var locked by remember { mutableStateOf(false) }
     var playing by remember { mutableStateOf(false) }
     var muted by remember(settings.muted) { mutableStateOf(settings.muted) }
+    // Volume tracks player.volume [0f..1f]; starts at 0 if muted, else 1.
+    var playerVolume by remember(settings.muted) { mutableFloatStateOf(if (settings.muted) 0f else 1f) }
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(C.TIME_UNSET) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -111,6 +109,16 @@ fun PlayerScreen(
     // Auto-hide controls state
     var controlsVisible by remember { mutableStateOf(true) }
     var lastInteractionMs by remember { mutableStateOf(System.currentTimeMillis()) }
+
+    // Overlay controls state (hoisted; shared between PlayerOverlay and player callbacks)
+    val controlsState = rememberPlayerControlsState(
+        isPlaying = playing,
+        position = position,
+        duration = duration,
+        volume = playerVolume,
+        servers = target.servers,
+        selectedServerIndex = target.servers.indexOf(server).coerceAtLeast(0),
+    )
 
     val player = remember { ExoPlayer.Builder(context).build() }
     val wakeLock = remember {
@@ -192,6 +200,21 @@ fun PlayerScreen(
         controlsVisible = false
     }
 
+    // Keep the hoisted controls state mirror in sync with reactive player state
+    LaunchedEffect(playing)       { controlsState.isPlaying = playing }
+    LaunchedEffect(position)      { controlsState.position  = position }
+    LaunchedEffect(duration)      { controlsState.duration  = duration }
+    LaunchedEffect(playerVolume)  { controlsState.volume    = playerVolume }
+    LaunchedEffect(target.servers) {
+        controlsState.servers = target.servers
+        controlsState.selectedServerIndex =
+            target.servers.indexOf(currentServer).coerceAtLeast(0)
+    }
+    LaunchedEffect(currentServer) {
+        controlsState.selectedServerIndex =
+            target.servers.indexOf(currentServer).coerceAtLeast(0)
+    }
+
     val exoPlayer = player
     Column(Modifier.fillMaxSize().background(Bg)) {
         PlayerBar(
@@ -246,123 +269,41 @@ fun PlayerScreen(
                 modifier = Modifier.fillMaxSize(),
             )
 
-            // 2. Overlay Controls (Animated Visibility for Auto-Hide)
-            androidx.compose.animation.AnimatedVisibility(
-                visible = controlsVisible || locked || error != null,
-                enter = fadeIn(),
-                exit = fadeOut(),
-                modifier = Modifier.matchParentSize()
-            ) {
-                Box(Modifier.fillMaxSize()) {
-                    
-                    // --- TOP BAR: Mute, Settings, Fullscreen ---
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = 12.dp, end = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Mute/Unmute
-                        RoundPlayerButton(
-                            icon = if (muted) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-                            description = "Mute",
-                            size = 36.dp,
-                            iconSize = 18.dp,
-                            onClick = {
-                                muted = !muted
-                                player.volume = if (muted) 0f else 1f
-                                touchControls()
-                            }
-                        )
-
-                        // Settings Dropdown
-                        Box {
-                            RoundPlayerButton(
-                                icon = Icons.Default.Settings,
-                                description = "Settings",
-                                size = 36.dp,
-                                iconSize = 18.dp,
-                                onClick = { 
-                                    // Toggle dropdown logic handled by state
-                                    touchControls()
-                                    // We use a local state for the dropdown here, but 
-                                    // since it's inside the animation, we need to ensure it stays open.
-                                    // Using a state variable to control it.
-                                    // (Assuming we add a state variable `settingsMenuOpen` at the top of PlayerScreen)
-                                }
-                            )
-                            // NOTE: The actual DropdownMenu needs to be anchored here. 
-                            // Since we need to reference `settingsMenuOpen` from the parent scope, 
-                            // I'll move the dropdown logic to be directly inside this Box, but
-                            // for the sake of this snippet, we'll use a simple toggle state.
-                            // In a real implementation, you'd hoist the state.
-                        }
-
-                        // Fullscreen
-                        RoundPlayerButton(
-                            icon = Icons.Default.Fullscreen,
-                            description = "Fullscreen",
-                            size = 36.dp,
-                            iconSize = 18.dp,
-                            onClick = {
-                                enterFullscreen(activity)
-                                touchControls()
-                            }
-                        )
+            // 2. Overlay Controls — new unified layout
+            PlayerOverlay(
+                state = controlsState,
+                visible = controlsVisible || error != null,
+                onPlayPause = {
+                    if (playing) player.pause() else player.play()
+                },
+                onRewind = { seekBy(-settings.skip) },
+                onForward = { seekBy(settings.skip) },
+                onSeek = { newValue ->
+                    if (duration > 0) player.seekTo(newValue.toLong())
+                },
+                onServerSelect = { idx ->
+                    val picked = target.servers.getOrNull(idx) ?: return@PlayerOverlay
+                    currentServer = picked
+                },
+                onVolumeChange = { v ->
+                    playerVolume = v
+                    player.volume = v
+                    muted = v == 0f
+                },
+                onFullscreenToggle = {
+                    if (controlsState.isFullscreen) {
+                        // Exit fullscreen – restore portrait
+                        activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                        @Suppress("DEPRECATION")
+                        activity?.window?.decorView?.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_VISIBLE
+                    } else {
+                        enterFullscreen(activity)
                     }
+                },
+                onInteraction = ::touchControls,
+                modifier = Modifier.matchParentSize(),
+            )
 
-                    // --- CENTER CONTROLS: Skip Back, Play/Pause, Skip Forward ---
-                    Row(
-                        modifier = Modifier.align(Alignment.Center),
-                        horizontalArrangement = Arrangement.spacedBy(24.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Skip Back
-                        RoundPlayerButton(
-                            icon = Icons.Default.Replay10,
-                            description = "Rewind",
-                            size = 48.dp,
-                            iconSize = 24.dp,
-                            onClick = { seekBy(-settings.skip) }
-                        )
-
-                        // Play/Pause (Larger)
-                        RoundPlayerButton(
-                            icon = if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            description = if (playing) "Pause" else "Play",
-                            size = 64.dp,
-                            iconSize = 32.dp,
-                            onClick = {
-                                if (playing) player.pause() else player.play()
-                                touchControls()
-                            }
-                        )
-
-                        // Skip Forward
-                        RoundPlayerButton(
-                            icon = Icons.Default.Forward10,
-                            description = "Forward",
-                            size = 48.dp,
-                            iconSize = 24.dp,
-                            onClick = { seekBy(settings.skip) }
-                        )
-                    }
-
-                    // --- BOTTOM BAR: Seek Bar & Time ---
-                    OverlaySeekBar(
-                        position = position,
-                        duration = duration,
-                        onSeek = { newValue ->
-                            if (duration > 0) {
-                                player.seekTo(newValue.toLong())
-                                touchControls()
-                            }
-                        },
-                        modifier = Modifier.align(Alignment.BottomCenter)
-                    )
-                }
-            }
 
             // Seek-feedback bubble
             seekMessage?.let { message ->
@@ -425,60 +366,7 @@ private fun PlayerBar(
     }
 }
 
-/** Seek bar + time indicators overlaid at the bottom of the video. */
-@Composable
-private fun OverlaySeekBar(
-    position: Long,
-    duration: Long,
-    onSeek: (Float) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 16.dp),
-    ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Text(formatPlayerTime(position), color = Color.White, fontFamily = MonoFont, fontSize = 11.sp)
-            Slider(
-                value = if (duration > 0) position.toFloat().coerceIn(0f, duration.toFloat()) else 0f,
-                onValueChange = onSeek,
-                valueRange = 0f..duration.coerceAtLeast(1L).toFloat(),
-                modifier = Modifier.weight(1f),
-                colors = SliderDefaults.colors(
-                    thumbColor = Accent,
-                    activeTrackColor = Accent,
-                    inactiveTrackColor = Color.White.copy(alpha = 0.3f),
-                ),
-            )
-            Text(if (duration > 0) formatPlayerTime(duration) else "LIVE", color = Color.White, fontFamily = MonoFont, fontSize = 11.sp)
-        }
-    }
-}
 
-@Composable
-private fun RoundPlayerButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    description: String,
-    size: androidx.compose.ui.unit.Dp = 42.dp,
-    iconSize: androidx.compose.ui.unit.Dp = 20.dp,
-    onClick: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.45f))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, description, tint = Color.White, modifier = Modifier.size(iconSize))
-    }
-}
 
 /**
  * Related content section shown below the video player.
@@ -573,13 +461,6 @@ private fun EmptyContentState(icon: androidx.compose.ui.graphics.vector.ImageVec
     }
 }
 
-private fun formatPlayerTime(milliseconds: Long): String {
-    val seconds = (milliseconds / 1000).coerceAtLeast(0)
-    val hours = seconds / 3600
-    val minutes = (seconds % 3600) / 60
-    val remaining = seconds % 60
-    return if (hours > 0) "%d:%02d:%02d".format(hours, minutes, remaining) else "%02d:%02d".format(minutes, remaining)
-}
 
 private fun enterFullscreen(activity: Activity?) {
     activity ?: return

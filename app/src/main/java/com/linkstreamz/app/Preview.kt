@@ -33,6 +33,11 @@ fun LinkStreamzHomePreview() {
 )
 @Composable
 fun LinkStreamzPlayerPreview() {
+    val servers = listOf(
+        StreamServer("Server 1", "https://example.com/preview.m3u8", "HD"),
+        StreamServer("Server 2", "https://example.com/preview2.m3u8", "SD"),
+        StreamServer("Server 3", "https://example.com/preview3.m3u8"),
+    )
     val event = Event(
         id = "preview",
         sport = "Football",
@@ -42,17 +47,65 @@ fun LinkStreamzPlayerPreview() {
         at = "",
         home = Team("Columbus", "b1", "CC"),
         away = Team("Inter Miami", "b2", "IM"),
-        servers = listOf(StreamServer("Server 1", "https://example.com/preview.m3u8", "HD")),
+        servers = servers,
     )
     LinkStreamzTheme {
         PlayerScreen(
-            target = EventTarget(event, event.servers.first()),
+            target = EventTarget(event, servers.first()),
             settings = PlaybackSettings(autoplay = false, muted = true),
             onBack = {},
             previewMode = true,
         )
     }
 }
+
+// ── Isolated overlay preview (no real player needed) ──────────────────────────
+
+@Preview(
+    name = "Player Overlay Controls",
+    showBackground = true,
+    widthDp = 360,
+    heightDp = 203, // 16:9 of 360dp
+    backgroundColor = 0xFF000000,
+)
+@Composable
+fun PlayerOverlayPreview() {
+    val sampleServers = listOf(
+        StreamServer("Server 1", "https://example.com/s1.m3u8", "HD"),
+        StreamServer("Server 2", "https://example.com/s2.m3u8", "SD"),
+        StreamServer("Server 3", "https://example.com/s3.m3u8"),
+    )
+    val state = rememberPlayerControlsState(
+        isPlaying = true,
+        position = 2_430_000L,   // 40:30
+        duration  = 5_400_000L,  // 90:00
+        volume    = 0.8f,
+        isFullscreen = false,
+        servers   = sampleServers,
+        selectedServerIndex = 0,
+    )
+    LinkStreamzTheme {
+        androidx.compose.foundation.layout.Box(
+            Modifier
+                .fillMaxSize()
+                .background(androidx.compose.ui.graphics.Color.Black),
+        ) {
+            PlayerOverlay(
+                state = state,
+                visible = true,
+                onPlayPause = {},
+                onRewind = {},
+                onForward = {},
+                onSeek = {},
+                onServerSelect = {},
+                onVolumeChange = {},
+                onFullscreenToggle = {},
+                onInteraction = {},
+            )
+        }
+    }
+}
+
 
 @Preview(
     name = "Link Streamz Settings",
