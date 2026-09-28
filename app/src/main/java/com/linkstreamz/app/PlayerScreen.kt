@@ -278,144 +278,6 @@ fun PlayerScreen(
                 }
             }
 
-            // Lock indicator (always visible when locked)
-            if (locked) {
-                Row(Modifier.fillMaxWidth().padding(16.dp).align(Alignment.TopStart), horizontalArrangement = Arrangement.Start) {
-                    IconButton(
-                        onClick = { locked = false; touchControls() },
-                        modifier = Modifier.size(44.dp).background(Color.Black.copy(alpha = .68f), CircleShape),
-                    ) {
-                        Icon(Icons.Default.LockOpen, "Unlock", tint = Accent, modifier = Modifier.size(19.dp))
-                    }
-                }
-            }
-
-            // ── Overlaid controls (auto-hide) ─────────────────────────────
-            if (!locked && error == null) {
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = controlsVisible,
-                    enter = fadeIn(tween(200)),
-                    exit = fadeOut(tween(300)),
-                    modifier = Modifier.matchParentSize()
-                ) {
-                    Box(Modifier.fillMaxSize()) {
-                        // Gradient scrim
-                        Box(
-                            Modifier
-                                .matchParentSize()
-                                .background(
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            Color.Black.copy(alpha = 0.55f),
-                                            Color.Transparent,
-                                            Color.Transparent,
-                                            Color.Black.copy(alpha = 0.72f),
-                                        )
-                                    )
-                                )
-                        )
-
-                        // Top-right secondary controls
-                        Row(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RoundPlayerButton(
-                                icon = if (muted) Icons.Default.MusicOff else Icons.Default.MusicNote,
-                                description = "Mute",
-                            ) {
-                                muted = !muted
-                                player.volume = if (muted) 0f else 1f
-                                touchControls()
-                            }
-
-                            if (target.servers.size > 1) {
-                                Box {
-                                    RoundPlayerButton(Icons.Default.Settings, "Servers") {
-                                        gearDropdown = !gearDropdown
-                                        touchControls()
-                                    }
-                                    if (gearDropdown) {
-                                        Box(
-                                            Modifier
-                                                .align(Alignment.TopEnd)
-                                                .offset(y = 48.dp),
-                                        ) {
-                                            ServerDropdown(
-                                                target = target,
-                                                visible = gearDropdown,
-                                                onDismiss = { gearDropdown = false },
-                                                onPick = { picked ->
-                                                    currentServer = picked
-                                                    gearDropdown = false
-                                                },
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                            RoundPlayerButton(Icons.Default.Fullscreen, "Fullscreen") {
-                                enterFullscreen(activity)
-                                touchControls()
-                            }
-                        }
-
-                        // Play/Pause + Skip buttons
-                        Row(
-                            modifier = Modifier.align(Alignment.Center),
-                            horizontalArrangement = Arrangement.spacedBy(24.dp, Alignment.CenterHorizontally),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RoundPlayerButton(
-                                icon = Icons.Default.SkipPrevious,
-                                description = "Back",
-                                onClick = { seekBy(-settings.skip) },
-                                size = 56.dp,
-                                iconSize = 28.dp,
-                            )
-                            IconButton(
-                                onClick = {
-                                    if (playing) player.pause() else player.play()
-                                    touchControls()
-                                },
-                                modifier = Modifier
-                                    .size(56.dp)
-                                    .background(Brush.linearGradient(listOf(Accent2, Accent)), CircleShape),
-                            ) {
-                                Icon(
-                                    if (playing) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                    "Play",
-                                    tint = Color.Black,
-                                    modifier = Modifier.size(28.dp),
-                                )
-                            }
-                            RoundPlayerButton(
-                                icon = Icons.Default.SkipNext,
-                                description = "Forward",
-                                onClick = { seekBy(settings.skip) },
-                                size = 56.dp,
-                                iconSize = 28.dp,
-                            )
-                        }
-
-                        // Seek bar + time
-                        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
-                            OverlaySeekBar(
-                                position = position,
-                                duration = duration,
-                                onSeek = { value ->
-                                    if (duration > 0) player.seekTo(value.toLong())
-                                    touchControls()
-                                },
-                            )
-                        }
-                    }
-                }
-            }
         }
 
         // ── Related Content (below video) ─────────────────────────────────
@@ -490,9 +352,13 @@ private fun RoundPlayerButton(
     iconSize: androidx.compose.ui.unit.Dp = 20.dp,
     onClick: () -> Unit,
 ) {
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier.size(size).background(Color.Black.copy(alpha = 0.45f), CircleShape),
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.45f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
         Icon(icon, description, tint = Color.White, modifier = Modifier.size(iconSize))
     }
