@@ -1,9 +1,55 @@
+import java.util.Properties
+import java.io.FileInputStream
+import java.io.FileOutputStream
+
 plugins {
     id("com.android.application")
     kotlin("android")
     kotlin("plugin.serialization")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+val versionPropsFile = file("version.properties")
+val versionProps = Properties()
+if (versionPropsFile.exists()) {
+    versionProps.load(FileInputStream(versionPropsFile))
+} else {
+    versionProps["MAJOR"] = "1"
+    versionProps["MINOR"] = "0"
+    versionProps["PATCH"] = "8"
+    versionProps["BUILD"] = "0"
+}
+
+val isBuilding = gradle.startParameter.taskNames.any { it.contains("assemble") || it.contains("bundle") }
+if (isBuilding) {
+    var major = versionProps["MAJOR"].toString().toInt()
+    var minor = versionProps["MINOR"].toString().toInt()
+    var patch = versionProps["PATCH"].toString().toInt()
+    var build = versionProps["BUILD"].toString().toInt()
+
+    patch++
+    if (patch > 9) {
+        patch = 0
+        minor++
+    }
+    // Note: Assuming major doesn't auto-increment on minor > 9 unless requested, but we can do it:
+    if (minor > 9) {
+        minor = 0
+        major++
+    }
+
+    build++
+
+    versionProps["MAJOR"] = major.toString()
+    versionProps["MINOR"] = minor.toString()
+    versionProps["PATCH"] = patch.toString()
+    versionProps["BUILD"] = build.toString()
+
+    versionProps.store(FileOutputStream(versionPropsFile), "Auto-incremented per build")
+}
+
+val vName = "${versionProps["MAJOR"]}.${versionProps["MINOR"]}.${versionProps["PATCH"]}"
+val vCode = versionProps["BUILD"].toString().toInt()
 
 android {
     namespace = "com.linkstreamz.app"
@@ -13,8 +59,8 @@ android {
         applicationId = "com.linkstreamz.app"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = vCode
+        versionName = vName
     }
 
     buildFeatures {
