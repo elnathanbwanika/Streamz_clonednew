@@ -10,55 +10,19 @@ import android.util.Rational
 import android.view.View
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.MusicOff
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.PictureInPictureAlt
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material3.Button
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Slider
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -70,6 +34,7 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -124,14 +89,15 @@ data class CustomTarget(
 fun PlayerScreen(
     target: PlayerTarget,
     settings: PlaybackSettings,
+    repository: EventsRepository? = null,
     onBack: () -> Unit,
+    onTarget: (PlayerTarget) -> Unit = {},
     previewMode: Boolean = false,
 ) {
     val context = LocalContext.current
     val activity = context.findActivity()
     val server = target.selectedServer ?: target.servers.firstOrNull()
     var currentServer by remember(target, server) { mutableStateOf(server) }
-    var controlsVisible by remember { mutableStateOf(true) }
     var locked by remember { mutableStateOf(false) }
     var playing by remember { mutableStateOf(false) }
     var muted by remember(settings.muted) { mutableStateOf(settings.muted) }
@@ -177,9 +143,7 @@ fun PlayerScreen(
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 playing = isPlaying
-                if (!isPlaying && !player.playWhenReady) controlsVisible = true
             }
-
             override fun onPlayerError(playbackException: PlaybackException) {
                 error = if (target.servers.size > 1) "This server isn't responding. Try again or switch to another server." else "Check your connection, then try again."
             }
@@ -201,12 +165,6 @@ fun PlayerScreen(
             delay(250)
         }
     }
-    LaunchedEffect(playing, controlsVisible, locked, settings.hide) {
-        if (playing && controlsVisible && !locked) {
-            delay(settings.hide * 1000L)
-            controlsVisible = false
-        }
-    }
     LaunchedEffect(playing, settings.awake) {
         if (playing && settings.awake && !wakeLock.isHeld) wakeLock.acquire(settings.hide * 60_000L)
         else if (wakeLock.isHeld) wakeLock.release()
@@ -219,15 +177,11 @@ fun PlayerScreen(
     Column(Modifier.fillMaxSize().background(Bg)) {
         PlayerBar(
             target = target,
-            servers = target.servers,
-            currentServer = currentServer,
-            menuOpen = serverMenu,
             onBack = onBack,
-            onServers = { serverMenu = !serverMenu },
-            onSelectServer = { currentServer = it; serverMenu = false },
         )
+        
         Box(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp).clip(RoundedCornerShape(14.dp))
+            Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black)
                 .pointerInput(locked, duration, settings.skip) {
                     detectTapGestures(
                         onDoubleTap = { offset ->
@@ -236,14 +190,12 @@ fun PlayerScreen(
                             val right = size.width * .6f
                             if (offset.x < left) seekBy(-settings.skip)
                             else if (offset.x > right) seekBy(settings.skip)
-                            else {
-                                if (player.isPlaying) player.pause() else player.play()
-                                controlsVisible = true
-                            }
                         },
                         onTap = {
-                            if (!locked) controlsVisible = !controlsVisible
-                        },
+                            if (!locked) {
+                                if (player.isPlaying) player.pause() else player.play()
+                            }
+                        }
                     )
                 },
         ) {
@@ -257,39 +209,17 @@ fun PlayerScreen(
                     }
                 },
                 update = { it.player = exoPlayer },
-                modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(Color.Black),
+                modifier = Modifier.fillMaxSize(),
             )
-            if (controlsVisible && !locked) {
-                PlayerOverlay(
-                    target = target,
-                    playing = playing,
-                    muted = muted,
-                    position = position,
-                    duration = duration,
-                    onPlayPause = { if (playing) player.pause() else player.play(); controlsVisible = true },
-                    onBack = { seekBy(-settings.skip) },
-                    onForward = { seekBy(settings.skip) },
-                    onMute = { muted = !muted; player.volume = if (muted) 0f else 1f },
-                    onFullscreen = { enterFullscreen(activity) },
-                    onPip = {
-                        if (Build.VERSION.SDK_INT >= 26) activity?.enterPictureInPictureMode(
-                            PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build(),
-                        )
-                    },
-                    onLock = { locked = true; controlsVisible = false },
-                    onSeek = { value -> if (duration > 0) player.seekTo(value.toLong()) },
-                )
-            }
+            
             if (locked) {
                 Row(Modifier.fillMaxWidth().padding(10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                    IconButton(onClick = { locked = false; controlsVisible = true }, modifier = Modifier.size(44.dp).background(Color.Black.copy(alpha = .68f), CircleShape)) {
-                        Icon(Icons.Default.LockOpen, "Unlock", tint = Accent, modifier = Modifier.size(19.dp))
-                    }
-                    IconButton(onClick = { locked = false; controlsVisible = true }, modifier = Modifier.size(44.dp).background(Color.Black.copy(alpha = .68f), CircleShape)) {
+                    IconButton(onClick = { locked = false }, modifier = Modifier.size(44.dp).background(Color.Black.copy(alpha = .68f), CircleShape)) {
                         Icon(Icons.Default.LockOpen, "Unlock", tint = Accent, modifier = Modifier.size(19.dp))
                     }
                 }
             }
+            
             seekMessage?.let { message ->
                 Box(Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = .65f), RoundedCornerShape(999.dp)).padding(horizontal = 15.dp, vertical = 9.dp)) {
                     Text(message, color = Text, fontFamily = MonoFont, fontSize = 12.sp)
@@ -307,54 +237,54 @@ fun PlayerScreen(
                 }
             }
         }
-        RelatedContent(target, onTarget = { /* related content is supplied by Home on the next selection */ })
+        
+        // Essential Controls Below Video
+        ControlBar(
+            target = target,
+            playing = playing,
+            muted = muted,
+            position = position,
+            duration = duration,
+            onPlayPause = { if (playing) player.pause() else player.play() },
+            onBack = { seekBy(-settings.skip) },
+            onForward = { seekBy(settings.skip) },
+            onMute = { muted = !muted; player.volume = if (muted) 0f else 1f },
+            onFullscreen = { enterFullscreen(activity) },
+            onServers = { serverMenu = true },
+            onSeek = { value -> if (duration > 0) player.seekTo(value.toLong()) },
+        )
+        
+        // Related Content Tabs
+        RelatedContent(repository, target, onTarget)
+    }
+    
+    if (serverMenu) {
+        ServerChooserSheet(
+            target = target,
+            onDismiss = { serverMenu = false },
+            onPick = { currentServer = it; serverMenu = false }
+        )
     }
 }
 
 @Composable
 private fun PlayerBar(
     target: PlayerTarget,
-    servers: List<StreamServer>,
-    currentServer: StreamServer?,
-    menuOpen: Boolean,
     onBack: () -> Unit,
-    onServers: () -> Unit,
-    onSelectServer: (StreamServer) -> Unit,
 ) {
     Row(Modifier.fillMaxWidth().padding(14.dp, 14.dp, 16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         IconButton(onClick = onBack, modifier = Modifier.size(38.dp).background(Color.White.copy(alpha = .04f), RoundedCornerShape(12.dp))) {
             Icon(Icons.Default.ArrowBack, "Back", tint = Text, modifier = Modifier.size(18.dp))
         }
         Column(Modifier.weight(1f)) {
-            Text(target.title.uppercase(), color = Text, fontFamily = DisplayFont, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(target.subtitle.uppercase(), color = Muted, fontFamily = MonoFont, fontSize = 10.sp, letterSpacing = .5.sp, modifier = Modifier.padding(top = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        if (servers.size > 1) {
-            Box {
-                IconButton(onClick = onServers, modifier = Modifier.size(38.dp).background(Color.White.copy(alpha = .04f), RoundedCornerShape(12.dp))) {
-                    Icon(Icons.Default.Settings, "Servers", tint = Text, modifier = Modifier.size(18.dp))
-                }
-                DropdownMenu(
-                    expanded = menuOpen,
-                    onDismissRequest = onServers,
-                    offset = DpOffset(0.dp, 10.dp),
-                    modifier = Modifier.width(220.dp).background(Brush.verticalGradient(listOf(Color(0xFF1A1A1A), Color(0xFF111111)))),
-                ) {
-                    Text("CHOOSE SERVER", color = Muted, fontFamily = MonoFont, fontSize = 9.5.sp, modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp))
-                    servers.forEachIndexed { index, value ->
-                        DropdownMenuItem(
-                            text = { Text("${index + 1}. ${value.name}", color = if (value == currentServer) Accent else Text, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold) },
-                            onClick = { onSelectServer(value) },
-                        )
-                    }
-                }
-            }
+            Text(target.title.uppercase(), color = Text, fontFamily = DisplayFont, fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(target.subtitle.uppercase(), color = Muted, fontFamily = MonoFont, fontSize = 11.sp, letterSpacing = .5.sp, modifier = Modifier.padding(top = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
 @Composable
-private fun PlayerOverlay(
+private fun ControlBar(
     target: PlayerTarget,
     playing: Boolean,
     muted: Boolean,
@@ -365,74 +295,166 @@ private fun PlayerOverlay(
     onForward: () -> Unit,
     onMute: () -> Unit,
     onFullscreen: () -> Unit,
-    onPip: () -> Unit,
-    onLock: () -> Unit,
+    onServers: () -> Unit,
     onSeek: (Float) -> Unit,
 ) {
-    Column(
-        modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(14.dp)).background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .7f), Color.Transparent, Color.Black.copy(alpha = .82f)))),
-        verticalArrangement = Arrangement.SpaceBetween,
-    ) {
-        Row(Modifier.fillMaxWidth().padding(12.dp, 12.dp, 14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                when (target) {
-                    is EventTarget -> if (effectiveStatus(target.event.startMs, target.event.status) == "live") "● LIVE" else "REPLAY"
-                    is HighlightTarget -> "HIGHLIGHT"
-                    is CustomTarget -> "● LIVE"
-                },
-                color = Color.Black,
-                fontFamily = MonoFont,
-                fontSize = 10.5.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.background(Brush.linearGradient(listOf(Accent2, Accent)), RoundedCornerShape(8.dp)).padding(horizontal = 11.dp, vertical = 5.dp),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                RoundPlayerButton(Icons.Default.Lock, "Lock", onLock)
-                RoundPlayerButton(Icons.Default.PictureInPictureAlt, "PiP", onPip)
-            }
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-            RoundPlayerButton(Icons.Default.SkipPrevious, "Back", onBack, 42.dp)
-            Spacer(Modifier.width(16.dp))
-            IconButton(onClick = onPlayPause, modifier = Modifier.size(64.dp).background(Brush.linearGradient(listOf(Accent2, Accent)), CircleShape)) {
-                Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, "Play", tint = Color.Black, modifier = Modifier.size(28.dp))
-            }
-            Spacer(Modifier.width(16.dp))
-            RoundPlayerButton(Icons.Default.SkipNext, "Forward", onForward, 42.dp)
-        }
-        Row(Modifier.fillMaxWidth().padding(12.dp, 12.dp, 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(formatPlayerTime(position), color = Color(0xFFE8E8E8), fontFamily = MonoFont, fontSize = 11.5.sp)
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(formatPlayerTime(position), color = Text, fontFamily = MonoFont, fontSize = 11.5.sp)
             Slider(
                 value = if (duration > 0) position.toFloat().coerceIn(0f, duration.toFloat()) else 0f,
                 onValueChange = onSeek,
                 valueRange = 0f..duration.coerceAtLeast(1L).toFloat(),
                 modifier = Modifier.weight(1f),
             )
-            Text(if (duration > 0) formatPlayerTime(duration) else "LIVE", color = Color(0xFFE8E8E8), fontFamily = MonoFont, fontSize = 11.5.sp)
-            RoundPlayerButton(if (muted) Icons.Default.MusicOff else Icons.Default.MusicNote, "Mute", onMute)
-            RoundPlayerButton(Icons.Default.Fullscreen, "Fullscreen", onFullscreen)
+            Text(if (duration > 0) formatPlayerTime(duration) else "LIVE", color = Text, fontFamily = MonoFont, fontSize = 11.5.sp)
+        }
+        
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onPlayPause, modifier = Modifier.size(56.dp).background(Brush.linearGradient(listOf(Accent2, Accent)), CircleShape)) {
+                    Icon(if (playing) Icons.Default.Pause else Icons.Default.PlayArrow, "Play", tint = Color.Black, modifier = Modifier.size(26.dp))
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    RoundPlayerButton(Icons.Default.SkipPrevious, "Back", onBack)
+                    RoundPlayerButton(Icons.Default.SkipNext, "Forward", onForward)
+                }
+            }
+            
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                RoundPlayerButton(if (muted) Icons.Default.MusicOff else Icons.Default.MusicNote, "Mute", onMute)
+                if (target.servers.size > 1) {
+                    RoundPlayerButton(Icons.Default.Settings, "Servers", onServers)
+                }
+                RoundPlayerButton(Icons.Default.Fullscreen, "Fullscreen", onFullscreen)
+            }
         }
     }
 }
 
 @Composable
-private fun RoundPlayerButton(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, onClick: () -> Unit, size: androidx.compose.ui.unit.Dp = 42.dp) {
-    IconButton(onClick = onClick, modifier = Modifier.size(size)) {
-        Icon(icon, description, tint = Color.White, modifier = Modifier.size(if (size == 42.dp) 24.dp else 24.dp))
+private fun RoundPlayerButton(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, onClick: () -> Unit) {
+    IconButton(onClick = onClick, modifier = Modifier.size(42.dp).background(Color.White.copy(alpha = .08f), CircleShape)) {
+        Icon(icon, description, tint = Color.White, modifier = Modifier.size(20.dp))
     }
 }
 
 @Composable
-private fun RelatedContent(target: PlayerTarget, onTarget: (PlayerTarget) -> Unit) {
-    val label = when (target) {
-        is HighlightTarget -> "MORE HIGHLIGHTS"
-        else -> "ALSO LIVE NOW"
-    }
-    Column(Modifier.fillMaxSize().padding(bottom = 28.dp)) {
-        Row(Modifier.fillMaxWidth().padding(20.dp, 20.dp, 20.dp, 12.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(label, color = Muted, fontFamily = MonoFont, fontSize = 11.sp, letterSpacing = 1.sp)
+private fun RelatedContent(repository: EventsRepository?, target: PlayerTarget, onTarget: (PlayerTarget) -> Unit) {
+    var selectedTab by remember { mutableStateOf(0) }
+    val tabs = listOf("Also Live Now", "Highlights")
+    
+    val state by (repository?.state ?: kotlinx.coroutines.flow.MutableStateFlow(FeedState.Loading)).collectAsStateWithLifecycle()
+    
+    Column(Modifier.fillMaxSize()) {
+        TabRow(
+            selectedTabIndex = selectedTab,
+            containerColor = Color.Transparent,
+            contentColor = Accent,
+            divider = { HorizontalDivider(color = Line) }
+        ) {
+            tabs.forEachIndexed { index, title ->
+                Tab(
+                    selected = selectedTab == index,
+                    onClick = { selectedTab = index },
+                    text = { Text(title, fontFamily = DisplayFont, fontWeight = FontWeight.Bold, color = if (selectedTab == index) Accent else Muted) }
+                )
+            }
         }
-        Text("Choose another stream from Home to continue watching.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp))
+        
+        when (state) {
+            is FeedState.Loading -> {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Accent)
+                }
+            }
+            is FeedState.Error -> {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("Failed to load content", color = Muted)
+                }
+            }
+            is FeedState.Ready -> {
+                val feed = (state as FeedState.Ready).feed
+                if (selectedTab == 0) {
+                    val liveEvents = feed.events.filter { effectiveStatus(it.startMs, it.status) == "live" && (target !is EventTarget || it.id != target.event.id) }
+                    if (liveEvents.isEmpty()) {
+                        EmptyContentState(Icons.Default.SportsBasketball, "No other live games right now")
+                    } else {
+                        LazyRow(
+                            contentPadding = PaddingValues(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(liveEvents) { event ->
+                                EventCardSmall(event) {
+                                    onTarget(EventTarget(event))
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    val highlights = feed.highlights.filter { target !is HighlightTarget || it.id != target.highlight.id }
+                    if (highlights.isEmpty()) {
+                        EmptyContentState(Icons.Default.Movie, "No highlights available")
+                    } else {
+                        LazyRow(
+                            contentPadding = PaddingValues(16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(highlights) { highlight ->
+                                HighlightCardSmall(highlight) {
+                                    onTarget(HighlightTarget(highlight))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyContentState(icon: androidx.compose.ui.graphics.vector.ImageVector, message: String) {
+    Column(Modifier.fillMaxWidth().padding(40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(icon, null, tint = Muted.copy(alpha = 0.5f), modifier = Modifier.size(48.dp))
+        Spacer(Modifier.height(16.dp))
+        Text(message, color = Muted, fontSize = 14.sp)
+    }
+}
+
+@Composable
+private fun EventCardSmall(event: Event, onClick: () -> Unit) {
+    Column(
+        Modifier.width(200.dp).background(Color(0xFF151515), RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick).padding(12.dp)
+    ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("● LIVE", color = Accent, fontFamily = MonoFont, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text(event.league, color = Muted, fontFamily = MonoFont, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(event.home.name, color = Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(event.away.name, color = Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun HighlightCardSmall(highlight: Highlight, onClick: () -> Unit) {
+    Column(
+        Modifier.width(200.dp).background(Color(0xFF151515), RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick).padding(12.dp)
+    ) {
+        Box(Modifier.fillMaxWidth().aspectRatio(16f/9f).background(Color(0xFF222222), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.PlayArrow, null, tint = Color.White.copy(alpha = 0.5f))
+            Text(highlight.duration, color = Color.White, fontFamily = MonoFont, fontSize = 10.sp, modifier = Modifier.align(Alignment.BottomEnd).padding(6.dp).background(Color.Black.copy(alpha=0.7f), RoundedCornerShape(4.dp)).padding(horizontal=4.dp))
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(highlight.title, color = Text, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 

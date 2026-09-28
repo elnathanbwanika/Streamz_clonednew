@@ -143,7 +143,7 @@ fun HomeScreen(
     }
 
     dialogTarget?.let { target ->
-        ServerChooserDialog(
+        ServerChooserSheet(
             target = target,
             onDismiss = { dialogTarget = null },
             onPick = { server -> dialogTarget = null; onPlayer(target.withServer(server)) },
@@ -238,36 +238,3 @@ private fun EmptyState(message: String) {
     }
 }
 
-@Composable
-private fun ServerChooserDialog(target: PlayerTarget, onDismiss: () -> Unit, onPick: (StreamServer) -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = Color(0xFF151515),
-        title = {
-            Column {
-                Text("CHOOSE A SERVER", color = Text, fontFamily = DisplayFont, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
-                Text(target.subtitle, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
-            }
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                target.servers.forEachIndexed { index, server ->
-                    Row(
-                        Modifier.fillMaxWidth().background(Color(0xFF0A0A0A), RoundedCornerShape(14.dp)).clickable { onPick(server) }.padding(13.dp, 13.dp, 15.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Box(Modifier.size(32.dp).background(AccentSoft, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-                            Text("${index + 1}", color = Accent, fontFamily = MonoFont, fontWeight = FontWeight.Bold)
-                        }
-                        Text(server.name, color = Text, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        server.quality?.let { Text(it, color = Accent, fontFamily = MonoFont, fontSize = 10.5.sp, modifier = Modifier.background(AccentSoft, RoundedCornerShape(8.dp)).padding(4.dp, 4.dp)) }
-                        Icon(Icons.Default.ChevronRight, null, tint = Muted, modifier = Modifier.size(16.dp))
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Close", color = Accent) } },
-    )
-}

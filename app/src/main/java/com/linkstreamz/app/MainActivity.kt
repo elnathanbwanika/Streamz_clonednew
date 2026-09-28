@@ -41,7 +41,21 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("player") {
                         target?.let {
-                            PlayerScreen(target = it, settings = settings, onBack = { navController.popBackStack() })
+                            PlayerScreen(
+                                target = it,
+                                settings = settings,
+                                repository = repository,
+                                onBack = { navController.popBackStack() },
+                                onTarget = { newTarget ->
+                                    if (newTarget.servers.isEmpty()) {
+                                        android.widget.Toast.makeText(applicationContext, "No streams available", android.widget.Toast.LENGTH_SHORT).show()
+                                    } else if (newTarget.servers.size == 1) {
+                                        target = newTarget.withServer(newTarget.servers.first())
+                                    } else {
+                                        target = newTarget // Will trigger server chooser in player or we can just navigate
+                                    }
+                                }
+                            )
                         }
                     }
                     composable("settings") {
