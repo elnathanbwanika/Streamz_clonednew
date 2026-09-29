@@ -152,6 +152,7 @@ fun SettingsScreen(
         onSetSkipLength      = viewModel::setSkipLength,
         onSetHideControls    = viewModel::setHideControlsSeconds,
         onToggleKeepScreenOn = viewModel::setKeepScreenOn,
+        onSetStreamDelay     = viewModel::setStreamDelaySeconds,
         onRefresh            = onRefresh,
         onReset              = viewModel::resetSettings,
         onCustomStream       = onCustomStream,
@@ -174,6 +175,7 @@ fun SettingsScreenContent(
     onSetSkipLength: (Int) -> Unit,
     onSetHideControls: (Int) -> Unit,
     onToggleKeepScreenOn: (Boolean) -> Unit,
+    onSetStreamDelay: (Int) -> Unit,
     onRefresh: suspend () -> Unit,
     onReset: () -> Unit,
     onCustomStream: (String) -> Unit,
@@ -269,6 +271,21 @@ fun SettingsScreenContent(
                             .coerceAtLeast(0),
                         onOptionSelected         = { onSetSkipLength(skipOptions[it]) },
                         contentDescriptionPrefix = "Skip length",
+                    )
+                    SettingDivider()
+                    SettingRow(
+                        icon     = Icons.Default.Timer,
+                        title    = "Stream delay",
+                        subtitle = "Stay behind live for smoother playback",
+                    )
+                    val delayOptions = listOf(0, 10, 20, 30)
+                    val delayLabels = listOf("Off", "10s", "20s", "30s")
+                    BrandSegmentedControl(
+                        options                  = delayLabels,
+                        selectedIndex            = delayOptions.indexOf(uiState.streamDelaySeconds)
+                            .coerceAtLeast(0),
+                        onOptionSelected         = { onSetStreamDelay(delayOptions[it]) },
+                        contentDescriptionPrefix = "Stream delay",
                     )
                 }
             }
@@ -982,6 +999,7 @@ fun PreviewSettingsPlaybackOpen() {
             onSetSkipLength        = {},
             onSetHideControls      = {},
             onToggleKeepScreenOn   = {},
+            onSetStreamDelay       = {},
             onRefresh              = {},
             onReset                = {},
             onCustomStream         = {},
@@ -1007,6 +1025,7 @@ fun PreviewSettingsAllCollapsed() {
             onSetSkipLength        = {},
             onSetHideControls      = {},
             onToggleKeepScreenOn   = {},
+            onSetStreamDelay       = {},
             onRefresh              = {},
             onReset                = {},
             onCustomStream         = {},

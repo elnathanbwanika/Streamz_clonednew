@@ -6,6 +6,10 @@ import android.content.pm.ActivityInfo
 import android.os.PowerManager
 import android.view.View
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.ui.draw.drawBehind
@@ -33,18 +37,32 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.C
-import androidx.media3.common.MediaItem
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
-import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.hls.HlsMediaSource
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
+import okhttp3.ConnectionPool
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
+
+// ── Shared OkHttp client (one per process, connection pooling) ─────────────────
+private val sharedOkHttpClient: OkHttpClient by lazy {
+    OkHttpClient.Builder()
+        .connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES))
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
+        .followRedirects(true)
+        .retryOnConnectionFailure(true)
+        .build()
+}
+
+// ── Sort servers for automatic fallback ───────────────────────────────────────
+// index 0 is already marked "recommended" in the UI; keep that order.
+// Within the remaining servers preserve original order.
+fun sortServersForFallback(servers: List<StreamServer>): List<StreamServer> = servers
 
 sealed interface PlayerTarget {
     val servers: List<StreamServer>
@@ -98,12 +116,20 @@ fun PlayerScreen(
 ) {
     val context = LocalContext.current
     val activity = context.findActivity()
+    val lifecycleOwner = LocalLifecycleOwner.current
+
     val server = target.selectedServer ?: target.servers.firstOrNull()
     var currentServer by remember(target, server) { mutableStateOf(server) }
+
+    // Fallback tracking — ordered list, index into it, whether user picked manually
+    val fallbackOrder = remember(target.servers) { sortServersForFallback(target.servers) }
+    var fallbackIndex by remember { mutableIntStateOf(0) }
+    var userPickedManually by remember { mutableStateOf(false) }
+    var allServersFailed by remember { mutableStateOf(false) }
+
     var locked by remember { mutableStateOf(false) }
     var playing by remember { mutableStateOf(false) }
     var muted by remember(settings.startMuted) { mutableStateOf(settings.startMuted) }
-    // Volume tracks player.volume [0f..1f]; starts at 0 if muted, else 1.
     var playerVolume by remember(settings.startMuted) { mutableFloatStateOf(if (settings.startMuted) 0f else 1f) }
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(C.TIME_UNSET) }
@@ -115,7 +141,95 @@ fun PlayerScreen(
     var controlsVisible by remember { mutableStateOf(true) }
     var lastInteractionMs by remember { mutableStateOf(System.currentTimeMillis()) }
 
-    // Overlay controls state (hoisted; shared between PlayerOverlay and player callbacks)
+    // ── PlayerEngine (owns ExoPlayer + proxy) ────────────────────────────────
+    val engine = remember {
+        PlayerEngine(
+            context = context,
+            client = sharedOkHttpClient,
+            globalDelaySeconds = settings.streamDelaySeconds,
+        ) {
+            // onFallback — runs on main thread via engine's scope
+        }
+    }
+
+    // Collect engine syncing state
+    val isSyncing by engine.isSyncing.collectAsStateWithLifecycle()
+
+    // ── Fallback logic ───────────────────────────────────────────────────────
+    fun triggerFallback() {
+        if (allServersFailed) return
+        if (userPickedManually) {
+            // Even manually-picked server failed — still try to fallback but allow it
+        }
+        val nextIndex = fallbackOrder.indexOfFirst { s ->
+            s != currentServer && fallbackOrder.indexOf(s) > fallbackOrder.indexOf(currentServer)
+        }
+        if (nextIndex == -1 || fallbackIndex >= fallbackOrder.size - 1) {
+            allServersFailed = true
+            error = "All servers failed. Please try again later."
+            return
+        }
+        fallbackIndex++
+        val next = fallbackOrder.getOrNull(fallbackIndex) ?: run {
+            allServersFailed = true
+            error = "All servers failed. Please try again later."
+            return
+        }
+        // Show toast (redacted — only show server name/index, never URL)
+        val label = next.name.ifBlank { "Server ${fallbackIndex + 1}" }
+        Toast.makeText(context, "Switched to $label", Toast.LENGTH_SHORT).show()
+        currentServer = next
+        userPickedManually = false
+    }
+
+    // Re-create engine with updated fallback when currentServer changes
+    // (engine is remembered once; we wire the callback via a ref)
+    val fallbackRef = rememberUpdatedState(::triggerFallback)
+
+    // ── Wire PlayerEngine's onFallback via a side-channel ───────────────────
+    // Because we can't pass a lambda into `remember { }` that references
+    // mutable state, we install the listener post-creation.
+    val engineFallbackListener = remember {
+        object : androidx.media3.common.Player.Listener {
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                fallbackRef.value.invoke()
+            }
+        }
+    }
+
+    DisposableEffect(engine) {
+        engine.player.addListener(engineFallbackListener)
+        onDispose {
+            engine.player.removeListener(engineFallbackListener)
+            engine.release()
+        }
+    }
+
+    // ── Background pause ─────────────────────────────────────────────────────
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE  -> engine.pause()
+                Lifecycle.Event.ON_RESUME -> if (playing) engine.resume()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+
+    // ── WakeLock ─────────────────────────────────────────────────────────────
+    val wakeLock = remember {
+        (context.getSystemService(Context.POWER_SERVICE) as PowerManager).newWakeLock(
+            PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+            "LinkStreamz:Playback",
+        )
+    }
+    DisposableEffect(Unit) {
+        onDispose { if (wakeLock.isHeld) wakeLock.release() }
+    }
+
+    // ── Overlay controls state ───────────────────────────────────────────────
     val controlsState = rememberPlayerControlsState(
         isPlaying = playing,
         position = position,
@@ -125,27 +239,18 @@ fun PlayerScreen(
         selectedServerIndex = target.servers.indexOf(server).coerceAtLeast(0),
     )
 
-    val player = remember { ExoPlayer.Builder(context).build() }
-    val wakeLock = remember {
-        (context.getSystemService(Context.POWER_SERVICE) as PowerManager).newWakeLock(
-            PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-            "LinkStreamz:Playback",
-        )
-    }
-
-    /** Resets the auto-hide timer — call whenever user interacts with the player. */
     fun touchControls() {
         controlsVisible = true
         lastInteractionMs = System.currentTimeMillis()
     }
 
-    fun seekBy(deltaSeconds: Int, side: String? = null) {
+    fun seekBy(deltaSeconds: Int) {
         val seekable = duration != C.TIME_UNSET && duration > 0
         if (!seekable) {
             Toast.makeText(context, "Seeking isn't available on a live stream", Toast.LENGTH_SHORT).show()
             return
         }
-        player.seekTo((player.currentPosition + deltaSeconds * 1000L).coerceIn(0L, duration))
+        engine.player.seekTo((engine.player.currentPosition + deltaSeconds * 1000L).coerceIn(0L, duration))
         seekMessage = if (deltaSeconds < 0) "−${-deltaSeconds}s" else "+${deltaSeconds}s"
         touchControls()
     }
@@ -153,57 +258,47 @@ fun PlayerScreen(
     fun loadStream(stream: StreamServer?) {
         if (stream == null) return
         error = null
-        val mediaItem = MediaItem.fromUri(stream.url)
-        val source = if (stream.url.substringBefore('?').endsWith(".m3u8", ignoreCase = true)) {
-            HlsMediaSource.Factory(DefaultHttpDataSource.Factory()).createMediaSource(mediaItem)
-        } else {
-            ProgressiveMediaSource.Factory(DefaultDataSource.Factory(context)).createMediaSource(mediaItem)
-        }
-        player.setMediaSource(source)
-        player.prepare()
-        player.volume = if (muted) 0f else 1f
-        player.playWhenReady = settings.autoplay
+        allServersFailed = false
+        val isCustom = target is CustomTarget
+        engine.loadStream(stream, isCustom)
+        engine.player.volume = if (muted) 0f else 1f
+        engine.player.playWhenReady = settings.autoplay
     }
 
-    DisposableEffect(player) {
-        val listener = object : Player.Listener {
+    // ── Player event listener ────────────────────────────────────────────────
+    DisposableEffect(engine.player) {
+        val listener = object : androidx.media3.common.Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 playing = isPlaying
             }
-            override fun onPlayerError(playbackException: PlaybackException) {
-                error = if (target.servers.size > 1) "This server isn't responding. Try again or switch to another server." else "Check your connection, then try again."
-            }
         }
-        player.addListener(listener)
-        onDispose {
-            player.removeListener(listener)
-            player.release()
-        }
+        engine.player.addListener(listener)
+        onDispose { engine.player.removeListener(listener) }
     }
 
+    // ── Effects ──────────────────────────────────────────────────────────────
     LaunchedEffect(currentServer?.url, previewMode) {
         if (!previewMode) loadStream(currentServer)
     }
+
     LaunchedEffect(Unit) {
         while (true) {
-            position = player.currentPosition.coerceAtLeast(0L)
-            duration = player.duration
+            position = engine.player.currentPosition.coerceAtLeast(0L)
+            duration = engine.player.duration
+            engine.checkStall()
             delay(250)
         }
     }
+
     LaunchedEffect(playing, settings.keepScreenOn) {
-        if (playing && settings.keepScreenOn && !wakeLock.isHeld) wakeLock.acquire(settings.hideControlsSeconds * 60_000L)
-        else if (wakeLock.isHeld) wakeLock.release()
-    }
-    DisposableEffect(Unit) {
-        onDispose { if (wakeLock.isHeld) wakeLock.release() }
+        if (playing && settings.keepScreenOn && !wakeLock.isHeld)
+            wakeLock.acquire(settings.hideControlsSeconds * 60_000L)
+        else if (!playing && wakeLock.isHeld)
+            wakeLock.release()
     }
 
-    // Auto-hide timer: hide controls after CONTROLS_HIDE_DELAY_MS of inactivity,
-    // but never while a dropdown menu is open.  Once all menus close the full
-    // delay restarts from that moment so the overlay stays visible long enough.
+    // Auto-hide timer
     LaunchedEffect(lastInteractionMs, controlsState.openMenu) {
-        // While a menu is open keep the overlay alive but don't start the countdown.
         while (controlsState.openMenu != OpenMenu.None) {
             delay(500)
         }
@@ -211,11 +306,11 @@ fun PlayerScreen(
         controlsVisible = false
     }
 
-    // Keep the hoisted controls state mirror in sync with reactive player state
-    LaunchedEffect(playing)       { controlsState.isPlaying = playing }
-    LaunchedEffect(position)      { controlsState.position  = position }
-    LaunchedEffect(duration)      { controlsState.duration  = duration }
-    LaunchedEffect(playerVolume)  { controlsState.volume    = playerVolume }
+    // Keep controls state mirror in sync
+    LaunchedEffect(playing)      { controlsState.isPlaying = playing }
+    LaunchedEffect(position)     { controlsState.position  = position }
+    LaunchedEffect(duration)     { controlsState.duration  = duration }
+    LaunchedEffect(playerVolume) { controlsState.volume    = playerVolume }
     LaunchedEffect(target.servers) {
         controlsState.servers = target.servers
         controlsState.selectedServerIndex =
@@ -226,7 +321,7 @@ fun PlayerScreen(
             target.servers.indexOf(currentServer).coerceAtLeast(0)
     }
 
-    val exoPlayer = player
+    val exoPlayer = engine.player
     Column(
         Modifier
             .fillMaxSize()
@@ -320,30 +415,65 @@ fun PlayerScreen(
                     )
             )
 
-            // 2. Overlay Controls — new unified layout
+            // 1.7. Syncing / buffering overlay — fades out when playback starts
+            androidx.compose.animation.AnimatedVisibility(
+                visible = isSyncing && !playing,
+                enter = fadeIn(tween(300)),
+                exit = fadeOut(tween(600)),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.65f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        CircularProgressIndicator(
+                            color = LinkColors.OrangePrimary,
+                            modifier = Modifier.size(32.dp),
+                            strokeWidth = 2.5.dp,
+                        )
+                        val delayVal = settings.streamDelaySeconds
+                        if (delayVal > 0) {
+                            Text(
+                                "Syncing to stay ${delayVal}s behind live...",
+                                color = LinkColors.MutedText,
+                                fontSize = 12.sp,
+                                fontFamily = MonoFont,
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 2. Overlay Controls
             PlayerOverlay(
                 state = controlsState,
                 visible = controlsVisible || error != null,
                 onPlayPause = {
-                    if (playing) player.pause() else player.play()
+                    if (playing) engine.player.pause() else engine.player.play()
                 },
                 onRewind = { seekBy(-settings.skipLength) },
                 onForward = { seekBy(settings.skipLength) },
                 onSeek = { newValue ->
-                    if (duration > 0) player.seekTo(newValue.toLong())
+                    if (duration > 0) engine.player.seekTo(newValue.toLong())
                 },
                 onServerSelect = { idx ->
                     val picked = target.servers.getOrNull(idx) ?: return@PlayerOverlay
+                    userPickedManually = true
                     currentServer = picked
                 },
                 onVolumeChange = { v ->
                     playerVolume = v
-                    player.volume = v
+                    engine.player.volume = v
                     muted = v == 0f
                 },
                 onFullscreenToggle = {
                     if (controlsState.isFullscreen) {
-                        // Exit fullscreen – restore portrait
                         activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                         @Suppress("DEPRECATION")
                         activity?.window?.decorView?.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_VISIBLE
@@ -354,7 +484,6 @@ fun PlayerScreen(
                 onInteraction = ::touchControls,
                 modifier = Modifier.matchParentSize(),
             )
-
 
             // Seek-feedback bubble
             seekMessage?.let { message ->
@@ -379,7 +508,13 @@ fun PlayerScreen(
                     Text("STREAM UNAVAILABLE", color = LinkColors.PrimaryText, fontFamily = DisplayFont, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
                     Text(error!!, color = LinkColors.MutedText, fontSize = 13.sp, modifier = Modifier.padding(10.dp, 11.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { error = null; loadStream(currentServer) }) { Text("Try again") }
+                        Button(onClick = {
+                            error = null
+                            allServersFailed = false
+                            fallbackIndex = 0
+                            userPickedManually = false
+                            loadStream(currentServer)
+                        }) { Text("Try again") }
                         if (target.servers.size > 1) Button(onClick = { serverMenu = true }) { Text("Switch server") }
                     }
                 }
@@ -396,7 +531,11 @@ fun PlayerScreen(
         ServerChooserSheet(
             target = target,
             onDismiss = { serverMenu = false },
-            onPick = { currentServer = it; serverMenu = false }
+            onPick = {
+                userPickedManually = true
+                currentServer = it
+                serverMenu = false
+            }
         )
     }
 }

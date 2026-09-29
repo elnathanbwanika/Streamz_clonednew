@@ -28,6 +28,7 @@ class SettingsRepository(private val context: Context) {
         val skipLength          = intPreferencesKey("skipLength")
         val hideControlsSeconds = intPreferencesKey("hideControlsSeconds")
         val keepScreenOn        = booleanPreferencesKey("keepScreenOn")
+        val streamDelaySeconds  = intPreferencesKey("streamDelaySeconds")
     }
 
     // ── Read ──────────────────────────────────────────────────────────────────
@@ -40,6 +41,7 @@ class SettingsRepository(private val context: Context) {
             skipLength          = prefs[Keys.skipLength]          ?: 5,
             hideControlsSeconds = prefs[Keys.hideControlsSeconds] ?: 5,
             keepScreenOn        = prefs[Keys.keepScreenOn]        ?: true,
+            streamDelaySeconds  = prefs[Keys.streamDelaySeconds]  ?: 20,
         )
     }
 
@@ -57,6 +59,7 @@ class SettingsRepository(private val context: Context) {
                 skipLength          = prefs[Keys.skipLength]          ?: 5,
                 hideControlsSeconds = prefs[Keys.hideControlsSeconds] ?: 5,
                 keepScreenOn        = prefs[Keys.keepScreenOn]        ?: true,
+                streamDelaySeconds  = prefs[Keys.streamDelaySeconds]  ?: 20,
             )
             val next = transform(current)
             prefs[Keys.autoplay]            = next.autoplay
@@ -64,6 +67,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.skipLength]          = next.skipLength
             prefs[Keys.hideControlsSeconds] = next.hideControlsSeconds
             prefs[Keys.keepScreenOn]        = next.keepScreenOn
+            prefs[Keys.streamDelaySeconds]  = next.streamDelaySeconds
         }
     }
 

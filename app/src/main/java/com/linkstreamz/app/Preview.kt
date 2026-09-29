@@ -202,6 +202,7 @@ fun LinkStreamzSettingsPreview() {
             onSetSkipLength = {},
             onSetHideControls = {},
             onToggleKeepScreenOn = {},
+            onSetStreamDelay = {},
             onRefresh = {},
             onReset = {},
             onCustomStream = {},

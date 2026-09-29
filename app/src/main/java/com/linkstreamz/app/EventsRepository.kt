@@ -16,6 +16,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.booleanOrNull
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -26,7 +27,14 @@ import retrofit2.http.HeaderMap
 import retrofit2.http.Url
 import java.time.Instant
 
-data class StreamServer(val name: String, val url: String, val quality: String? = null)
+data class StreamServer(
+    val name: String,
+    val url: String,
+    val quality: String? = null,
+    val headers: Map<String, String> = emptyMap(),
+    val useProxy: Boolean = false,
+    val delaySeconds: Int? = null
+)
 data class Team(val name: String, val crestClass: String, val initials: String, val logo: String? = null)
 data class Event(
     val id: String,
@@ -170,11 +178,21 @@ class EventsRepository(private val preview: Boolean = false) {
             val url = server?.pick("url", "src", "link", "stream", "m3u8")?.stringValue()
                 ?: element.stringValue()
             url?.let {
+                val headersObj = server?.pick("headers") as? JsonObject
+                val headers = headersObj?.mapValues { it.value.stringValue() ?: "" } ?: emptyMap()
+                val useProxyRaw = server?.pick("useProxy")
+                val useProxy = useProxyRaw?.stringValue()?.toBooleanStrictOrNull() ?: (useProxyRaw as? JsonPrimitive)?.booleanOrNull ?: false
+                val delaySecondsRaw = server?.pick("delaySeconds", "delay")
+                val delaySeconds = delaySecondsRaw?.longValue()?.toInt()
+                
                 StreamServer(
                     name = server?.pick("name", "label", "title", "server")?.stringValue()
                         ?: "Server ${index + 1}",
                     url = it,
                     quality = server?.pick("quality", "q", "resolution")?.stringValue(),
+                    headers = headers,
+                    useProxy = useProxy,
+                    delaySeconds = delaySeconds
                 )
             }
         }

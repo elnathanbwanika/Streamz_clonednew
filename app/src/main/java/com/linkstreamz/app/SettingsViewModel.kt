@@ -32,6 +32,7 @@ data class SettingsUiState(
     val skipLength: Int              = 5,
     val hideControlsSeconds: Int     = 5,
     val keepScreenOn: Boolean        = true,
+    val streamDelaySeconds: Int      = 20,
 )
 
 // ── ViewModel ─────────────────────────────────────────────────────────────────
@@ -62,6 +63,9 @@ class SettingsViewModel(private val repository: SettingsRepository) : ViewModel(
     }
     fun setKeepScreenOn(value: Boolean)       = viewModelScope.launch {
         repository.update { it.copy(keepScreenOn = value) }
+    }
+    fun setStreamDelaySeconds(value: Int)     = viewModelScope.launch {
+        repository.update { it.copy(streamDelaySeconds = value) }
     }
 
     /** Clears DataStore; all values revert to SettingsUiState() defaults. */
