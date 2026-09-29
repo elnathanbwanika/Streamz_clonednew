@@ -51,28 +51,38 @@ class PlayerEngine(
         })
     }
 
+    private var loadJob: Job? = null
+
     /**
      * Loads [server] into the player. Stops any running proxy first.
      * [isCustom] forces the proxy path (used for the "Play your own link" feature).
      */
     fun loadStream(server: StreamServer, isCustom: Boolean = false) {
-        // Tear down previous proxy and reset stall state
-        stopProxy()
-        stallCount = 0
-        lastPosition = 0L
-        isSyncing.value = false
+        loadJob?.cancel()
+        loadJob = scope.launch {
+            // Tear down previous proxy and reset stall state
+            stopProxy()
+            stallCount = 0
+            lastPosition = 0L
+            isSyncing.value = true
 
-        val useProxy = if (isCustom) false else server.useProxy
-        val effectiveDelay = server.delaySeconds ?: globalDelaySeconds
+            val resolvedServer = kotlinx.coroutines.withContext(Dispatchers.IO) {
+                resolveYoutubeDlUrl(server)
+            }
 
-        val isMp4 = server.url.substringBefore('?').endsWith(".mp4", ignoreCase = true)
+            isSyncing.value = false
+
+        val useProxy = if (isCustom) false else resolvedServer.useProxy
+        val effectiveDelay = resolvedServer.delaySeconds ?: globalDelaySeconds
+
+        val isMp4 = resolvedServer.url.substringBefore('?').endsWith(".mp4", ignoreCase = true)
         val needsProxy = !isMp4 && (useProxy || effectiveDelay > 0)
 
         val playUrl: String = if (needsProxy) {
             val proxy = StreamProxyServer(
                 client = client,
-                sourceUrl = server.url,
-                headers = server.headers,
+                sourceUrl = resolvedServer.url,
+                headers = resolvedServer.headers,
                 delaySeconds = effectiveDelay
             )
             proxy.start()
@@ -85,7 +95,7 @@ class PlayerEngine(
 
             proxy.localMasterUrl
         } else {
-            server.url
+            resolvedServer.url
         }
 
         val dataSourceFactory = when {
@@ -93,9 +103,9 @@ class PlayerEngine(
                 // Proxy handles headers; player just talks to localhost
                 DefaultHttpDataSource.Factory()
             }
-            server.headers.isNotEmpty() -> {
+            resolvedServer.headers.isNotEmpty() -> {
                 OkHttpDataSource.Factory(client)
-                    .setDefaultRequestProperties(server.headers)
+                    .setDefaultRequestProperties(resolvedServer.headers)
             }
             else -> DefaultHttpDataSource.Factory()
         }
@@ -111,6 +121,27 @@ class PlayerEngine(
 
         player.setMediaSource(source)
         player.prepare()
+        }
+    }
+
+    private fun resolveYoutubeDlUrl(server: StreamServer): StreamServer {
+        return try {
+            val url = server.url
+            val isDirectStream = url.contains(".m3u8") || url.contains(".mp4") || url.contains(".mkv")
+            if (!isDirectStream) {
+                val request = com.yausername.youtubedl_android.YoutubeDLRequest(url)
+                // Get the best video and audio stream combined, or just best if combined isn't available
+                request.addOption("-f", "best")
+                val info = com.yausername.youtubedl_android.YoutubeDL.getInstance().getInfo(request)
+                val extractedUrl = info.url ?: url
+                server.copy(url = extractedUrl)
+            } else {
+                server
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            server
+        }
     }
 
     /**
