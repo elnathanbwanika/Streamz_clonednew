@@ -2,6 +2,10 @@ package com.linkstreamz.app
 
 import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.PlayArrow
@@ -173,36 +177,83 @@ private fun HomeHeader(onSettings: () -> Unit) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(
-                Modifier.size(38.dp).shadow(8.dp, RoundedCornerShape(13.dp))
-                    .background(Brush.linearGradient(listOf(Accent2, Accent)), RoundedCornerShape(13.dp)),
+                Modifier.size(38.dp).shadow(
+                    elevation = 8.dp,
+                    shape = RoundedCornerShape(13.dp),
+                    ambientColor = LinkColors.OrangePrimary.copy(alpha = 0.35f),
+                    spotColor = LinkColors.OrangePrimary.copy(alpha = 0.35f)
+                ).background(
+                    Brush.verticalGradient(listOf(LinkColors.OrangeLight, LinkColors.OrangePrimary)), 
+                    RoundedCornerShape(13.dp)
+                ),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(18.dp))
             }
             Column {
-                Text("LINK STREAMZ", color = Text, fontFamily = DisplayFont, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
-                Text("WATCH EVERY MATCH LIVE", color = Muted, fontFamily = MonoFont, fontSize = 9.5.sp, modifier = Modifier.padding(top = 5.dp), letterSpacing = .4.sp)
+                Text("LINK STREAMZ", color = LinkColors.PrimaryText, fontFamily = DisplayFont, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
+                Text("WATCH EVERY MATCH LIVE", color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 9.5.sp, modifier = Modifier.padding(top = 5.dp), letterSpacing = .4.sp)
             }
         }
-        IconButton(onClick = onSettings, modifier = Modifier.size(38.dp).background(Color.White.copy(alpha = .04f), RoundedCornerShape(12.dp))) {
-            Icon(Icons.Default.Settings, "Settings", tint = Text, modifier = Modifier.size(18.dp))
+        IconButton(
+            onClick = onSettings, 
+            modifier = Modifier.size(38.dp)
+                .background(LinkColors.CardBg, RoundedCornerShape(12.dp))
+                .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+        ) {
+            Icon(Icons.Default.Settings, "Settings", tint = LinkColors.OrangePrimary, modifier = Modifier.size(18.dp))
         }
     }
 }
 
 @Composable
 private fun FilterChip(filter: HomeFilter, count: Int, selected: Boolean, onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(999.dp),
-        color = if (selected) Accent else Color.White.copy(alpha = .02f),
-        border = if (selected) null else androidx.compose.foundation.BorderStroke(1.dp, Line),
-        shadowElevation = if (selected) 8.dp else 0.dp,
+    Box(
+        modifier = Modifier
+            .shadow(
+                elevation = if (selected) 8.dp else 0.dp,
+                shape = RoundedCornerShape(999.dp),
+                ambientColor = if (selected) LinkColors.OrangePrimary.copy(alpha = 0.35f) else Color.Transparent,
+                spotColor = if (selected) LinkColors.OrangePrimary.copy(alpha = 0.35f) else Color.Transparent
+            )
+            .background(
+                brush = if (selected) Brush.verticalGradient(listOf(LinkColors.OrangeLight, LinkColors.OrangePrimary))
+                        else Brush.verticalGradient(listOf(Color(0xFF0A0A0A), Color(0xFF0A0A0A))),
+                shape = RoundedCornerShape(999.dp)
+            )
+            .border(
+                width = 1.dp,
+                color = if (selected) LinkColors.OrangePrimary else LinkColors.OrangePrimary.copy(alpha = 0.28f),
+                shape = RoundedCornerShape(999.dp)
+            )
+            .clip(RoundedCornerShape(999.dp))
+            .clickable(onClick = onClick)
     ) {
-        Row(Modifier.padding(horizontal = 15.dp, vertical = 9.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            if (filter == HomeFilter.HIGHLIGHTS) Icon(Icons.Default.PlayArrow, null, tint = if (selected) Color.Black else Muted, modifier = Modifier.size(14.dp))
-            Text(filter.label, color = if (selected) Color.Black else Muted, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium)
-            Text(count.toString(), color = if (selected) Color.Black else Muted.copy(alpha = .7f), fontFamily = MonoFont, fontSize = 11.sp)
+        Row(
+            Modifier.padding(horizontal = 15.dp, vertical = 9.dp), 
+            verticalAlignment = Alignment.CenterVertically, 
+            horizontalArrangement = Arrangement.spacedBy(7.dp)
+        ) {
+            if (filter == HomeFilter.HIGHLIGHTS) {
+                Icon(
+                    Icons.Default.PlayArrow, 
+                    null, 
+                    tint = if (selected) Color.Black else Color(0xFFB39A86), 
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+            Text(
+                text = filter.label, 
+                color = if (selected) Color.Black else Color(0xFFB39A86), 
+                fontSize = 13.sp, 
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
+            )
+            Text(
+                text = count.toString(), 
+                color = if (selected) Color.Black.copy(alpha = 0.7f) else Color(0xFF7A6656), 
+                fontFamily = MonoFont, 
+                fontSize = 11.sp
+            )
         }
     }
 }
@@ -215,7 +266,7 @@ private fun LoadingList() {
         modifier = Modifier.fillMaxSize(),
     ) {
         items(3) {
-            Box(Modifier.fillMaxWidth().size(96.dp).background(Brush.horizontalGradient(listOf(Color(0xFF101010), Color(0xFF1B1B1B), Color(0xFF101010))), RoundedCornerShape(18.dp)))
+            Box(Modifier.fillMaxWidth().size(96.dp).background(Brush.horizontalGradient(listOf(LinkColors.CardBg, Color(0xFF1A1510), LinkColors.CardBg)), RoundedCornerShape(18.dp)))
         }
     }
 }
@@ -224,9 +275,18 @@ private fun LoadingList() {
 private fun ErrorState(onRetry: () -> Unit) {
     Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Can't reach the server", color = Text, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            Text("Check your connection and try again.", color = Muted, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
-            Button(onClick = onRetry, modifier = Modifier.padding(top = 18.dp)) { Text("Retry") }
+            Text("Can't reach the server", color = LinkColors.PrimaryText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text("Check your connection and try again.", color = LinkColors.MutedText, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+            Button(
+                onClick = onRetry, 
+                modifier = Modifier.padding(top = 18.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = LinkColors.OrangePrimary,
+                    contentColor = Color.Black
+                )
+            ) { 
+                Text("Retry") 
+            }
         }
     }
 }
@@ -234,7 +294,7 @@ private fun ErrorState(onRetry: () -> Unit) {
 @Composable
 private fun EmptyState(message: String) {
     Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
-        Text(message, color = Muted, fontSize = 13.sp)
+        Text(message, color = LinkColors.MutedText, fontSize = 13.sp)
     }
 }
 

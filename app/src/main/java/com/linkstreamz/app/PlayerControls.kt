@@ -127,19 +127,58 @@ fun PlayerIconButton(
     size: Dp = 40.dp,
     iconSize: Dp = 20.dp,
     tintOverride: Color = Color.White,
+    isMenuOpen: Boolean = false,
+    isPlayPause: Boolean = false,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    val fill = when {
+        isMenuOpen -> LinkColors.OrangePrimary
+        isPlayPause -> Color(0xFF0A0806).copy(alpha = 0.70f)
+        isPressed -> Color(0xFF0A0806).copy(alpha = 0.80f)
+        else -> Color(0xFF0A0806).copy(alpha = 0.62f)
+    }
+    
+    val borderAlpha = when {
+        isMenuOpen -> 0f
+        isPlayPause -> 0.55f
+        isPressed -> 0.70f
+        else -> 0.28f
+    }
+    val borderColor = if (isMenuOpen) Color.Transparent else LinkColors.OrangePrimary.copy(alpha = borderAlpha)
+    
+    val iconTint = when {
+        isMenuOpen -> Color.Black
+        isPlayPause -> LinkColors.OrangePrimary
+        else -> tintOverride
+    }
+
     Box(
         modifier = modifier
             .size(size)
+            .then(
+                if (isPlayPause) Modifier.shadow(
+                    elevation = 20.dp,
+                    shape = CircleShape,
+                    ambientColor = LinkColors.OrangePrimary.copy(alpha = 0.28f),
+                    spotColor = LinkColors.OrangePrimary.copy(alpha = 0.28f)
+                ) else Modifier
+            )
             .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.55f))
-            .clickable(onClick = onClick),
+            .background(fill)
+            .border(1.dp, borderColor, CircleShape)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = androidx.compose.foundation.LocalIndication.current,
+                onClick = onClick
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = tintOverride,
+            tint = iconTint,
             modifier = Modifier.size(iconSize),
         )
     }
@@ -509,6 +548,7 @@ fun PlayerCenterControls(
             onClick = onRewind,
             size = 48.dp,
             iconSize = 26.dp,
+            tintOverride = LinkColors.PrimaryText,
         )
 
         // Play / Pause  (largest)
@@ -518,6 +558,7 @@ fun PlayerCenterControls(
             onClick = onPlayPause,
             size = 64.dp,
             iconSize = 34.dp,
+            isPlayPause = true,
         )
 
         // Forward 10s
@@ -527,6 +568,7 @@ fun PlayerCenterControls(
             onClick = onForward,
             size = 48.dp,
             iconSize = 26.dp,
+            tintOverride = LinkColors.PrimaryText,
         )
     }
 }
@@ -541,6 +583,7 @@ fun PlayerCenterControls(
  * @param onDragStart  Called when the user starts dragging – use to pause auto-hide.
  * @param onDragEnd    Called when the user releases the thumb.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerSeekBar(
     position: Long,
@@ -554,6 +597,14 @@ fun PlayerSeekBar(
     val sliderValue = if (!isLive) position.toFloat().coerceIn(0f, duration.toFloat()) else 0f
     val valueRange = 0f..if (!isLive) duration.toFloat().coerceAtLeast(1f) else 1f
 
+    val textShadow = androidx.compose.ui.text.TextStyle(
+        shadow = androidx.compose.ui.graphics.Shadow(
+            color = Color.Black.copy(alpha = 0.8f),
+            offset = androidx.compose.ui.geometry.Offset(0f, 2f),
+            blurRadius = 4f
+        )
+    )
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -563,9 +614,10 @@ fun PlayerSeekBar(
     ) {
         Text(
             text = formatOverlayTime(position),
-            color = Color.White,
+            color = LinkColors.PrimaryText,
             fontFamily = MonoFont,
             fontSize = 11.sp,
+            style = textShadow,
         )
 
         Slider(
@@ -575,23 +627,52 @@ fun PlayerSeekBar(
             valueRange = valueRange,
             enabled = !isLive,
             modifier = Modifier.weight(1f),
-            colors = SliderDefaults.colors(
-                thumbColor = Accent,
-                activeTrackColor = Accent,
-                inactiveTrackColor = Color.White.copy(alpha = 0.30f),
-                disabledThumbColor = Color.White.copy(alpha = 0.40f),
-                disabledActiveTrackColor = Color.White.copy(alpha = 0.40f),
-                disabledInactiveTrackColor = Color.White.copy(alpha = 0.20f),
-            ),
-            // Notify drag start via interactionSource observation isn't trivial here;
-            // the caller can treat every onSeek call as "user is dragging."
+            thumb = {
+                Box(
+                    modifier = Modifier
+                        .size(4.dp, 28.dp)
+                        .shadow(12.dp, CircleShape, ambientColor = LinkColors.OrangePrimary.copy(alpha = 0.85f), spotColor = LinkColors.OrangePrimary.copy(alpha = 0.85f))
+                        .background(LinkColors.OrangePrimary, CircleShape)
+                )
+            },
+            track = {
+                val fraction = if (!isLive && duration > 0L) sliderValue / duration.toFloat() else 0f
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .background(Color.Black.copy(alpha = 0.35f), CircleShape)
+                        .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction)
+                            .fillMaxHeight()
+                            .background(
+                                androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                    listOf(LinkColors.OrangePrimary, LinkColors.OrangeLight)
+                                ),
+                                CircleShape
+                            )
+                    )
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 4.dp)
+                            .size(4.dp)
+                            .shadow(2.dp, CircleShape, ambientColor = LinkColors.OrangePrimary, spotColor = LinkColors.OrangePrimary)
+                            .background(LinkColors.OrangePrimary, CircleShape)
+                    )
+                }
+            }
         )
 
         Text(
             text = if (!isLive) formatOverlayTime(duration) else "LIVE",
-            color = Color.White,
+            color = LinkColors.PrimaryText,
             fontFamily = MonoFont,
             fontSize = 11.sp,
+            style = textShadow,
         )
     }
 }
