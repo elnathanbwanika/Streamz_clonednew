@@ -18,14 +18,12 @@ import androidx.lifecycle.ViewModelProvider
 
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLException
-import com.yausername.ffmpeg_android.FFmpeg
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         try {
             YoutubeDL.getInstance().init(application)
-            FFmpeg.getInstance().init(application)
         } catch (e: Exception) {
             e.printStackTrace()
         }
