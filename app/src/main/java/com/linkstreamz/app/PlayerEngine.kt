@@ -64,85 +64,62 @@ class PlayerEngine(
             stopProxy()
             stallCount = 0
             lastPosition = 0L
-            isSyncing.value = true
 
-            val resolvedServer = kotlinx.coroutines.withContext(Dispatchers.IO) {
-                resolveYoutubeDlUrl(server)
-            }
+            val useProxy = if (isCustom) false else server.useProxy
+            val effectiveDelay = server.delaySeconds ?: globalDelaySeconds
 
-            isSyncing.value = false
+            val isMp4 = server.url.substringBefore('?').endsWith(".mp4", ignoreCase = true)
+            val needsProxy = !isMp4 && (useProxy || effectiveDelay > 0)
 
-        val useProxy = if (isCustom) false else resolvedServer.useProxy
-        val effectiveDelay = resolvedServer.delaySeconds ?: globalDelaySeconds
+            val playUrl: String = if (needsProxy) {
+                val proxy = StreamProxyServer(
+                    client = client,
+                    sourceUrl = server.url,
+                    headers = server.headers,
+                    delaySeconds = effectiveDelay
+                )
+                proxy.start()
+                currentProxy = proxy
 
-        val isMp4 = resolvedServer.url.substringBefore('?').endsWith(".mp4", ignoreCase = true)
-        val needsProxy = !isMp4 && (useProxy || effectiveDelay > 0)
+                // Mirror the proxy's syncing state on the main thread
+                syncingJob = scope.launch {
+                    proxy.isSyncing.collect { isSyncing.value = it }
+                }
 
-        val playUrl: String = if (needsProxy) {
-            val proxy = StreamProxyServer(
-                client = client,
-                sourceUrl = resolvedServer.url,
-                headers = resolvedServer.headers,
-                delaySeconds = effectiveDelay
-            )
-            proxy.start()
-            currentProxy = proxy
-
-            // Mirror the proxy's syncing state on the main thread
-            syncingJob = scope.launch {
-                proxy.isSyncing.collect { isSyncing.value = it }
-            }
-
-            proxy.localMasterUrl
-        } else {
-            resolvedServer.url
-        }
-
-        val dataSourceFactory = when {
-            currentProxy != null -> {
-                // Proxy handles headers; player just talks to localhost
-                DefaultHttpDataSource.Factory()
-            }
-            resolvedServer.headers.isNotEmpty() -> {
-                OkHttpDataSource.Factory(client)
-                    .setDefaultRequestProperties(resolvedServer.headers)
-            }
-            else -> DefaultHttpDataSource.Factory()
-        }
-
-        val mediaItem = androidx.media3.common.MediaItem.fromUri(playUrl)
-        val source = if (playUrl.contains(".m3u8", ignoreCase = true) || currentProxy != null) {
-            HlsMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
-        } else {
-            ProgressiveMediaSource.Factory(
-                DefaultDataSource.Factory(context, dataSourceFactory)
-            ).createMediaSource(mediaItem)
-        }
-
-        player.setMediaSource(source)
-        player.prepare()
-        }
-    }
-
-    private fun resolveYoutubeDlUrl(server: StreamServer): StreamServer {
-        return try {
-            val url = server.url
-            val isDirectStream = url.contains(".m3u8") || url.contains(".mp4") || url.contains(".mkv")
-            if (!isDirectStream) {
-                val request = com.yausername.youtubedl_android.YoutubeDLRequest(url)
-                // Get the best video and audio stream combined, or just best if combined isn't available
-                request.addOption("-f", "best")
-                val info = com.yausername.youtubedl_android.YoutubeDL.getInstance().getInfo(request)
-                val extractedUrl = info.url ?: url
-                server.copy(url = extractedUrl)
+                proxy.localMasterUrl
             } else {
-                server
+                isSyncing.value = false
+                server.url
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-            server
+
+            val dataSourceFactory = when {
+                currentProxy != null -> {
+                    // Proxy handles headers; player just talks to localhost
+                    DefaultHttpDataSource.Factory()
+                }
+                server.headers.isNotEmpty() -> {
+                    OkHttpDataSource.Factory(client)
+                        .setDefaultRequestProperties(server.headers)
+                }
+                else -> DefaultHttpDataSource.Factory()
+            }
+
+            val mediaItem = androidx.media3.common.MediaItem.fromUri(playUrl)
+            val source = if (playUrl.contains(".m3u8", ignoreCase = true) || currentProxy != null) {
+                HlsMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
+            } else {
+                ProgressiveMediaSource.Factory(
+                    DefaultDataSource.Factory(context, dataSourceFactory)
+                ).createMediaSource(mediaItem)
+            }
+
+            player.setMediaSource(source)
+            player.prepare()
         }
     }
+
+
+
 
     /**
      * Call this every ~250 ms from the UI polling loop.
