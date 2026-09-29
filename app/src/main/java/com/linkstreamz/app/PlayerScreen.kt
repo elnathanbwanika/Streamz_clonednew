@@ -7,6 +7,11 @@ import android.os.PowerManager
 import android.view.View
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -226,19 +231,19 @@ fun PlayerScreen(
         Modifier
             .fillMaxSize()
             .background(LinkColors.ScreenBg)
-            .androidx.compose.ui.draw.drawBehind {
+            .drawBehind {
                 val r = size.width * 1.5f
                 drawCircle(
-                    brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                    brush = Brush.radialGradient(
                         colorStops = arrayOf(
                             0.00f to LinkColors.OrangePrimary.copy(alpha = 0.12f),
                             0.70f to Color.Transparent,
                         ),
-                        center = androidx.compose.ui.geometry.Offset(size.width / 2f, 0f),
+                        center = Offset(size.width / 2f, 0f),
                         radius = r,
                     ),
                     radius = r,
-                    center = androidx.compose.ui.geometry.Offset(size.width / 2f, 0f),
+                    center = Offset(size.width / 2f, 0f),
                 )
             }
     ) {
@@ -253,7 +258,7 @@ fun PlayerScreen(
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp)
                 .aspectRatio(16f / 9f)
-                .androidx.compose.ui.draw.shadow(
+                .shadow(
                     elevation = 24.dp,
                     shape = RoundedCornerShape(16.dp),
                     ambientColor = LinkColors.OrangePrimary.copy(alpha = 0.10f),
@@ -306,7 +311,7 @@ fun PlayerScreen(
                 Modifier
                     .matchParentSize()
                     .background(
-                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                        Brush.verticalGradient(
                             0.00f to Color.Black.copy(alpha = 0.28f),
                             0.32f to Color.Transparent,
                             0.55f to Color.Transparent,
