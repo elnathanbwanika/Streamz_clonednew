@@ -30,6 +30,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -116,7 +117,7 @@ fun rememberPlayerControlsState(
 /**
  * Circular overlay icon button used for the top-left and top-right anchors.
  *
- * @param tintOverride  Pass [Accent] when the button's menu is open so it turns orange.
+ * @param tintOverride  Pass [LinkColors.OrangePrimary] when the button's menu is open so it turns orange.
  */
 @Composable
 fun PlayerIconButton(
@@ -135,9 +136,9 @@ fun PlayerIconButton(
 
     val fill = when {
         isMenuOpen -> LinkColors.OrangePrimary
-        isPlayPause -> Color(0xFF0A0806).copy(alpha = 0.70f)
-        isPressed -> Color(0xFF0A0806).copy(alpha = 0.80f)
-        else -> Color(0xFF0A0806).copy(alpha = 0.62f)
+        isPlayPause -> LinkColors.OverlayBtnBg.copy(alpha = 0.70f)
+        isPressed -> LinkColors.OverlayBtnBg.copy(alpha = 0.80f)
+        else -> LinkColors.OverlayBtnBg.copy(alpha = 0.62f)
     }
     
     val borderAlpha = when {
@@ -189,11 +190,11 @@ fun PlayerIconButton(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Fully opaque #141414 – matches the Card surface so there is no bleed-through. */
-private val MenuBg = Color(0xFF141414)
+private val MenuBg = LinkColors.MenuBg
 private val MenuWidth = 190.dp
 private val MenuCorner = 12.dp
-private val MenuBorderColor = Color.White.copy(alpha = 0.10f)
-private val HairlineDivider = Color.White.copy(alpha = 0.08f)
+private val MenuBorderColor = LinkColors.OrangePrimary.copy(alpha = 0.30f)
+private val HairlineDivider = LinkColors.OrangePrimary.copy(alpha = 0.16f)
 /** Vertical gap between the anchor button's bottom and the menu top. */
 private val MenuGapDp = 8.dp
 
@@ -326,8 +327,14 @@ private fun PlayerMenuPopup(
                 modifier = Modifier
                     .width(MenuWidth)
                     .heightIn(max = maxHeightDp)
+                    .shadow(
+                        elevation = 16.dp,
+                        shape = RoundedCornerShape(MenuCorner),
+                        ambientColor = LinkColors.OrangePrimary.copy(alpha = 0.15f),
+                        spotColor = LinkColors.OrangePrimary.copy(alpha = 0.15f)
+                    )
                     .background(MenuBg, RoundedCornerShape(MenuCorner))
-                    .border(0.5.dp, MenuBorderColor, RoundedCornerShape(MenuCorner))
+                    .border(1.dp, MenuBorderColor, RoundedCornerShape(MenuCorner))
                     .padding(vertical = 6.dp),
                 content = content,
             )
@@ -395,8 +402,11 @@ fun ServersMenuPopup(
                     Box(
                         modifier = Modifier
                             .size(7.dp)
+                            .then(
+                                if (isActive) Modifier.shadow(4.dp, CircleShape, ambientColor = LinkColors.OrangePrimary, spotColor = LinkColors.OrangePrimary) else Modifier
+                            )
                             .background(
-                                if (isActive) Accent else Color.Transparent,
+                                if (isActive) LinkColors.OrangePrimary else Color.Transparent,
                                 CircleShape,
                             )
                             .then(
@@ -408,7 +418,7 @@ fun ServersMenuPopup(
                     )
                     Text(
                         text = server.name,
-                        color = if (isActive) Accent else Text,
+                        color = if (isActive) LinkColors.OrangePrimary else LinkColors.PrimaryText,
                         fontSize = 13.sp,
                         fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
                         modifier = Modifier.weight(1f),
@@ -416,7 +426,7 @@ fun ServersMenuPopup(
                     server.quality?.let {
                         Text(
                             text = it,
-                            color = Muted,
+                            color = LinkColors.MutedText,
                             fontFamily = MonoFont,
                             fontSize = 9.sp,
                         )
@@ -451,7 +461,7 @@ fun PlayerMenuRow(
         Icon(
             imageVector = icon,
             contentDescription = iconDescription,
-            tint = Muted,
+            tint = LinkColors.MutedText,
             modifier = Modifier.size(18.dp),
         )
         label()
@@ -495,9 +505,9 @@ fun SettingsMenuPopup(
                 valueRange = 0f..1f,
                 modifier = Modifier.weight(1f),
                 colors = SliderDefaults.colors(
-                    thumbColor = Accent,
-                    activeTrackColor = Accent,
-                    inactiveTrackColor = Color.White.copy(alpha = 0.25f),
+                    thumbColor = LinkColors.OrangePrimary,
+                    activeTrackColor = LinkColors.OrangePrimary,
+                    inactiveTrackColor = Color.Black.copy(alpha = 0.35f),
                 ),
             )
         }
@@ -516,7 +526,7 @@ fun SettingsMenuPopup(
         ) {
             Text(
                 text = "Fullscreen",
-                color = Text,
+                color = LinkColors.PrimaryText,
                 fontSize = 13.sp,
                 modifier = Modifier.weight(1f),
             )
@@ -778,7 +788,7 @@ fun PlayerOverlay(
                 PlayerIconButton(
                     icon = Icons.Default.Dns,
                     contentDescription = "Choose server",
-                    tintOverride = if (state.openMenu == OpenMenu.Servers) Accent else Color.White,
+                    tintOverride = if (state.openMenu == OpenMenu.Servers) LinkColors.OrangePrimary else Color.White,
                     onClick = {
                         state.toggleMenu(OpenMenu.Servers)
                         onInteraction()
@@ -805,7 +815,7 @@ fun PlayerOverlay(
                 PlayerIconButton(
                     icon = Icons.Default.Settings,
                     contentDescription = "Settings",
-                    tintOverride = if (state.openMenu == OpenMenu.Settings) Accent else Color.White,
+                    tintOverride = if (state.openMenu == OpenMenu.Settings) LinkColors.OrangePrimary else Color.White,
                     onClick = {
                         state.toggleMenu(OpenMenu.Settings)
                         onInteraction()

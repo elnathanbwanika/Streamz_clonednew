@@ -222,7 +222,26 @@ fun PlayerScreen(
     }
 
     val exoPlayer = player
-    Column(Modifier.fillMaxSize().background(Bg)) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(LinkColors.ScreenBg)
+            .androidx.compose.ui.draw.drawBehind {
+                val r = size.width * 1.5f
+                drawCircle(
+                    brush = androidx.compose.ui.graphics.Brush.radialGradient(
+                        colorStops = arrayOf(
+                            0.00f to LinkColors.OrangePrimary.copy(alpha = 0.12f),
+                            0.70f to Color.Transparent,
+                        ),
+                        center = androidx.compose.ui.geometry.Offset(size.width / 2f, 0f),
+                        radius = r,
+                    ),
+                    radius = r,
+                    center = androidx.compose.ui.geometry.Offset(size.width / 2f, 0f),
+                )
+            }
+    ) {
         PlayerBar(
             target = target,
             onBack = onBack,
@@ -234,7 +253,15 @@ fun PlayerScreen(
                 .fillMaxWidth()
                 .padding(horizontal = 12.dp)
                 .aspectRatio(16f / 9f)
-                .background(Color.Black)
+                .androidx.compose.ui.draw.shadow(
+                    elevation = 24.dp,
+                    shape = RoundedCornerShape(16.dp),
+                    ambientColor = LinkColors.OrangePrimary.copy(alpha = 0.10f),
+                    spotColor = LinkColors.OrangePrimary.copy(alpha = 0.10f)
+                )
+                .background(Color.Black, RoundedCornerShape(16.dp))
+                .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.30f), RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(16.dp))
                 .pointerInput(locked, duration, settings.skipLength) {
                     detectTapGestures(
                         onDoubleTap = { offset ->
@@ -272,6 +299,20 @@ fun PlayerScreen(
                 },
                 update = { it.player = exoPlayer },
                 modifier = Modifier.fillMaxSize(),
+            )
+
+            // 1.5. Scrim
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .background(
+                        androidx.compose.ui.graphics.Brush.verticalGradient(
+                            0.00f to Color.Black.copy(alpha = 0.28f),
+                            0.32f to Color.Transparent,
+                            0.55f to Color.Transparent,
+                            1.00f to Color.Black.copy(alpha = 0.55f)
+                        )
+                    )
             )
 
             // 2. Overlay Controls — new unified layout
@@ -318,7 +359,7 @@ fun PlayerScreen(
                         .background(Color.Black.copy(alpha = .65f), RoundedCornerShape(999.dp))
                         .padding(horizontal = 15.dp, vertical = 9.dp)
                 ) {
-                    Text(message, color = Text, fontFamily = MonoFont, fontSize = 12.sp)
+                    Text(message, color = LinkColors.PrimaryText, fontFamily = MonoFont, fontSize = 12.sp)
                 }
                 LaunchedEffect(message) { delay(450); seekMessage = null }
             }
@@ -330,8 +371,8 @@ fun PlayerScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    Text("STREAM UNAVAILABLE", color = Text, fontFamily = DisplayFont, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
-                    Text(error!!, color = Muted, fontSize = 13.sp, modifier = Modifier.padding(10.dp, 11.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Text("STREAM UNAVAILABLE", color = LinkColors.PrimaryText, fontFamily = DisplayFont, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                    Text(error!!, color = LinkColors.MutedText, fontSize = 13.sp, modifier = Modifier.padding(10.dp, 11.dp), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(onClick = { error = null; loadStream(currentServer) }) { Text("Try again") }
                         if (target.servers.size > 1) Button(onClick = { serverMenu = true }) { Text("Switch server") }
@@ -361,12 +402,12 @@ private fun PlayerBar(
     onBack: () -> Unit,
 ) {
     Row(Modifier.fillMaxWidth().padding(14.dp, 14.dp, 16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        IconButton(onClick = onBack, modifier = Modifier.size(38.dp).background(Color.White.copy(alpha = .04f), RoundedCornerShape(12.dp))) {
-            Icon(Icons.Default.ArrowBack, "Back", tint = Text, modifier = Modifier.size(18.dp))
+        IconButton(onClick = onBack, modifier = Modifier.size(38.dp).background(LinkColors.CardBg, RoundedCornerShape(12.dp)).border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.35f), RoundedCornerShape(12.dp))) {
+            Icon(Icons.Default.ArrowBack, "Back", tint = LinkColors.OrangePrimary, modifier = Modifier.size(18.dp))
         }
         Column(Modifier.weight(1f)) {
-            Text(target.title.uppercase(), color = Text, fontFamily = DisplayFont, fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(target.subtitle.uppercase(), color = Muted, fontFamily = MonoFont, fontSize = 11.sp, letterSpacing = .5.sp, modifier = Modifier.padding(top = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(target.title.uppercase(), color = LinkColors.PrimaryText, fontFamily = DisplayFont, fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(target.subtitle.uppercase(), color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 11.sp, letterSpacing = .5.sp, modifier = Modifier.padding(top = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -385,7 +426,7 @@ private fun RelatedContent(repository: EventsRepository?, target: PlayerTarget, 
         val sectionTitle = if (target is HighlightTarget) "More Highlights" else "More Events"
         Text(
             sectionTitle.uppercase(),
-            color = Muted,
+            color = LinkColors.MutedText,
             fontFamily = DisplayFont,
             fontWeight = FontWeight.Bold,
             fontSize = 11.sp,
@@ -394,17 +435,17 @@ private fun RelatedContent(repository: EventsRepository?, target: PlayerTarget, 
                 .padding(horizontal = 16.dp, vertical = 14.dp)
                 .fillMaxWidth(),
         )
-        HorizontalDivider(color = Line, modifier = Modifier.padding(horizontal = 16.dp))
+        HorizontalDivider(color = LinkColors.LineAlpha, modifier = Modifier.padding(horizontal = 16.dp))
 
         when (state) {
             is FeedState.Loading -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Accent)
+                    CircularProgressIndicator(color = LinkColors.OrangePrimary)
                 }
             }
             is FeedState.Error -> {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("Failed to load content", color = Muted)
+                    Text("Failed to load content", color = LinkColors.MutedText)
                 }
             }
             is FeedState.Ready -> {
@@ -460,9 +501,9 @@ private fun RelatedContent(repository: EventsRepository?, target: PlayerTarget, 
 @Composable
 private fun EmptyContentState(icon: androidx.compose.ui.graphics.vector.ImageVector, message: String) {
     Column(Modifier.fillMaxWidth().padding(40.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(icon, null, tint = Muted.copy(alpha = 0.5f), modifier = Modifier.size(48.dp))
+        Icon(icon, null, tint = LinkColors.MutedText.copy(alpha = 0.5f), modifier = Modifier.size(48.dp))
         Spacer(Modifier.height(16.dp))
-        Text(message, color = Muted, fontSize = 14.sp)
+        Text(message, color = LinkColors.MutedText, fontSize = 14.sp)
     }
 }
 

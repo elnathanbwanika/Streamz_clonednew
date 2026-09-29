@@ -115,6 +115,10 @@ object LinkColors {
 
     // Footer
     val FooterText      = Color(0xFF5E4C3E)
+
+    // Player Overlay
+    val OverlayBtnBg    = Color(0xFF0A0806)
+    val MenuBg          = Color(0xFF141414)
 }
 
 // ── Dimension tokens ──────────────────────────────────────────────────────────
