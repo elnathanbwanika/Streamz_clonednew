@@ -1,5 +1,12 @@
 package com.linkstreamz.app
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SettingsRepository.kt
+//
+// DataStore (Preferences) persistence layer for all settings.
+// The custom stream URL is intentionally NOT stored here.
+// ─────────────────────────────────────────────────────────────────────────────
+
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
@@ -8,52 +15,60 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
-private val Context.settingsDataStore by preferencesDataStore("linkstream_settings")
-
-data class PlaybackSettings(
-    val autoplay: Boolean = true,
-    val muted: Boolean = false,
-    val skip: Int = 10,
-    val hide: Int = 5,
-    val awake: Boolean = true,
-)
+// One DataStore instance per app process, scoped to the application context.
+private val Context.settingsDataStore by preferencesDataStore(name = "linkstream_settings")
 
 class SettingsRepository(private val context: Context) {
+
+    // ── Preference keys ───────────────────────────────────────────────────────
+
     private object Keys {
-        val autoplay = booleanPreferencesKey("autoplay")
-        val muted = booleanPreferencesKey("muted")
-        val skip = intPreferencesKey("skip")
-        val hide = intPreferencesKey("hide")
-        val awake = booleanPreferencesKey("awake")
+        val autoplay            = booleanPreferencesKey("autoplay")
+        val startMuted          = booleanPreferencesKey("startMuted")
+        val skipLength          = intPreferencesKey("skipLength")
+        val hideControlsSeconds = intPreferencesKey("hideControlsSeconds")
+        val keepScreenOn        = booleanPreferencesKey("keepScreenOn")
     }
 
-    val settings: Flow<PlaybackSettings> = context.settingsDataStore.data.map { prefs ->
-        PlaybackSettings(
-            autoplay = prefs[Keys.autoplay] ?: true,
-            muted = prefs[Keys.muted] ?: false,
-            skip = prefs[Keys.skip] ?: 10,
-            hide = prefs[Keys.hide] ?: 5,
-            awake = prefs[Keys.awake] ?: true,
+    // ── Read ──────────────────────────────────────────────────────────────────
+
+    /** Emits a new [SettingsUiState] whenever any preference changes. */
+    val settings: Flow<SettingsUiState> = context.settingsDataStore.data.map { prefs ->
+        SettingsUiState(
+            autoplay            = prefs[Keys.autoplay]            ?: true,
+            startMuted          = prefs[Keys.startMuted]          ?: false,
+            skipLength          = prefs[Keys.skipLength]          ?: 5,
+            hideControlsSeconds = prefs[Keys.hideControlsSeconds] ?: 5,
+            keepScreenOn        = prefs[Keys.keepScreenOn]        ?: true,
         )
     }
 
-    suspend fun update(transform: (PlaybackSettings) -> PlaybackSettings) {
+    // ── Write ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Applies [transform] to the current state and persists the result.
+     * Called by every `SettingsViewModel.setXxx` function.
+     */
+    suspend fun update(transform: (SettingsUiState) -> SettingsUiState) {
         context.settingsDataStore.edit { prefs ->
-            val current = PlaybackSettings(
-                prefs[Keys.autoplay] ?: true,
-                prefs[Keys.muted] ?: false,
-                prefs[Keys.skip] ?: 10,
-                prefs[Keys.hide] ?: 5,
-                prefs[Keys.awake] ?: true,
+            val current = SettingsUiState(
+                autoplay            = prefs[Keys.autoplay]            ?: true,
+                startMuted          = prefs[Keys.startMuted]          ?: false,
+                skipLength          = prefs[Keys.skipLength]          ?: 5,
+                hideControlsSeconds = prefs[Keys.hideControlsSeconds] ?: 5,
+                keepScreenOn        = prefs[Keys.keepScreenOn]        ?: true,
             )
             val next = transform(current)
-            prefs[Keys.autoplay] = next.autoplay
-            prefs[Keys.muted] = next.muted
-            prefs[Keys.skip] = next.skip
-            prefs[Keys.hide] = next.hide
-            prefs[Keys.awake] = next.awake
+            prefs[Keys.autoplay]            = next.autoplay
+            prefs[Keys.startMuted]          = next.startMuted
+            prefs[Keys.skipLength]          = next.skipLength
+            prefs[Keys.hideControlsSeconds] = next.hideControlsSeconds
+            prefs[Keys.keepScreenOn]        = next.keepScreenOn
         }
     }
 
+    // ── Reset ─────────────────────────────────────────────────────────────────
+
+    /** Clears all stored preferences; defaults from [SettingsUiState] take effect. */
     suspend fun reset() = context.settingsDataStore.edit { it.clear() }
 }

@@ -9,10 +9,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import kotlinx.coroutines.launch
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -22,8 +24,17 @@ class MainActivity : ComponentActivity() {
                 val navController = rememberNavController()
                 val repository = remember { EventsRepository() }
                 val settingsRepository = remember { SettingsRepository(applicationContext) }
-                val settings by settingsRepository.settings.collectAsStateWithLifecycle(initialValue = PlaybackSettings())
-                val scope = androidx.compose.runtime.rememberCoroutineScope()
+                
+                // Using custom factory to pass the repository
+                val factory = object : ViewModelProvider.Factory {
+                    @Suppress("UNCHECKED_CAST")
+                    override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                        return SettingsViewModel(settingsRepository) as T
+                    }
+                }
+                val settingsViewModel: SettingsViewModel = viewModel(factory = factory)
+                val settings by settingsViewModel.uiState.collectAsStateWithLifecycle()
+                
                 var target by remember { mutableStateOf<PlayerTarget?>(null) }
 
                 LaunchedEffect(repository) { repository.start(this) }
@@ -52,7 +63,7 @@ class MainActivity : ComponentActivity() {
                                     } else if (newTarget.servers.size == 1) {
                                         target = newTarget.withServer(newTarget.servers.first())
                                     } else {
-                                        target = newTarget // Will trigger server chooser in player or we can just navigate
+                                        target = newTarget
                                     }
                                 }
                             )
@@ -60,9 +71,8 @@ class MainActivity : ComponentActivity() {
                     }
                     composable("settings") {
                         SettingsScreen(
-                            settings = settings,
-                            settingsRepository = settingsRepository,
-                            scope = scope,
+                            uiState = settings,
+                            viewModel = settingsViewModel,
                             onBack = { navController.popBackStack() },
                             onRefresh = { repository.load() },
                             onCustomStream = {

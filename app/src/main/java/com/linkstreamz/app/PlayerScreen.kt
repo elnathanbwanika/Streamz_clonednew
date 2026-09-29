@@ -85,7 +85,7 @@ private const val CONTROLS_HIDE_DELAY_MS = 3_000L
 @Composable
 fun PlayerScreen(
     target: PlayerTarget,
-    settings: PlaybackSettings,
+    settings: SettingsUiState,
     repository: EventsRepository? = null,
     onBack: () -> Unit,
     onTarget: (PlayerTarget) -> Unit = {},
@@ -97,9 +97,9 @@ fun PlayerScreen(
     var currentServer by remember(target, server) { mutableStateOf(server) }
     var locked by remember { mutableStateOf(false) }
     var playing by remember { mutableStateOf(false) }
-    var muted by remember(settings.muted) { mutableStateOf(settings.muted) }
+    var muted by remember(settings.startMuted) { mutableStateOf(settings.startMuted) }
     // Volume tracks player.volume [0f..1f]; starts at 0 if muted, else 1.
-    var playerVolume by remember(settings.muted) { mutableFloatStateOf(if (settings.muted) 0f else 1f) }
+    var playerVolume by remember(settings.startMuted) { mutableFloatStateOf(if (settings.startMuted) 0f else 1f) }
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(C.TIME_UNSET) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -186,8 +186,8 @@ fun PlayerScreen(
             delay(250)
         }
     }
-    LaunchedEffect(playing, settings.awake) {
-        if (playing && settings.awake && !wakeLock.isHeld) wakeLock.acquire(settings.hide * 60_000L)
+    LaunchedEffect(playing, settings.keepScreenOn) {
+        if (playing && settings.keepScreenOn && !wakeLock.isHeld) wakeLock.acquire(settings.hideControlsSeconds * 60_000L)
         else if (wakeLock.isHeld) wakeLock.release()
     }
     DisposableEffect(Unit) {
@@ -235,14 +235,14 @@ fun PlayerScreen(
                 .padding(horizontal = 12.dp)
                 .aspectRatio(16f / 9f)
                 .background(Color.Black)
-                .pointerInput(locked, duration, settings.skip) {
+                .pointerInput(locked, duration, settings.skipLength) {
                     detectTapGestures(
                         onDoubleTap = { offset ->
                             if (locked) return@detectTapGestures
                             val left = size.width * .4f
                             val right = size.width * .6f
-                            if (offset.x < left) seekBy(-settings.skip)
-                            else if (offset.x > right) seekBy(settings.skip)
+                            if (offset.x < left) seekBy(-settings.skipLength)
+                            else if (offset.x > right) seekBy(settings.skipLength)
                         },
                         onTap = {
                             if (!locked) {
@@ -281,8 +281,8 @@ fun PlayerScreen(
                 onPlayPause = {
                     if (playing) player.pause() else player.play()
                 },
-                onRewind = { seekBy(-settings.skip) },
-                onForward = { seekBy(settings.skip) },
+                onRewind = { seekBy(-settings.skipLength) },
+                onForward = { seekBy(settings.skipLength) },
                 onSeek = { newValue ->
                     if (duration > 0) player.seekTo(newValue.toLong())
                 },

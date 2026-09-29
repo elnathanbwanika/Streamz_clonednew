@@ -2,12 +2,10 @@ package com.linkstreamz.app
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 
@@ -57,7 +55,7 @@ fun LinkStreamzPlayerPreview() {
     LinkStreamzTheme {
         PlayerScreen(
             target = EventTarget(event, servers.first()),
-            settings = PlaybackSettings(autoplay = false, muted = true),
+            settings = SettingsUiState(autoplay = false, startMuted = true),
             onBack = {},
             previewMode = true,
         )
@@ -196,14 +194,16 @@ fun ServersMenuScrollPreview() {
 )
 @Composable
 fun LinkStreamzSettingsPreview() {
-    val context = LocalContext.current
     LinkStreamzTheme {
-        SettingsScreen(
-            settings = PlaybackSettings(),
-            settingsRepository = remember { SettingsRepository(context) },
-            scope = rememberCoroutineScope(),
-            onBack = {},
+        SettingsScreenContent(
+            uiState = SettingsUiState(),
+            onToggleAutoplay = {},
+            onToggleStartMuted = {},
+            onSetSkipLength = {},
+            onSetHideControls = {},
+            onToggleKeepScreenOn = {},
             onRefresh = {},
+            onReset = {},
             onCustomStream = {},
         )
     }

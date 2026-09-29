@@ -30,7 +30,7 @@ val Ease = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)
 val DisplayFont = androidx.compose.ui.text.font.FontFamily.SansSerif // APPROXIMATION: bundle Syncopate in res/font for exact parity.
 val MonoFont = androidx.compose.ui.text.font.FontFamily.Monospace // APPROXIMATION: bundle JetBrains Mono in res/font for exact parity.
 
-private val LinkColors = darkColorScheme(
+private val LinkColorScheme = darkColorScheme(
     background = Bg,
     surface = Card,
     primary = Accent,
@@ -41,7 +41,7 @@ private val LinkColors = darkColorScheme(
 
 @Composable
 fun LinkStreamzTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = LinkColors, typography = LinkTypography, content = content)
+    MaterialTheme(colorScheme = LinkColorScheme, typography = LinkTypography, content = content)
 }
 
 // APPROXIMATION: platform font weights remain explicit until the required TTF bundle is added.
