@@ -261,8 +261,10 @@ fun PlayerScreen(
         allServersFailed = false
         val isCustom = target is CustomTarget
         engine.loadStream(stream, isCustom)
+        // Apply mute immediately — safe to set on player any time
         engine.player.volume = if (muted) 0f else 1f
-        engine.player.playWhenReady = settings.autoplay
+        // Note: playWhenReady is set inside engine.loadStream() after prepare().
+        // Setting it here would be overwritten by the async coroutine.
     }
 
     // ── Player event listener ────────────────────────────────────────────────

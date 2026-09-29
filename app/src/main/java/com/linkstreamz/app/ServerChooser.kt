@@ -54,7 +54,7 @@ fun ServerChooserSheet(target: PlayerTarget, onDismiss: () -> Unit, onPick: (Str
             ) {
                 Text(
                     "CHOOSE A SERVER",
-                    color = Text,
+                    color = LinkColors.PrimaryText,
                     fontFamily = DisplayFont,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
@@ -62,7 +62,7 @@ fun ServerChooserSheet(target: PlayerTarget, onDismiss: () -> Unit, onPick: (Str
                 )
                 Text(
                     target.subtitle,
-                    color = Muted,
+                    color = LinkColors.MutedText,
                     fontSize = 13.sp,
                     modifier = Modifier.padding(top = 4.dp, bottom = 24.dp),
                 )

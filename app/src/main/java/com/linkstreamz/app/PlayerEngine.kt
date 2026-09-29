@@ -1,8 +1,6 @@
 package com.linkstreamz.app
 
 import android.content.Context
-import androidx.media3.common.PlaybackException
-import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
@@ -16,6 +14,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 
 /**
@@ -34,7 +33,8 @@ class PlayerEngine(
     /** True while the proxy is accumulating enough segments to satisfy the delay window. */
     val isSyncing = MutableStateFlow(false)
 
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    // Main.immediate so UI updates are immediate when already on Main.
+    private val scope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
     private var syncingJob: Job? = null
     private var currentProxy: StreamProxyServer? = null
 
@@ -42,20 +42,15 @@ class PlayerEngine(
     private var lastPosition = 0L
     private var stallCount = 0
 
-    init {
-        player.addListener(object : Player.Listener {
-            override fun onPlayerError(playbackException: PlaybackException) {
-                // Do not log the exception message as it may contain URL details
-                onFallback()
-            }
-        })
-    }
+    // NOTE: We do NOT add a Player.Listener here.
+    // PlayerScreen adds its own engineFallbackListener that calls triggerFallback().
+    // Adding one here too would double-fire onFallback() and corrupt fallback state.
 
     private var loadJob: Job? = null
 
     /**
      * Loads [server] into the player. Stops any running proxy first.
-     * [isCustom] forces the proxy path (used for the "Play your own link" feature).
+     * [isCustom] skips proxy usage (used for the "Play your own link" feature).
      */
     fun loadStream(server: StreamServer, isCustom: Boolean = false) {
         loadJob?.cancel()
@@ -72,13 +67,15 @@ class PlayerEngine(
             val needsProxy = !isMp4 && (useProxy || effectiveDelay > 0)
 
             val playUrl: String = if (needsProxy) {
-                val proxy = StreamProxyServer(
-                    client = client,
-                    sourceUrl = server.url,
-                    headers = server.headers,
-                    delaySeconds = effectiveDelay
-                )
-                proxy.start()
+                // proxy.start() uses runBlocking internally → must run on IO, not Main
+                val proxy = withContext(Dispatchers.IO) {
+                    StreamProxyServer(
+                        client = client,
+                        sourceUrl = server.url,
+                        headers = server.headers,
+                        delaySeconds = effectiveDelay
+                    ).also { it.start() }
+                }
                 currentProxy = proxy
 
                 // Mirror the proxy's syncing state on the main thread
@@ -114,19 +111,19 @@ class PlayerEngine(
             }
 
             player.setMediaSource(source)
+            // playWhenReady=true so video starts immediately.
+            // PlayerScreen will override to false when settings.autoplay is off.
+            player.playWhenReady = true
             player.prepare()
         }
     }
-
-
-
 
     /**
      * Call this every ~250 ms from the UI polling loop.
      * Triggers [onFallback] if the player is stuck for ≥ 12 seconds while it should be playing.
      */
     fun checkStall() {
-        if (player.playbackState == Player.STATE_READY && player.playWhenReady) {
+        if (player.playbackState == androidx.media3.common.Player.STATE_READY && player.playWhenReady) {
             val pos = player.currentPosition
             if (pos == lastPosition) {
                 stallCount++
