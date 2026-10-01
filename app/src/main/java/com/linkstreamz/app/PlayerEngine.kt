@@ -177,6 +177,9 @@ class PlayerEngine(
 
     /** Pause on app background. */
     fun pause() {
+        val stack = Thread.currentThread().stackTrace.drop(1).take(5)
+            .joinToString(" < ") { "${it.className.substringAfterLast('.')}.${it.methodName}" }
+        AppLogger.d("Engine", "engine.pause() called! Stack: $stack")
         player.pause()
     }
 

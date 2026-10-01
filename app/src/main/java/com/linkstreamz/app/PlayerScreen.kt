@@ -477,6 +477,7 @@ fun PlayerScreen(
                 state = controlsState,
                 visible = controlsVisible || error != null,
                 onPlayPause = {
+                    AppLogger.d("Engine", "UI Play/Pause button clicked. currently playing=$playing")
                     if (playing) engine.player.pause() else engine.player.play()
                 },
                 onRewind = { seekBy(-settings.skipLength) },
