@@ -179,7 +179,18 @@ class HlsTimeline(
             segments.toList()
         }
 
-        if (eligibleSegments.isEmpty()) return ""
+        if (eligibleSegments.isEmpty()) {
+            val seq = segments.firstOrNull()?.sequence ?: 0L
+            val emptyResult = java.lang.StringBuilder()
+            emptyResult.append("#EXTM3U\n")
+            emptyResult.append("#EXT-X-VERSION:3\n")
+            emptyResult.append("#EXT-X-TARGETDURATION:${targetDuration.toInt()}\n")
+            for (ext in globalExtras) {
+                emptyResult.append(ext).append("\n")
+            }
+            emptyResult.append("#EXT-X-MEDIA-SEQUENCE:$seq\n")
+            return emptyResult.toString()
+        }
 
         // Keep last 6 segments for live
         val window = if (isLive) eligibleSegments.takeLast(6) else eligibleSegments

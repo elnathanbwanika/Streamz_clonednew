@@ -63,6 +63,7 @@ class StreamProxyServer(
 
     private suspend fun handleRequest(call: ApplicationCall, path: String) {
         val urlParam = call.request.queryParameters["url"]
+        AppLogger.d("Proxy", "handleRequest: path=$path urlParam=$urlParam")
         
         if (path == "master.m3u8") {
             // Fetch master playlist

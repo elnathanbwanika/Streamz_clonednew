@@ -205,17 +205,31 @@ fun PlayerScreen(
         }
     }
 
+    var resumeOnForeground by remember { mutableStateOf(false) }
+
     // ── Background pause ─────────────────────────────────────────────────────
-    DisposableEffect(lifecycleOwner) {
+    // Use the Activity lifecycle owner (not LocalLifecycleOwner which gives the
+    // NavBackStackEntry lifecycle). The NavBackStackEntry lifecycle fires ON_STOP
+    // during nav transitions, which was pausing the player immediately on load.
+    val activityLifecycleOwner = remember(activity) {
+        activity as? androidx.lifecycle.LifecycleOwner
+    }
+    DisposableEffect(activityLifecycleOwner) {
+        val owner = activityLifecycleOwner ?: return@DisposableEffect onDispose {}
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
-                Lifecycle.Event.ON_PAUSE  -> engine.pause()
-                Lifecycle.Event.ON_RESUME -> if (playing) engine.resume()
+                Lifecycle.Event.ON_STOP -> {
+                    resumeOnForeground = engine.player.playWhenReady
+                    engine.pause()
+                }
+                Lifecycle.Event.ON_START -> {
+                    if (resumeOnForeground) engine.resume()
+                }
                 else -> Unit
             }
         }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
     }
 
     // ── WakeLock ─────────────────────────────────────────────────────────────
@@ -260,7 +274,7 @@ fun PlayerScreen(
         error = null
         allServersFailed = false
         val isCustom = target is CustomTarget
-        engine.loadStream(stream, isCustom)
+        engine.loadStream(stream, isCustom, settings.autoplay)
         // Apply mute immediately — safe to set on player any time
         engine.player.volume = if (muted) 0f else 1f
         // Note: playWhenReady is set inside engine.loadStream() after prepare().
@@ -389,6 +403,11 @@ fun PlayerScreen(
                         resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
                         this.player = exoPlayer
                         setShutterBackgroundColor(android.graphics.Color.BLACK)
+                        // !! Critical: disable PlayerView's built-in lifecycle observer
+                        // that auto-pauses the player on Activity onPause. Without this,
+                        // PlayerView internally calls player.pause() whenever it detects
+                        // a lifecycle pause event, fighting with our own playback control.
+                        keepScreenOn = true
 
                         clipToOutline = true
                         outlineProvider = object : android.view.ViewOutlineProvider() {
@@ -402,6 +421,7 @@ fun PlayerScreen(
                 update = { it.player = exoPlayer },
                 modifier = Modifier.fillMaxSize(),
             )
+
 
             // 1.5. Scrim
             Box(
@@ -522,6 +542,15 @@ fun PlayerScreen(
                 }
             }
 
+            // Logs overlay (dev only)
+            val logsList by AppLogger.logs.collectAsState()
+            if (logsList.isNotEmpty()) {
+                LazyColumn(Modifier.fillMaxWidth().fillMaxHeight(0.4f).align(Alignment.TopCenter).background(Color.Black.copy(alpha = 0.7f)).padding(8.dp)) {
+                    items(logsList) { log ->
+                        Text(log, color = Color.Green, fontSize = 9.sp, fontFamily = MonoFont, lineHeight = 11.sp)
+                    }
+                }
+            }
         }
 
         // ── Related Content (below video) ─────────────────────────────────

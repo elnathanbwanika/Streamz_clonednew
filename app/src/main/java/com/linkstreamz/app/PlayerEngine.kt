@@ -30,6 +30,36 @@ class PlayerEngine(
 ) {
     val player: ExoPlayer = ExoPlayer.Builder(context).build()
 
+    init {
+        player.addListener(object : androidx.media3.common.Player.Listener {
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                AppLogger.e("Engine", "PlayerError: ${error.errorCodeName}", error)
+            }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                val stateName = when(playbackState) {
+                    1 -> "IDLE"
+                    2 -> "BUFFERING"
+                    3 -> "READY"
+                    4 -> "ENDED"
+                    else -> "UNKNOWN"
+                }
+                AppLogger.d("Engine", "State: $stateName")
+            }
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                val stack = Thread.currentThread().stackTrace
+                    .drop(1).take(8)
+                    .joinToString(" < ") { "${it.className.substringAfterLast('.')}.${it.methodName}" }
+                AppLogger.d("Engine", "PlayWhenReady: $playWhenReady reason: $reason | $stack")
+            }
+            override fun onPlaybackSuppressionReasonChanged(reason: Int) {
+                AppLogger.d("Engine", "SuppressionReason: $reason")
+            }
+
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                AppLogger.d("Engine", "IsPlaying: $isPlaying")
+            }
+        })
+    }
     /** True while the proxy is accumulating enough segments to satisfy the delay window. */
     val isSyncing = MutableStateFlow(false)
 
@@ -52,7 +82,7 @@ class PlayerEngine(
      * Loads [server] into the player. Stops any running proxy first.
      * [isCustom] skips proxy usage (used for the "Play your own link" feature).
      */
-    fun loadStream(server: StreamServer, isCustom: Boolean = false) {
+    fun loadStream(server: StreamServer, isCustom: Boolean = false, autoplay: Boolean = true) {
         loadJob?.cancel()
         loadJob = scope.launch {
             // Tear down previous proxy and reset stall state
@@ -103,18 +133,23 @@ class PlayerEngine(
 
             val mediaItem = androidx.media3.common.MediaItem.fromUri(playUrl)
             val source = if (playUrl.contains(".m3u8", ignoreCase = true) || currentProxy != null) {
+                AppLogger.d("Engine", "Using HlsMediaSource for $playUrl")
                 HlsMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
             } else {
+                AppLogger.d("Engine", "Using ProgressiveMediaSource for $playUrl")
                 ProgressiveMediaSource.Factory(
                     DefaultDataSource.Factory(context, dataSourceFactory)
                 ).createMediaSource(mediaItem)
             }
 
+            AppLogger.d("Engine", "Before setMediaSource: pwr=${player.playWhenReady} state=${player.playbackState}")
             player.setMediaSource(source)
-            // playWhenReady=true so video starts immediately.
-            // PlayerScreen will override to false when settings.autoplay is off.
-            player.playWhenReady = true
+            AppLogger.d("Engine", "After setMediaSource: pwr=${player.playWhenReady} state=${player.playbackState}")
+            player.playWhenReady = autoplay
+            AppLogger.d("Engine", "After setPlayWhenReady($autoplay): pwr=${player.playWhenReady} state=${player.playbackState}")
             player.prepare()
+            AppLogger.d("Engine", "After prepare(): pwr=${player.playWhenReady} state=${player.playbackState}")
+
         }
     }
 
@@ -151,7 +186,7 @@ class PlayerEngine(
     }
 
     /** Release everything. Must be called when the player screen is disposed. */
-    fun release() {
+    fun release() { AppLogger.d("Engine", "release() called");
         stopProxy()
         player.release()
         scope.cancel()

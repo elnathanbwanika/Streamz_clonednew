@@ -1,0 +1,9 @@
+import androidx.media3.common.Player
+
+fun main() {
+    println(Player.PLAY_WHEN_READY_CHANGE_REASON_USER_REQUEST)
+    println(Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_FOCUS_LOSS)
+    println(Player.PLAY_WHEN_READY_CHANGE_REASON_AUDIO_BECOMING_NOISY)
+    println(Player.PLAY_WHEN_READY_CHANGE_REASON_REMOTE)
+    println(Player.PLAY_WHEN_READY_CHANGE_REASON_END_OF_MEDIA_ITEM)
+}
