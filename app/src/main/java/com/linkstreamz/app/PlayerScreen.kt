@@ -131,7 +131,7 @@ fun PlayerScreen(
     // Per-server retry: how many times we've retried the current server before switching
     var retryCount by remember { mutableIntStateOf(0) }
 
-    var locked by remember { mutableStateOf(false) }
+    // NOTE: lock state lives in controlsState.isLocked (initialized below at rememberPlayerControlsState)
     var playing by remember { mutableStateOf(false) }
     var muted by remember(settings.startMuted) { mutableStateOf(settings.startMuted) }
     var playerVolume by remember(settings.startMuted) { mutableFloatStateOf(if (settings.startMuted) 0f else 1f) }
@@ -423,17 +423,21 @@ fun PlayerScreen(
                 .background(Color.Black, RoundedCornerShape(16.dp))
                 .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.30f), RoundedCornerShape(16.dp))
                 .clip(RoundedCornerShape(16.dp))
-                .pointerInput(locked, duration, settings.skipLength) {
+                .pointerInput(controlsState.isLocked, duration, settings.skipLength) {
                     detectTapGestures(
                         onDoubleTap = { offset ->
-                            if (locked) return@detectTapGestures
+                            if (controlsState.isLocked) return@detectTapGestures
                             val left = size.width * .4f
                             val right = size.width * .6f
                             if (offset.x < left) seekBy(-settings.skipLength)
                             else if (offset.x > right) seekBy(settings.skipLength)
                         },
                         onTap = {
-                            if (!locked) {
+                            if (controlsState.isLocked) {
+                                // Single tap = instant unlock, overlay comes back immediately
+                                controlsState.isLocked = false
+                                touchControls()
+                            } else {
                                 touchControls()
                             }
                         }

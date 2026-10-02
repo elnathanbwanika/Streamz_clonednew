@@ -90,6 +90,9 @@ class PlayerControlsState(
     var servers by mutableStateOf(servers)
     var selectedServerIndex by mutableIntStateOf(selectedServerIndex)
     var openMenu by mutableStateOf(openMenu)
+    var isLocked by mutableStateOf(false)
+    var brightness by mutableFloatStateOf(70f)
+    var isAutoBrightness by mutableStateOf(true)
 
     fun toggleMenu(menu: OpenMenu) {
         openMenu = if (openMenu == menu) OpenMenu.None else menu
@@ -469,68 +472,276 @@ fun PlayerMenuRow(
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PlayerSettingsPanel — vertical icon-column anchored below the gear button
+// ─────────────────────────────────────────────────────────────────────────────
+
+private val Orange = Color(0xFFFF6600)
+private val PanelBg = Color(0xFF141414)
+private val ItemBg = Orange.copy(alpha = 0.10f)
+private val ItemBorder = Orange.copy(alpha = 0.28f)
+private val ItemHoverBg = Orange.copy(alpha = 0.20f)
+private val ItemActiveBg = Orange
+private val ItemActiveIcon = Color.Black
+private val ItemSize = 44.dp
+private val ItemRadius = 13.dp
+
+private enum class PopoverType { None, Volume, Brightness }
+
+/** A single 44×44 rounded-square icon button for the settings panel. */
+@Composable
+private fun PanelItem(
+    icon: ImageVector,
+    description: String,
+    isActive: Boolean = false,
+    onClick: () -> Unit,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    val bg = when {
+        isActive -> ItemActiveBg
+        isPressed -> ItemHoverBg
+        else -> ItemBg
+    }
+    val iconTint = if (isActive) ItemActiveIcon else Orange
+
+    Box(
+        modifier = Modifier
+            .size(ItemSize)
+            .clip(RoundedCornerShape(ItemRadius))
+            .background(bg)
+            .border(1.dp, if (isActive) Orange else ItemBorder, RoundedCornerShape(ItemRadius))
+            .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, description, tint = iconTint, modifier = Modifier.size(21.dp))
+    }
+}
+
+/** Horizontal popover (196×44) sliding to the left of a panel item. */
+@Composable
+private fun PanelPopover(
+    visible: Boolean,
+    content: @Composable RowScope.() -> Unit,
+) {
+    if (!visible) return
+    Box(
+        modifier = Modifier
+            .width(196.dp)
+            .height(44.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(PanelBg)
+            .border(1.dp, Orange.copy(alpha = 0.4f), RoundedCornerShape(14.dp))
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() },
+                onClick = {},          // swallow taps so they don't dismiss the menu
+            )
+            .padding(horizontal = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) { content() }
+    }
+}
+
 /**
- * Popup dropdown for settings: volume slider and fullscreen toggle.
- * Rendered outside the player Box, right-aligned below the gear button.
+ * The new icon-only settings panel.
+ *
+ * Rendered inside a Compose [Popup] anchored 58 dp below the gear and 10 dp
+ * from the right edge (matching the gear's right edge).  Each popover slides
+ * to the left of its row using a nested [Popup] so it escapes clip bounds.
  */
 @Composable
-fun SettingsMenuPopup(
+fun PlayerSettingsPanel(
     visible: Boolean,
     volume: Float,
     isFullscreen: Boolean,
     anchorBoundsInWindow: IntRect,
     onVolumeChange: (Float) -> Unit,
     onFullscreenToggle: () -> Unit,
+    onLockScreen: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val density = LocalDensity.current
-    val gapPx = with(density) { MenuGapDp.roundToPx() }
+    if (!visible) return
 
-    val positionProvider = remember(anchorBoundsInWindow, gapPx) {
-        RightAlignedBelowProvider(anchorBoundsInWindow, gapPx)
+    val density = LocalDensity.current
+    // Position panel 58 dp below the top-right gear, aligned to its right edge
+    val topOffsetPx  = with(density) { 58.dp.roundToPx() }
+    val rightPadPx   = with(density) { 10.dp.roundToPx() }
+
+    val positionProvider = remember(anchorBoundsInWindow, topOffsetPx, rightPadPx) {
+        object : PopupPositionProvider {
+            override fun calculatePosition(
+                anchorBounds: IntRect,
+                windowSize: IntSize,
+                layoutDirection: LayoutDirection,
+                popupContentSize: IntSize,
+            ): IntOffset {
+                // Align panel right edge to the gear's right edge (- 10dp padding)
+                val x = anchorBoundsInWindow.right - popupContentSize.width - rightPadPx
+                val y = anchorBoundsInWindow.top + topOffsetPx
+                return IntOffset(x.coerceAtLeast(0), y.coerceAtLeast(0))
+            }
+        }
     }
 
-    PlayerMenuPopup(
-        visible = visible,
-        positionProvider = positionProvider,
-        onDismiss = onDismiss,
+    var openPopover by remember { mutableStateOf(PopoverType.None) }
+    var brightness by remember { mutableFloatStateOf(70f) }
+    var isAutoBrightness by remember { mutableStateOf(true) }
+    val systemBrightness = 70f   // Fixed system reference value (mockup = 70)
+
+    Popup(
+        popupPositionProvider = positionProvider,
+        onDismissRequest = onDismiss,
+        properties = PopupProperties(focusable = true),
     ) {
-        // Volume row
-        PlayerMenuRow(
-            icon = if (volume == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
-            iconDescription = "Volume",
-        ) {
-            Slider(
-                value = volume,
-                onValueChange = onVolumeChange,
-                valueRange = 0f..1f,
-                modifier = Modifier.weight(1f),
-                colors = SliderDefaults.colors(
-                    thumbColor = LinkColors.OrangePrimary,
-                    activeTrackColor = LinkColors.OrangePrimary,
-                    inactiveTrackColor = Color.Black.copy(alpha = 0.35f),
-                ),
-            )
-        }
+        Row(verticalAlignment = Alignment.Top) {
+            // ── Left: popovers column ──────────────────────────────────────────
+            Column(
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalAlignment = Alignment.End,
+                modifier = Modifier.padding(end = 14.dp),
+            ) {
+                // Volume popover (44dp row slot, aligned to first item)
+                Box(Modifier.height(ItemSize), contentAlignment = Alignment.Center) {
+                    PanelPopover(visible = openPopover == PopoverType.Volume) {
+                        Slider(
+                            value = (volume * 100f).coerceIn(0f, 100f),
+                            onValueChange = { v ->
+                                onVolumeChange(v / 100f)
+                            },
+                            valueRange = 0f..100f,
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Orange,
+                                activeTrackColor = Orange,
+                                inactiveTrackColor = Color(0xFF2A1E14),
+                            ),
+                        )
+                    }
+                }
 
-        HorizontalDivider(
-            modifier = Modifier.padding(horizontal = 10.dp),
-            color = HairlineDivider,
-            thickness = 0.5.dp,
-        )
+                // Brightness popover (44dp row slot aligned to second item)
+                Box(Modifier.height(ItemSize), contentAlignment = Alignment.Center) {
+                    PanelPopover(visible = openPopover == PopoverType.Brightness) {
+                        Slider(
+                            value = brightness,
+                            onValueChange = { v ->
+                                brightness = v
+                                isAutoBrightness = false
+                            },
+                            valueRange = 5f..100f,
+                            enabled = !isAutoBrightness,
+                            modifier = Modifier.weight(1f),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Orange,
+                                activeTrackColor = Orange,
+                                inactiveTrackColor = Color(0xFF2A1E14),
+                                disabledThumbColor = Orange.copy(alpha = 0.5f),
+                                disabledActiveTrackColor = Orange.copy(alpha = 0.5f),
+                                disabledInactiveTrackColor = Color(0xFF2A1E14),
+                            ),
+                        )
+                        // Auto-brightness toggle button
+                        val autoActive = isAutoBrightness
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (autoActive) Orange else ItemBg)
+                                .border(1.dp, if (autoActive) Orange else ItemBorder, RoundedCornerShape(10.dp))
+                                .clickable {
+                                    isAutoBrightness = true
+                                    brightness = systemBrightness
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                Icons.Default.BrightnessAuto,
+                                "Auto brightness",
+                                tint = if (autoActive) Color.Black else Orange,
+                                modifier = Modifier.size(17.dp),
+                            )
+                        }
+                    }
+                }
+            }
 
-        // Fullscreen row
-        PlayerMenuRow(
-            icon = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
-            iconDescription = "Fullscreen",
-            onClick = onFullscreenToggle,
-        ) {
-            Text(
-                text = "Fullscreen",
-                color = LinkColors.PrimaryText,
-                fontSize = 13.sp,
-                modifier = Modifier.weight(1f),
-            )
+            // ── Right: icon panel ──────────────────────────────────────────────
+            Column(
+                modifier = Modifier
+                    .width(58.dp)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(PanelBg)
+                    .border(1.dp, Orange.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
+                    .padding(6.dp)
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() },
+                        onClick = {},   // swallow panel-background taps
+                    ),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                // 1. VOLUME
+                PanelItem(
+                    icon = if (volume == 0f) Icons.Default.VolumeOff else Icons.Default.VolumeUp,
+                    description = "Volume",
+                    isActive = openPopover == PopoverType.Volume,
+                ) {
+                    openPopover = if (openPopover == PopoverType.Volume) PopoverType.None else PopoverType.Volume
+                }
+
+                // 2. BRIGHTNESS
+                PanelItem(
+                    icon = Icons.Default.Brightness6,
+                    description = "Brightness",
+                    isActive = openPopover == PopoverType.Brightness,
+                ) {
+                    openPopover = if (openPopover == PopoverType.Brightness) PopoverType.None else PopoverType.Brightness
+                }
+
+                // SEPARATOR
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 6.dp).padding(vertical = 2.dp),
+                    color = Orange.copy(alpha = 0.16f),
+                    thickness = 1.dp,
+                )
+
+                // 3. LOCK SCREEN
+                PanelItem(
+                    icon = Icons.Default.Lock,
+                    description = "Lock screen",
+                ) {
+                    openPopover = PopoverType.None
+                    onDismiss()
+                    onLockScreen()
+                }
+
+                // 4. FULLSCREEN
+                PanelItem(
+                    icon = if (isFullscreen) Icons.Default.FullscreenExit else Icons.Default.Fullscreen,
+                    description = "Fullscreen",
+                ) {
+                    onFullscreenToggle()
+                    onDismiss()
+                }
+
+                // 5. FLOATING WINDOW (PiP) — stub; invoke platform PiP when available
+                PanelItem(
+                    icon = Icons.Default.PictureInPictureAlt,
+                    description = "Floating window",
+                ) {
+                    openPopover = PopoverType.None
+                    onDismiss()
+                    // PiP invocation handled by the caller via onFloatWindow
+                }
+            }
         }
     }
 }
@@ -734,9 +945,13 @@ fun PlayerOverlay(
     onInteraction: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Keep overlay showing while any menu is open
-    val forceVisible = state.openMenu != OpenMenu.None
-    val shouldShow = visible || forceVisible
+    // Keep overlay showing while any menu is open, but never while locked
+    val forceVisible = state.openMenu != OpenMenu.None && !state.isLocked
+    // When overlay hides (visible=false) while menu is open, close the menu too
+    LaunchedEffect(visible) {
+        if (!visible && state.openMenu != OpenMenu.None) state.closeMenus()
+    }
+    val shouldShow = (visible || forceVisible) && !state.isLocked
 
     // Track pixel bounds of each anchor button inside the window for popup positioning
     var serverBtnBounds by remember { mutableStateOf(IntRect.Zero) }
@@ -816,7 +1031,8 @@ fun PlayerOverlay(
                 PlayerIconButton(
                     icon = Icons.Default.Settings,
                     contentDescription = "Settings",
-                    tintOverride = if (state.openMenu == OpenMenu.Settings) LinkColors.OrangePrimary else Color.White,
+                    isMenuOpen = state.openMenu == OpenMenu.Settings,
+                    tintOverride = Color.White,
                     onClick = {
                         state.toggleMenu(OpenMenu.Settings)
                         onInteraction()
@@ -865,9 +1081,9 @@ fun PlayerOverlay(
         )
     }
 
-    // Settings popup – below the top-right button, right-aligned
+    // Settings panel – icon column below the top-right gear, right-aligned
     if (settingsBtnBounds != IntRect.Zero) {
-        SettingsMenuPopup(
+        PlayerSettingsPanel(
             visible = state.openMenu == OpenMenu.Settings,
             volume = state.volume,
             isFullscreen = state.isFullscreen,
@@ -880,8 +1096,11 @@ fun PlayerOverlay(
             onFullscreenToggle = {
                 state.isFullscreen = !state.isFullscreen
                 onFullscreenToggle()
-                state.closeMenus()
                 onInteraction()
+            },
+            onLockScreen = {
+                state.isLocked = true
+                state.closeMenus()
             },
             onDismiss = { state.closeMenus() },
         )
