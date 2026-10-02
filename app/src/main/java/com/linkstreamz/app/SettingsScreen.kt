@@ -143,7 +143,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     onBack: () -> Unit,
     onRefresh: suspend () -> Unit,
-    onCustomStream: (String) -> Unit,
+    onCustomStream: (String, String) -> Unit,
 ) {
     SettingsScreenContent(
         uiState              = uiState,
@@ -157,6 +157,7 @@ fun SettingsScreen(
         onReset              = viewModel::resetSettings,
         onCustomStream       = onCustomStream,
         onCustomUrlChange    = viewModel::setCustomUrl,
+        onCustomAudioUrlChange = viewModel::setCustomAudioUrl,
     )
 }
 
@@ -179,8 +180,9 @@ fun SettingsScreenContent(
     onSetStreamDelay: (Int) -> Unit,
     onRefresh: suspend () -> Unit,
     onReset: () -> Unit,
-    onCustomStream: (String) -> Unit,
+    onCustomStream: (String, String) -> Unit,
     onCustomUrlChange: (String) -> Unit,
+    onCustomAudioUrlChange: (String) -> Unit,
     initialExpandedSection: String? = "PLAYBACK",
 ) {
     var expandedSection by remember { mutableStateOf(initialExpandedSection) }
@@ -337,6 +339,7 @@ fun SettingsScreenContent(
             // ── CUSTOM STREAM ─────────────────────────────────────────────────
             item {
                 val focusRequester = remember { FocusRequester() }
+                val audioFocusRequester = remember { FocusRequester() }
 
                 SettingsSectionCard(
                     label          = "CUSTOM STREAM",
@@ -350,8 +353,8 @@ fun SettingsScreenContent(
                     SettingRow(
                         icon     = Icons.Default.Link,
                         title    = "Play your own link",
-                        subtitle = "Paste an HLS (.m3u8) or MP4 URL. " +
-                                   "It plays instantly and is saved locally.",
+                        subtitle = "Paste an HLS/MP4 URL. Optionally add an audio URL for split streams. " +
+                                   "Plays instantly and saves locally.",
                     )
                     Spacer(Modifier.height(10.dp))
                     BrandUrlField(
@@ -359,8 +362,24 @@ fun SettingsScreenContent(
                         onValueChange  = onCustomUrlChange,
                         focusRequester = focusRequester,
                         onGo           = {
-                            if (uiState.customUrl.isBlank()) focusRequester.requestFocus()
-                            else onCustomStream(uiState.customUrl.trim())
+                            if (uiState.customUrl.isBlank() && uiState.customAudioUrl.isBlank()) focusRequester.requestFocus()
+                            else onCustomStream(uiState.customUrl.trim(), uiState.customAudioUrl.trim())
+                        },
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = "Separate audio link (optional)",
+                        color = LinkColors.MutedText,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(start = 14.dp, bottom = 4.dp)
+                    )
+                    BrandUrlField(
+                        value          = uiState.customAudioUrl,
+                        onValueChange  = onCustomAudioUrlChange,
+                        focusRequester = audioFocusRequester,
+                        onGo           = {
+                            if (uiState.customUrl.isBlank() && uiState.customAudioUrl.isBlank()) focusRequester.requestFocus()
+                            else onCustomStream(uiState.customUrl.trim(), uiState.customAudioUrl.trim())
                         },
                     )
                     Spacer(Modifier.height(10.dp))
@@ -368,8 +387,8 @@ fun SettingsScreenContent(
                         text    = "Play now",
                         icon    = Icons.Default.PlayArrow,
                         onClick = {
-                            if (uiState.customUrl.isBlank()) focusRequester.requestFocus()
-                            else onCustomStream(uiState.customUrl.trim())
+                            if (uiState.customUrl.isBlank() && uiState.customAudioUrl.isBlank()) focusRequester.requestFocus()
+                            else onCustomStream(uiState.customUrl.trim(), uiState.customAudioUrl.trim())
                         },
                     )
                 }
@@ -1002,8 +1021,9 @@ fun PreviewSettingsPlaybackOpen() {
             onSetStreamDelay       = {},
             onRefresh              = {},
             onReset                = {},
-            onCustomStream         = {},
+            onCustomStream         = { _, _ -> },
             onCustomUrlChange      = {},
+            onCustomAudioUrlChange = {},
             initialExpandedSection = "PLAYBACK",
         )
     }
@@ -1029,8 +1049,9 @@ fun PreviewSettingsAllCollapsed() {
             onSetStreamDelay       = {},
             onRefresh              = {},
             onReset                = {},
-            onCustomStream         = {},
+            onCustomStream         = { _, _ -> },
             onCustomUrlChange      = {},
+            onCustomAudioUrlChange = {},
             initialExpandedSection = null,            // all collapsed
         )
     }

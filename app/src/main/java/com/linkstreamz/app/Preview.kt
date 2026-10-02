@@ -205,7 +205,9 @@ fun LinkStreamzSettingsPreview() {
             onSetStreamDelay = {},
             onRefresh = {},
             onReset = {},
-            onCustomStream = {},
+            onCustomStream = { _, _ -> },
+            onCustomUrlChange = {},
+            onCustomAudioUrlChange = {},
         )
     }
 }

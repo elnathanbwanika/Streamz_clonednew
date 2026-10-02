@@ -6,6 +6,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,6 +23,11 @@ import androidx.media3.exoplayer.DefaultLoadControl
  * Owns a single ExoPlayer instance for the duration of one player screen session.
  * Handles direct playback (with headers), proxied playback (with delay), stall detection,
  * and fallback triggering. Call [release] when the screen is disposed.
+ *
+ * Supports three playback modes, selected automatically based on the [StreamServer] fields:
+ *   • muxed      – single URL carries both video and audio (existing behaviour).
+ *   • split      – separate videoUrl + audioUrl; played via MergingMediaSource.
+ *   • audio-only – only an audio source; a placeholder is shown in the video surface.
  */
 
 // Stall: how many consecutive 250 ms ticks at the same position triggers fallback.
@@ -95,96 +101,203 @@ class PlayerEngine(
     // Adding one here too would double-fire onFallback() and corrupt fallback state.
 
     private var loadJob: Job? = null
-    private var loadingUrl: String? = null
+    /**
+     * Canonical key for the currently-loading server.
+     * Uses videoUrl (split) or url (muxed/audio-only) so the guard works in all modes.
+     */
+    private var loadingKey: String? = null
 
     /** True while a loadStream coroutine is actively running (between setMediaSource and prepare completing). */
     val isLoading: Boolean get() = loadJob?.isActive == true
 
     /**
+     * Returns the canonical identity key for [server], used to detect duplicate loads.
+     * Priority: videoUrl (set in split mode) > url (set in muxed mode) > audioUrl (audio-only).
+     */
+    private fun serverKey(server: StreamServer): String? =
+        server.videoUrl ?: server.url ?: server.audioUrl
+
+    /**
      * Loads [server] into the player. Stops any running proxy first.
+     * Branches on [serverMode] to select the correct playback pipeline.
      * [isCustom] skips proxy usage (used for the "Play your own link" feature).
      */
     fun loadStream(server: StreamServer, isCustom: Boolean = false, autoplay: Boolean = true) {
-        // If we're already loading this exact URL, don't cancel and restart — let it finish.
-        if (loadingUrl == server.url && loadJob?.isActive == true) {
-            AppLogger.d("Engine", "loadStream: already loading ${server.url}, skipping duplicate")
+        val key = serverKey(server)
+        // If we're already loading this exact server, don't cancel and restart — let it finish.
+        if (key != null && key == loadingKey && loadJob?.isActive == true) {
+            AppLogger.d("Engine", "loadStream: already loading key=$key, skipping duplicate")
             player.playWhenReady = autoplay
             return
         }
         loadJob?.cancel()
-        loadingUrl = server.url
+        loadingKey = key
         loadJob = scope.launch {
             // Tear down previous proxy and reset stall state
             stopProxy()
             stallCount = 0
             lastPosition = 0L
 
-            val useProxy = if (isCustom) false else server.useProxy
-            val effectiveDelay = server.delaySeconds ?: globalDelaySeconds
+            val mode = serverMode(server)
+            AppLogger.d("Engine", "loadStream: mode=$mode key=$key")
 
-            val isMp4 = server.url.substringBefore('?').endsWith(".mp4", ignoreCase = true)
-            val needsProxy = !isMp4 && (useProxy || effectiveDelay > 0)
+            when (mode) {
+                // ── MODE: muxed ───────────────────────────────────────────────────
+                // Single URL carries both video and audio — existing behaviour.
+                "muxed" -> {
+                    val muxedUrl = server.url!! // non-null guaranteed by serverMode()
+                    val useProxy = if (isCustom) false else server.useProxy
+                    val effectiveDelay = server.delaySeconds ?: globalDelaySeconds
 
-            val playUrl: String = if (needsProxy) {
-                // proxy.start() uses runBlocking internally → must run on IO, not Main
-                val proxy = withContext(Dispatchers.IO) {
-                    StreamProxyServer(
-                        client = client,
-                        sourceUrl = server.url,
-                        headers = server.headers,
-                        delaySeconds = effectiveDelay
-                    ).also { it.start() }
+                    val isMp4 = muxedUrl.substringBefore('?').endsWith(".mp4", ignoreCase = true)
+                    val needsProxy = !isMp4 && (useProxy || effectiveDelay > 0)
+
+                    val playUrl: String = if (needsProxy) {
+                        // proxy.start() uses runBlocking internally → must run on IO, not Main
+                        val proxy = withContext(Dispatchers.IO) {
+                            StreamProxyServer(
+                                client = client,
+                                sourceUrl = muxedUrl,
+                                headers = server.headers,
+                                delaySeconds = effectiveDelay
+                            ).also { it.start() }
+                        }
+                        currentProxy = proxy
+
+                        // Mirror the proxy's syncing state on the main thread
+                        syncingJob = scope.launch {
+                            proxy.isSyncing.collect { isSyncing.value = it }
+                        }
+
+                        proxy.localMasterUrl
+                    } else {
+                        isSyncing.value = false
+                        muxedUrl
+                    }
+
+                    val dataSourceFactory = when {
+                        currentProxy != null -> {
+                            // Proxy handles headers; player just talks to localhost
+                            DefaultHttpDataSource.Factory()
+                                .setConnectTimeoutMs(30000)
+                                .setReadTimeoutMs(30000)
+                        }
+                        server.headers.isNotEmpty() -> {
+                            OkHttpDataSource.Factory(client)
+                                .setDefaultRequestProperties(server.headers)
+                        }
+                        else -> {
+                            DefaultHttpDataSource.Factory()
+                                .setConnectTimeoutMs(30000)
+                                .setReadTimeoutMs(30000)
+                        }
+                    }
+
+                    val mediaItem = androidx.media3.common.MediaItem.fromUri(playUrl)
+                    val source = if (playUrl.contains(".m3u8", ignoreCase = true) || currentProxy != null) {
+                        AppLogger.d("Engine", "Muxed/HLS: using HlsMediaSource for $playUrl")
+                        HlsMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
+                    } else {
+                        AppLogger.d("Engine", "Muxed/Progressive: using ProgressiveMediaSource for $playUrl")
+                        ProgressiveMediaSource.Factory(
+                            DefaultDataSource.Factory(context, dataSourceFactory)
+                        ).createMediaSource(mediaItem)
+                    }
+
+                    AppLogger.d("Engine", "Before setMediaSource (muxed): pwr=${player.playWhenReady} state=${player.playbackState}")
+                    player.setMediaSource(source)
+                    player.playWhenReady = autoplay
+                    player.prepare()
+                    AppLogger.d("Engine", "After prepare() (muxed): pwr=${player.playWhenReady} state=${player.playbackState}")
                 }
-                currentProxy = proxy
 
-                // Mirror the proxy's syncing state on the main thread
-                syncingJob = scope.launch {
-                    proxy.isSyncing.collect { isSyncing.value = it }
+                // ── MODE: split ───────────────────────────────────────────────────
+                // Separate video URL + separate audio URL — played via MergingMediaSource.
+                // ExoPlayer/Media3 handles sample-level synchronization internally.
+                // Volume/mute controls act on the player directly (which controls the audio track).
+                // No proxy support in split mode (proxy is HLS-specific and muxed-only).
+                "split" -> {
+                    val videoSrc = server.videoUrl!! // non-null guaranteed by serverMode()
+                    val audioSrc = server.audioUrl!! // non-null guaranteed by serverMode()
+                    isSyncing.value = false
+
+                    val dataSourceFactory = if (server.headers.isNotEmpty()) {
+                        OkHttpDataSource.Factory(client)
+                            .setDefaultRequestProperties(server.headers)
+                    } else {
+                        DefaultHttpDataSource.Factory()
+                            .setConnectTimeoutMs(30000)
+                            .setReadTimeoutMs(30000)
+                    }
+
+                    fun buildSource(url: String): androidx.media3.exoplayer.source.MediaSource {
+                        val item = androidx.media3.common.MediaItem.fromUri(url)
+                        return if (url.contains(".m3u8", ignoreCase = true)) {
+                            HlsMediaSource.Factory(dataSourceFactory).createMediaSource(item)
+                        } else {
+                            ProgressiveMediaSource.Factory(
+                                DefaultDataSource.Factory(context, dataSourceFactory)
+                            ).createMediaSource(item)
+                        }
+                    }
+
+                    val videoSource = buildSource(videoSrc)
+                    val audioSource = buildSource(audioSrc)
+
+                    // MergingMediaSource combines the two tracks into a single timeline item.
+                    // ExoPlayer renders the video track from videoSource and the audio track
+                    // from audioSource, keeping them sample-synced automatically.
+                    val mergedSource = MergingMediaSource(videoSource, audioSource)
+
+                    AppLogger.d("Engine", "Split: videoSrc=$videoSrc audioSrc=$audioSrc")
+                    AppLogger.d("Engine", "Before setMediaSource (split): pwr=${player.playWhenReady} state=${player.playbackState}")
+                    player.setMediaSource(mergedSource)
+                    player.playWhenReady = autoplay
+                    player.prepare()
+                    AppLogger.d("Engine", "After prepare() (split): pwr=${player.playWhenReady} state=${player.playbackState}")
                 }
 
-                proxy.localMasterUrl
-            } else {
-                isSyncing.value = false
-                server.url
-            }
+                // ── MODE: audio-only ──────────────────────────────────────────────
+                // Only an audio track is available. The PlayerView will show the shutter
+                // (black frame / last frame) as a placeholder — no additional UI needed.
+                "audio-only" -> {
+                    val audioSrc = server.audioUrl!! // non-null guaranteed by serverMode()
+                    isSyncing.value = false
 
-            val dataSourceFactory = when {
-                currentProxy != null -> {
-                    // Proxy handles headers; player just talks to localhost
-                    DefaultHttpDataSource.Factory()
-                        .setConnectTimeoutMs(30000)
-                        .setReadTimeoutMs(30000)
+                    val dataSourceFactory = if (server.headers.isNotEmpty()) {
+                        OkHttpDataSource.Factory(client)
+                            .setDefaultRequestProperties(server.headers)
+                    } else {
+                        DefaultHttpDataSource.Factory()
+                            .setConnectTimeoutMs(30000)
+                            .setReadTimeoutMs(30000)
+                    }
+
+                    val item = androidx.media3.common.MediaItem.fromUri(audioSrc)
+                    val source = if (audioSrc.contains(".m3u8", ignoreCase = true)) {
+                        HlsMediaSource.Factory(dataSourceFactory).createMediaSource(item)
+                    } else {
+                        ProgressiveMediaSource.Factory(
+                            DefaultDataSource.Factory(context, dataSourceFactory)
+                        ).createMediaSource(item)
+                    }
+
+                    AppLogger.d("Engine", "Audio-only: audioSrc=$audioSrc")
+                    AppLogger.d("Engine", "Before setMediaSource (audio-only): pwr=${player.playWhenReady} state=${player.playbackState}")
+                    player.setMediaSource(source)
+                    player.playWhenReady = autoplay
+                    player.prepare()
+                    AppLogger.d("Engine", "After prepare() (audio-only): pwr=${player.playWhenReady} state=${player.playbackState}")
                 }
-                server.headers.isNotEmpty() -> {
-                    OkHttpDataSource.Factory(client)
-                        .setDefaultRequestProperties(server.headers)
-                }
+
+                // ── MODE: invalid ─────────────────────────────────────────────────
+                // Should never reach here — normalizer filters invalid entries.
+                // If it does, trigger fallback so the UI shows the error card.
                 else -> {
-                    DefaultHttpDataSource.Factory()
-                        .setConnectTimeoutMs(30000)
-                        .setReadTimeoutMs(30000)
+                    AppLogger.e("Engine", "loadStream: server mode is 'invalid' for key=$key — triggering fallback")
+                    withContext(Dispatchers.Main.immediate) { onFallback() }
                 }
             }
-
-            val mediaItem = androidx.media3.common.MediaItem.fromUri(playUrl)
-            val source = if (playUrl.contains(".m3u8", ignoreCase = true) || currentProxy != null) {
-                AppLogger.d("Engine", "Using HlsMediaSource for $playUrl")
-                HlsMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
-            } else {
-                AppLogger.d("Engine", "Using ProgressiveMediaSource for $playUrl")
-                ProgressiveMediaSource.Factory(
-                    DefaultDataSource.Factory(context, dataSourceFactory)
-                ).createMediaSource(mediaItem)
-            }
-
-            AppLogger.d("Engine", "Before setMediaSource: pwr=${player.playWhenReady} state=${player.playbackState}")
-            player.setMediaSource(source)
-            AppLogger.d("Engine", "After setMediaSource: pwr=${player.playWhenReady} state=${player.playbackState}")
-            player.playWhenReady = autoplay
-            AppLogger.d("Engine", "After setPlayWhenReady($autoplay): pwr=${player.playWhenReady} state=${player.playbackState}")
-            player.prepare()
-            AppLogger.d("Engine", "After prepare(): pwr=${player.playWhenReady} state=${player.playbackState}")
-
         }
     }
 
@@ -237,8 +350,15 @@ class PlayerEngine(
         player.play()
     }
 
-    /** Release everything. Must be called when the player screen is disposed. */
-    fun release() { AppLogger.d("Engine", "release() called");
+    /**
+     * Release everything. Must be called when the player screen is disposed.
+     *
+     * Teardown covers all modes:
+     *   • muxed      — proxy stopped, player released.
+     *   • split      — MergingMediaSource is discarded automatically by player.release().
+     *   • audio-only — player released; no extra resources.
+     */
+    fun release() { AppLogger.d("Engine", "release() called")
         stopProxy()
         player.release()
         scope.cancel()

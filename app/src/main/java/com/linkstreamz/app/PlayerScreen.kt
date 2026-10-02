@@ -331,7 +331,7 @@ fun PlayerScreen(
     }
 
     // ── Effects ──────────────────────────────────────────────────────────────
-    LaunchedEffect(currentServer?.url, previewMode) {
+    LaunchedEffect(currentServer, previewMode) {
         if (!previewMode) loadStream(currentServer)
     }
 

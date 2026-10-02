@@ -33,6 +33,8 @@ data class SettingsUiState(
     val hideControlsSeconds: Int     = 5,
     val keepScreenOn: Boolean        = true,
     val streamDelaySeconds: Int      = 20,
+    val customUrl: String            = "",
+    val customAudioUrl: String       = "",
 )
 
 // ── ViewModel ─────────────────────────────────────────────────────────────────
@@ -66,6 +68,12 @@ class SettingsViewModel(private val repository: SettingsRepository) : ViewModel(
     }
     fun setStreamDelaySeconds(value: Int)     = viewModelScope.launch {
         repository.update { it.copy(streamDelaySeconds = value) }
+    }
+    fun setCustomUrl(value: String)           = viewModelScope.launch {
+        repository.update { it.copy(customUrl = value) }
+    }
+    fun setCustomAudioUrl(value: String)      = viewModelScope.launch {
+        repository.update { it.copy(customAudioUrl = value) }
     }
 
     /** Clears DataStore; all values revert to SettingsUiState() defaults. */

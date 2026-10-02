@@ -4,7 +4,6 @@ package com.linkstreamz.app
 // SettingsRepository.kt
 //
 // DataStore (Preferences) persistence layer for all settings.
-// The custom stream URL is intentionally NOT stored here.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import android.content.Context
@@ -29,6 +28,8 @@ class SettingsRepository(private val context: Context) {
         val hideControlsSeconds = intPreferencesKey("hideControlsSeconds")
         val keepScreenOn        = booleanPreferencesKey("keepScreenOn")
         val streamDelaySeconds  = intPreferencesKey("streamDelaySeconds")
+        val customUrl           = androidx.datastore.preferences.core.stringPreferencesKey("customUrl")
+        val customAudioUrl      = androidx.datastore.preferences.core.stringPreferencesKey("customAudioUrl")
     }
 
     // ── Read ──────────────────────────────────────────────────────────────────
@@ -42,6 +43,8 @@ class SettingsRepository(private val context: Context) {
             hideControlsSeconds = prefs[Keys.hideControlsSeconds] ?: 5,
             keepScreenOn        = prefs[Keys.keepScreenOn]        ?: true,
             streamDelaySeconds  = prefs[Keys.streamDelaySeconds]  ?: 20,
+            customUrl           = prefs[Keys.customUrl]           ?: "",
+            customAudioUrl      = prefs[Keys.customAudioUrl]      ?: "",
         )
     }
 
@@ -60,6 +63,8 @@ class SettingsRepository(private val context: Context) {
                 hideControlsSeconds = prefs[Keys.hideControlsSeconds] ?: 5,
                 keepScreenOn        = prefs[Keys.keepScreenOn]        ?: true,
                 streamDelaySeconds  = prefs[Keys.streamDelaySeconds]  ?: 20,
+                customUrl           = prefs[Keys.customUrl]           ?: "",
+                customAudioUrl      = prefs[Keys.customAudioUrl]      ?: "",
             )
             val next = transform(current)
             prefs[Keys.autoplay]            = next.autoplay
@@ -68,6 +73,8 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.hideControlsSeconds] = next.hideControlsSeconds
             prefs[Keys.keepScreenOn]        = next.keepScreenOn
             prefs[Keys.streamDelaySeconds]  = next.streamDelaySeconds
+            prefs[Keys.customUrl]           = next.customUrl
+            prefs[Keys.customAudioUrl]      = next.customAudioUrl
         }
     }
 

@@ -137,8 +137,15 @@ class MainActivity : ComponentActivity() {
                                 viewModel = settingsViewModel,
                                 onBack = { navController.popBackStack() },
                                 onRefresh = { repository.load() },
-                                onCustomStream = {
-                                    target = CustomTarget(StreamServer("Custom", it))
+                                onCustomStream = { url, audioUrl ->
+                                    val server = if (audioUrl.isNotBlank() && url.isNotBlank()) {
+                                        StreamServer("Custom Split", videoUrl = url, audioUrl = audioUrl)
+                                    } else if (audioUrl.isNotBlank()) {
+                                        StreamServer("Custom Audio", url = null, audioUrl = audioUrl)
+                                    } else {
+                                        StreamServer("Custom", url = url)
+                                    }
+                                    target = CustomTarget(server)
                                     navController.navigate("player")
                                 },
                             )

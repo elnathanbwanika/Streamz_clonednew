@@ -29,12 +29,32 @@ import java.time.Instant
 
 data class StreamServer(
     val name: String,
-    val url: String,
+    // Muxed source (video+audio together). Non-null in muxed mode; null in split/audio-only mode.
+    val url: String? = null,
     val quality: String? = null,
     val headers: Map<String, String> = emptyMap(),
     val useProxy: Boolean = false,
-    val delaySeconds: Int? = null
+    val delaySeconds: Int? = null,
+    // Explicit video source for split mode. Non-null when server carries separate video+audio.
+    val videoUrl: String? = null,
+    // Explicit audio source. Non-null in split mode and audio-only mode.
+    val audioUrl: String? = null,
 )
+
+/**
+ * Returns the playback mode for a normalised [StreamServer].
+ *
+ * "muxed"      – single URL that contains both video and audio (existing behaviour).
+ * "split"      – separate video URL + separate audio URL that must be played together.
+ * "audio-only" – only an audio track is available; show a placeholder in the video surface.
+ * "invalid"    – not enough information to play anything; should be filtered out.
+ */
+fun serverMode(server: StreamServer): String = when {
+    server.videoUrl != null && server.audioUrl != null -> "split"
+    server.url != null                                  -> "muxed"
+    server.audioUrl != null                             -> "audio-only"
+    else                                                -> "invalid"
+}
 data class Team(val name: String, val crestClass: String, val initials: String, val logo: String? = null)
 data class Event(
     val id: String,
@@ -174,27 +194,91 @@ class EventsRepository(private val preview: Boolean = false) {
             ?: return emptyList()
         val values = if (raw is JsonArray) raw else JsonArray(listOf(raw))
         return values.mapIndexedNotNull { index, element ->
-            val server = element as? JsonObject
-            val url = server?.pick("url", "src", "link", "stream", "m3u8")?.stringValue()
-                ?: element.stringValue()
-            url?.let {
-                val headersObj = server?.pick("headers") as? JsonObject
-                val headers = headersObj?.mapValues { it.value.stringValue() ?: "" } ?: emptyMap()
-                val useProxyRaw = server?.pick("useProxy")
-                val useProxy = useProxyRaw?.stringValue()?.toBooleanStrictOrNull() ?: (useProxyRaw as? JsonPrimitive)?.booleanOrNull ?: false
-                val delaySecondsRaw = server?.pick("delaySeconds", "delay")
-                val delaySeconds = delaySecondsRaw?.longValue()?.toInt()
-                
-                StreamServer(
-                    name = server?.pick("name", "label", "title", "server")?.stringValue()
-                        ?: "Server ${index + 1}",
-                    url = it,
-                    quality = server?.pick("quality", "q", "resolution")?.stringValue(),
-                    headers = headers,
-                    useProxy = useProxy,
-                    delaySeconds = delaySeconds
-                )
-            }
+            normalizeServerEntry(element, index)
+        }
+    }
+
+    /**
+     * Normalizes a single raw server/stream entry (either a JSON object or a plain URL string)
+     * into a [StreamServer].
+     *
+     * Accepted video field names : url, video, src, link, stream, file, m3u8
+     * Accepted audio field names : audio, audioUrl, audioSrc, audio_url, audioLink, track, soundtrack
+     *
+     * Rules:
+     *   • Only a video-ish field present  → muxed mode  (url = it, videoUrl = it, audioUrl = null)
+     *   • Both video-ish AND audio-ish    → split mode   (url = null, videoUrl = video, audioUrl = audio)
+     *   • Only an audio-ish field present → audio-only  (url = null, videoUrl = null, audioUrl = audio)
+     *   • Neither present                 → invalid → returns null (filtered out)
+     */
+    private fun normalizeServerEntry(element: JsonElement, index: Int): StreamServer? {
+        val server = element as? JsonObject
+
+        // ── Video field resolution ────────────────────────────────────────────
+        // Accept all documented field-name variants for the video/muxed URL.
+        val rawVideoUrl: String? = server
+            ?.pick("url", "video", "src", "link", "stream", "file", "m3u8")
+            ?.stringValue()
+            ?: element.stringValue() // bare string element is treated as a video URL
+
+        // ── Audio field resolution ────────────────────────────────────────────
+        // Accept all documented field-name variants for the audio URL.
+        val rawAudioUrl: String? = server
+            ?.pick("audio", "audioUrl", "audioSrc", "audio_url", "audioLink", "track", "soundtrack")
+            ?.stringValue()
+
+        // ── Shared metadata ───────────────────────────────────────────────────
+        val headersObj = server?.pick("headers") as? JsonObject
+        val headers = headersObj?.mapValues { it.value.stringValue() ?: "" } ?: emptyMap()
+        val useProxyRaw = server?.pick("useProxy")
+        val useProxy = useProxyRaw?.stringValue()?.toBooleanStrictOrNull()
+            ?: (useProxyRaw as? JsonPrimitive)?.booleanOrNull ?: false
+        val delaySecondsRaw = server?.pick("delaySeconds", "delay")
+        val delaySeconds = delaySecondsRaw?.longValue()?.toInt()
+        val name = server?.pick("name", "label", "title", "server")?.stringValue()
+            ?: "Server ${index + 1}"
+        val quality = server?.pick("quality", "q", "resolution")?.stringValue()
+
+        // ── Apply normalization rules ─────────────────────────────────────────
+        return when {
+            // MODE: split — both a video source AND a separate audio source are present.
+            rawVideoUrl != null && rawAudioUrl != null -> StreamServer(
+                name = name,
+                url = null,          // no muxed URL in split mode
+                videoUrl = rawVideoUrl,
+                audioUrl = rawAudioUrl,
+                quality = quality,
+                headers = headers,
+                useProxy = useProxy,
+                delaySeconds = delaySeconds,
+            )
+
+            // MODE: muxed — only a video/URL field is present (existing behaviour).
+            rawVideoUrl != null -> StreamServer(
+                name = name,
+                url = rawVideoUrl,   // the single muxed source
+                videoUrl = rawVideoUrl, // convenience copy for callers
+                audioUrl = null,
+                quality = quality,
+                headers = headers,
+                useProxy = useProxy,
+                delaySeconds = delaySeconds,
+            )
+
+            // MODE: audio-only — only an audio field is present.
+            rawAudioUrl != null -> StreamServer(
+                name = name,
+                url = null,
+                videoUrl = null,
+                audioUrl = rawAudioUrl,
+                quality = quality,
+                headers = headers,
+                useProxy = useProxy,
+                delaySeconds = delaySeconds,
+            )
+
+            // MODE: invalid — nothing playable; filter out.
+            else -> null
         }
     }
 
