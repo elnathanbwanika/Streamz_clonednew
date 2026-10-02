@@ -718,15 +718,11 @@ fun PlayerSettingsPanel(
                                 writeWindowBrightness(v)
                             },
                             valueRange = 5f..100f,
-                            enabled = !isAutoBrightness,
                             modifier = Modifier.weight(1f),
                             colors = SliderDefaults.colors(
                                 thumbColor = Orange,
                                 activeTrackColor = Orange,
                                 inactiveTrackColor = Color(0xFF2A1E14),
-                                disabledThumbColor = Orange.copy(alpha = 0.5f),
-                                disabledActiveTrackColor = Orange.copy(alpha = 0.5f),
-                                disabledInactiveTrackColor = Color(0xFF2A1E14),
                             ),
                         )
                         // Auto-brightness toggle button

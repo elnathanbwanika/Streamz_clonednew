@@ -243,8 +243,10 @@ fun PlayerScreen(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_STOP -> {
-                    resumeOnForeground = engine.player.playWhenReady
-                    engine.pause()
+                    if (!FloatingOverlayManager.isFloating.value) {
+                        resumeOnForeground = engine.player.playWhenReady
+                        engine.pause()
+                    }
                 }
                 Lifecycle.Event.ON_START -> {
                     if (resumeOnForeground) {
@@ -786,7 +788,7 @@ private fun EmptyContentState(icon: androidx.compose.ui.graphics.vector.ImageVec
 
 private fun enterFullscreen(activity: Activity?) {
     activity ?: return
-    activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+    activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
     activity.window.decorView.systemUiVisibility = (
         View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or

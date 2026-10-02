@@ -84,29 +84,107 @@ object FloatingOverlayManager {
             }
         }
 
-        val expandBtn = ImageView(context).apply {
-            setImageResource(android.R.drawable.ic_menu_revert)
-            setOnClickListener { hide(); onExpand() }
+        fun createBtn(iconRes: Int): ImageView {
+            return ImageView(context).apply {
+                setImageResource(iconRes)
+                setBackgroundColor(android.graphics.Color.parseColor("#66000000"))
+                setPadding(16, 16, 16, 16)
+                this.layoutParams = FrameLayout.LayoutParams(110, 110)
+            }
         }
-        val closeBtn = ImageView(context).apply {
-            setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+
+        // 1. Expand / back to app (top-left)
+        val expandBtn = createBtn(android.R.drawable.ic_menu_revert).apply {
+            setOnClickListener { hide(); onExpand() }
+            (layoutParams as FrameLayout.LayoutParams).apply {
+                gravity = Gravity.TOP or Gravity.START
+                setMargins(20, 20, 0, 0)
+            }
+        }
+
+        // 2. Close (top-right)
+        val closeBtn = createBtn(android.R.drawable.ic_menu_close_clear_cancel).apply {
             setOnClickListener { hide(); onClose() }
+            (layoutParams as FrameLayout.LayoutParams).apply {
+                gravity = Gravity.TOP or Gravity.END
+                setMargins(0, 20, 20, 0)
+            }
+        }
+
+        // 3. Play / Pause (bottom-centered)
+        val playPauseBtn = createBtn(
+            if (engine.player.playWhenReady) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play
+        ).apply {
+            setOnClickListener { 
+                if (engine.player.playWhenReady) engine.player.pause() else engine.player.play()
+                setImageResource(if (engine.player.playWhenReady) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
+            }
+            (layoutParams as FrameLayout.LayoutParams).apply {
+                gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+                setMargins(0, 0, 0, 20)
+            }
+        }
+
+        // Update play/pause button state dynamically
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                playPauseBtn.setImageResource(if (playWhenReady) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
+            }
+        }
+        engine.player.addListener(listener)
+
+        // 4. Drag to resize (bottom-right)
+        val resizeBtn = createBtn(android.R.drawable.ic_menu_zoom).apply {
+            (layoutParams as FrameLayout.LayoutParams).apply {
+                gravity = Gravity.BOTTOM or Gravity.END
+                setMargins(0, 0, 20, 20)
+            }
+        }
+
+        var resizeInitialX = 0f
+        var resizeInitialY = 0f
+        var initialWidth = 0
+        var initialHeight = 0
+        resizeBtn.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    resizeInitialX = event.rawX
+                    resizeInitialY = event.rawY
+                    initialWidth = layoutParams.width
+                    initialHeight = layoutParams.height
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = event.rawX - resizeInitialX
+                    val newWidth = (initialWidth + dx).toInt().coerceIn(300, 1500)
+                    val newHeight = (newWidth * 9f / 16f).toInt()
+                    layoutParams.width = newWidth
+                    layoutParams.height = newHeight
+                    wm.updateViewLayout(root, layoutParams)
+                    true
+                }
+                else -> false
+            }
         }
 
         root.addView(playerView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
         root.addView(borderView, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
-        
-        val topBar = FrameLayout(context)
-        topBar.addView(expandBtn, FrameLayout.LayoutParams(120, 120).apply { gravity = Gravity.START; setMargins(20,20,0,0) })
-        topBar.addView(closeBtn, FrameLayout.LayoutParams(120, 120).apply { gravity = Gravity.END; setMargins(0,20,20,0) })
-        root.addView(topBar, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.WRAP_CONTENT).apply { gravity = Gravity.TOP })
+        root.addView(expandBtn)
+        root.addView(closeBtn)
+        root.addView(playPauseBtn)
+        root.addView(resizeBtn)
 
+        // Dragging logic for the main window (attached to root)
         var initialX = 0
         var initialY = 0
         var initialTouchX = 0f
         var initialTouchY = 0f
 
-        root.setOnTouchListener { _, event ->
+        root.setOnTouchListener { v, event ->
+            // Skip dragging if touching the resize button
+            if (event.x > root.width - 150 && event.y > root.height - 150) {
+                return@setOnTouchListener false
+            }
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     initialX = layoutParams.x
@@ -124,6 +202,14 @@ object FloatingOverlayManager {
                 else -> false
             }
         }
+        
+        // Remove listener on hide
+        root.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) {}
+            override fun onViewDetachedFromWindow(v: View) {
+                engine.player.removeListener(listener)
+            }
+        })
 
         wm.addView(root, layoutParams)
         overlayView = root
