@@ -103,6 +103,7 @@ fun PlayerOverlayPreview() {
                 onServerSelect = {},
                 onVolumeChange = {},
                 onFullscreenToggle = {},
+                onFloatWindow = {},
                 onInteraction = {},
             )
         }
@@ -159,6 +160,7 @@ fun ServersMenuScrollPreview() {
                     onServerSelect = { state.selectedServerIndex = it; state.closeMenus() },
                     onVolumeChange = {},
                     onFullscreenToggle = {},
+                onFloatWindow = {},
                     onInteraction = {},
                     modifier = Modifier.matchParentSize(),
                 )

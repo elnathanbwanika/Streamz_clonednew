@@ -383,6 +383,8 @@ fun PlayerScreen(
     }
 
     val exoPlayer = engine.player
+    val isFs = controlsState.isFullscreen
+
     Column(
         Modifier
             .fillMaxSize()
@@ -403,26 +405,27 @@ fun PlayerScreen(
                 )
             }
     ) {
-        PlayerBar(
-            target = target,
-            onBack = onBack,
-        )
+        if (!isFs) {
+            PlayerBar(
+                target = target,
+                onBack = onBack,
+            )
+        }
 
         // ── Video player with overlaid controls ───────────────────────────
         Box(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp)
-                .aspectRatio(16f / 9f)
-                .shadow(
+                .then(if (isFs) Modifier.weight(1f) else Modifier.padding(horizontal = 12.dp).aspectRatio(16f / 9f))
+                .then(if (isFs) Modifier else Modifier.shadow(
                     elevation = 24.dp,
                     shape = RoundedCornerShape(16.dp),
                     ambientColor = LinkColors.OrangePrimary.copy(alpha = 0.10f),
                     spotColor = LinkColors.OrangePrimary.copy(alpha = 0.10f)
-                )
-                .background(Color.Black, RoundedCornerShape(16.dp))
-                .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.30f), RoundedCornerShape(16.dp))
-                .clip(RoundedCornerShape(16.dp))
+                ))
+                .background(Color.Black, RoundedCornerShape(if (isFs) 0.dp else 16.dp))
+                .then(if (isFs) Modifier else Modifier.border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.30f), RoundedCornerShape(16.dp)))
+                .clip(RoundedCornerShape(if (isFs) 0.dp else 16.dp))
                 .pointerInput(controlsState.isLocked, duration, settings.skipLength) {
                     detectTapGestures(
                         onDoubleTap = { offset ->
@@ -444,32 +447,42 @@ fun PlayerScreen(
                     )
                 },
         ) {
-            // 1. Video Surface
-            AndroidView(
-                factory = { context ->
-                    PlayerView(context).apply {
-                        useController = false
-                        resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-                        this.player = exoPlayer
-                        setShutterBackgroundColor(android.graphics.Color.BLACK)
-                        // !! Critical: disable PlayerView's built-in lifecycle observer
-                        // that auto-pauses the player on Activity onPause. Without this,
-                        // PlayerView internally calls player.pause() whenever it detects
-                        // a lifecycle pause event, fighting with our own playback control.
-                        keepScreenOn = true
-
-                        clipToOutline = true
-                        outlineProvider = object : android.view.ViewOutlineProvider() {
-                            override fun getOutline(view: android.view.View, outline: android.graphics.Outline) {
-                                val radius = 16f * view.resources.displayMetrics.density
-                                outline.setRoundRect(0, 0, view.width, view.height, radius)
+            // 1. Video Surface or Float Placeholder
+            val isFloating by FloatingOverlayManager.isFloating
+            
+            if (isFloating) {
+                Box(Modifier.fillMaxSize().clickable { 
+                    FloatingOverlayManager.hide() 
+                }, contentAlignment = Alignment.Center) {
+                    EmptyContentState(Icons.Default.PictureInPictureAlt, "Playing in a floating window")
+                }
+            } else {
+                AndroidView(
+                    factory = { context ->
+                        PlayerView(context).apply {
+                            useController = false
+                            resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                            this.player = exoPlayer
+                            setShutterBackgroundColor(android.graphics.Color.BLACK)
+                            // !! Critical: disable PlayerView's built-in lifecycle observer
+                            // that auto-pauses the player on Activity onPause. Without this,
+                            // PlayerView internally calls player.pause() whenever it detects
+                            // a lifecycle pause event, fighting with our own playback control.
+                            keepScreenOn = true
+    
+                            clipToOutline = true
+                            outlineProvider = object : android.view.ViewOutlineProvider() {
+                                override fun getOutline(view: android.view.View, outline: android.graphics.Outline) {
+                                    val radius = 16f * view.resources.displayMetrics.density
+                                    outline.setRoundRect(0, 0, view.width, view.height, radius)
+                                }
                             }
                         }
-                    }
-                },
-                update = { it.player = exoPlayer },
-                modifier = Modifier.fillMaxSize(),
-            )
+                    },
+                    update = { it.player = exoPlayer },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
 
 
             // 1.5. Scrim
@@ -581,6 +594,20 @@ fun PlayerScreen(
                         enterFullscreen(activity)
                     }
                 },
+                onFloatWindow = {
+                    FloatingOverlayManager.show(
+                        context = context,
+                        engine = engine,
+                        onClose = { engine.player.stop() },
+                        onExpand = { 
+                            FloatingOverlayManager.hide() 
+                            val intent = android.content.Intent(context, MainActivity::class.java).apply {
+                                addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                            }
+                            context.startActivity(intent)
+                        }
+                    )
+                },
                 onInteraction = ::touchControls,
                 modifier = Modifier.matchParentSize(),
             )
@@ -623,9 +650,11 @@ fun PlayerScreen(
 
 
         }
-
+        
         // ── Related Content (below video) ─────────────────────────────────
-        RelatedContent(repository, target, onTarget)
+        if (!isFs) {
+            RelatedContent(repository, target, onTarget)
+        }
     }
 
     // Main server-chooser modal (from error overlay / home screen)
@@ -757,7 +786,7 @@ private fun EmptyContentState(icon: androidx.compose.ui.graphics.vector.ImageVec
 
 private fun enterFullscreen(activity: Activity?) {
     activity ?: return
-    activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+    activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
     activity.window.decorView.systemUiVisibility = (
         View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
@@ -765,11 +794,3 @@ private fun enterFullscreen(activity: Activity?) {
         )
 }
 
-private fun Context.findActivity(): Activity? {
-    var current = this
-    while (current is android.content.ContextWrapper) {
-        if (current is Activity) return current
-        current = current.baseContext
-    }
-    return current as? Activity
-}

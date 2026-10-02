@@ -58,6 +58,18 @@ import androidx.compose.ui.unit.*
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.platform.LocalContext
+import android.app.Activity
+
+// findActivity() — shared helper so PlayerControls doesn't need to import PlayerScreen internals
+internal fun android.content.Context.findActivity(): Activity? {
+    var c = this
+    while (c is android.content.ContextWrapper) {
+        if (c is Activity) return c
+        c = c.baseContext
+    }
+    return null
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // State holder
@@ -565,6 +577,7 @@ fun PlayerSettingsPanel(
     onVolumeChange: (Float) -> Unit,
     onFullscreenToggle: () -> Unit,
     onLockScreen: () -> Unit,
+    onFloatWindow: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     if (!visible) return
@@ -590,10 +603,67 @@ fun PlayerSettingsPanel(
         }
     }
 
+    val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    val audioManager = remember(context) {
+        context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+    }
+
+    // ── Volume: read current system media volume on open ────────────────────
     var openPopover by remember { mutableStateOf(PopoverType.None) }
-    var brightness by remember { mutableFloatStateOf(70f) }
-    var isAutoBrightness by remember { mutableStateOf(true) }
-    val systemBrightness = 70f   // Fixed system reference value (mockup = 70)
+    val maxVol = remember { audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC).toFloat() }
+
+    // Internal slider state (0..100) driven by system volume; updated by observer
+    var volSlider by remember {
+        val cur = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+        mutableFloatStateOf(cur / maxVol * 100f)
+    }
+
+    // Observe hardware-button volume changes so the slider stays in sync
+    // TODO: ContentObserver is the reliable cross-API way; re-read every 500 ms as a simpler fallback
+    LaunchedEffect(openPopover) {
+        if (openPopover == PopoverType.Volume) {
+            while (openPopover == PopoverType.Volume) {
+                val cur = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+                val pct = cur / maxVol * 100f
+                if (kotlin.math.abs(pct - volSlider) > 0.5f) volSlider = pct
+                kotlinx.coroutines.delay(500)
+            }
+        }
+    }
+
+    // ── Brightness: read current window brightness on open ──────────────────
+    // No special permission needed — we only set the Activity's own window brightness.
+    fun readWindowBrightness(): Float {
+        val lp = activity?.window?.attributes ?: return 70f
+        // screenBrightness is -1.0 when the system controls it, 0.0..1.0 otherwise
+        return if (lp.screenBrightness < 0f) 70f
+               else (lp.screenBrightness * 100f).coerceIn(5f, 100f)
+    }
+
+    fun writeWindowBrightness(pct: Float) {
+        val win = activity?.window ?: return
+        val lp = win.attributes
+        lp.screenBrightness = (pct / 100f).coerceIn(0.05f, 1.0f)
+        win.attributes = lp
+    }
+
+    fun enableAutoBrightness() {
+        val win = activity?.window ?: return
+        val lp = win.attributes
+        // -1.0 hands control back to the system (Android constant: BRIGHTNESS_OVERRIDE_NONE)
+        lp.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        win.attributes = lp
+    }
+
+    var brightness by remember { mutableFloatStateOf(readWindowBrightness()) }
+    // Auto is ON initially only when the window hasn't been overridden
+    var isAutoBrightness by remember {
+        val lp = activity?.window?.attributes
+        mutableStateOf(lp == null || lp.screenBrightness < 0f)
+    }
+    // systemBrightness = current brightness as reported on open (used to snap back on auto re-enable)
+    val systemBrightness = remember { readWindowBrightness() }
 
     Popup(
         popupPositionProvider = positionProvider,
@@ -611,8 +681,18 @@ fun PlayerSettingsPanel(
                 Box(Modifier.height(ItemSize), contentAlignment = Alignment.Center) {
                     PanelPopover(visible = openPopover == PopoverType.Volume) {
                         Slider(
-                            value = (volume * 100f).coerceIn(0f, 100f),
+                            // Use the live volSlider (kept in sync with hardware buttons)
+                            value = volSlider.coerceIn(0f, 100f),
                             onValueChange = { v ->
+                                volSlider = v
+                                // Write system media volume immediately
+                                val index = (v / 100f * maxVol).toInt()
+                                audioManager.setStreamVolume(
+                                    android.media.AudioManager.STREAM_MUSIC,
+                                    index,
+                                    0, // no UI flags — our slider IS the UI
+                                )
+                                // Mirror to ExoPlayer volume (0..1)
                                 onVolumeChange(v / 100f)
                             },
                             valueRange = 0f..100f,
@@ -634,6 +714,8 @@ fun PlayerSettingsPanel(
                             onValueChange = { v ->
                                 brightness = v
                                 isAutoBrightness = false
+                                // Write to the Activity window — no permission needed
+                                writeWindowBrightness(v)
                             },
                             valueRange = 5f..100f,
                             enabled = !isAutoBrightness,
@@ -658,6 +740,8 @@ fun PlayerSettingsPanel(
                                 .clickable {
                                     isAutoBrightness = true
                                     brightness = systemBrightness
+                                    // Hand brightness back to the OS
+                                    enableAutoBrightness()
                                 },
                             contentAlignment = Alignment.Center,
                         ) {
@@ -739,7 +823,7 @@ fun PlayerSettingsPanel(
                 ) {
                     openPopover = PopoverType.None
                     onDismiss()
-                    // PiP invocation handled by the caller via onFloatWindow
+                    onFloatWindow()
                 }
             }
         }
@@ -942,6 +1026,7 @@ fun PlayerOverlay(
     onServerSelect: (Int) -> Unit,
     onVolumeChange: (Float) -> Unit,
     onFullscreenToggle: () -> Unit,
+    onFloatWindow: () -> Unit,
     onInteraction: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -1101,6 +1186,10 @@ fun PlayerOverlay(
             onLockScreen = {
                 state.isLocked = true
                 state.closeMenus()
+            },
+            onFloatWindow = {
+                state.closeMenus()
+                onFloatWindow()
             },
             onDismiss = { state.closeMenus() },
         )

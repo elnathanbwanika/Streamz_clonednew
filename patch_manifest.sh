@@ -1,0 +1,2 @@
+sed -i '/<uses-permission android:name="android.permission.INTERNET" \/>/a \    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" \/>' app/src/main/AndroidManifest.xml
+sed -i 's/android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"/android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode"/' app/src/main/AndroidManifest.xml
