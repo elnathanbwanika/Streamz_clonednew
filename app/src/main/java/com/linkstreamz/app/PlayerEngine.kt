@@ -150,7 +150,7 @@ class PlayerEngine(
                     val effectiveDelay = server.delaySeconds ?: globalDelaySeconds
 
                     val isMp4 = muxedUrl.substringBefore('?').endsWith(".mp4", ignoreCase = true)
-                    val needsProxy = !isMp4 && (useProxy || effectiveDelay > 0)
+                    val needsProxy = !isMp4 && !isCustom && (useProxy || effectiveDelay > 0)
 
                     val playUrl: String = if (needsProxy) {
                         // proxy.start() uses runBlocking internally → must run on IO, not Main
