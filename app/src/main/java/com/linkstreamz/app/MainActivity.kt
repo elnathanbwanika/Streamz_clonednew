@@ -36,6 +36,18 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
+        // YT-EXTRACT: Initialize NewPipeExtractor with our OkHttp downloader (Step 2)
+        try {
+            val okClient = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            org.schabi.newpipe.extractor.NewPipe.init(NewPipeDownloader(okClient))
+            org.schabi.newpipe.extractor.ServiceList.YouTube // force-load service
+        } catch (e: Exception) {
+            AppLogger.e("MainActivity", "Failed to init NewPipe", e)
+        }
+        
         val prefs = getSharedPreferences("crash_prefs", Context.MODE_PRIVATE)
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, exception ->

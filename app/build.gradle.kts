@@ -53,7 +53,7 @@ val vCode = versionProps["BUILD"].toString().toInt()
 
 android {
     namespace = "com.linkstreamz.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.linkstreamz.app"
@@ -79,6 +79,7 @@ android {
     }
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
@@ -93,6 +94,9 @@ android {
 }
 
 dependencies {
+    // YT-EXTRACT: NewPipeExtractor (pure Java — no Kotlin metadata conflict)
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.0.4")
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)
     androidTestImplementation(composeBom)

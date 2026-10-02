@@ -140,6 +140,10 @@ fun PlayerScreen(
     var error by remember { mutableStateOf<String?>(null) }
     var serverMenu by remember { mutableStateOf(false) }
     var seekMessage by remember { mutableStateOf<String?>(null) }
+    var isExtracting by remember { mutableStateOf(false) }
+    // YT-EXTRACT: Set by loadStream to signal LaunchedEffect to run extraction
+    var ytExtractId by remember { mutableStateOf<String?>(null) }
+    var ytExtractStream by remember { mutableStateOf<StreamServer?>(null) }
 
     // Auto-hide controls state
     var controlsVisible by remember { mutableStateOf(true) }
@@ -149,7 +153,7 @@ fun PlayerScreen(
     val engine = remember {
         PlayerEngine(
             context = context,
-            client = sharedOkHttpClient,
+            baseClient = sharedOkHttpClient,
             globalDelaySeconds = settings.streamDelaySeconds,
         ) {
             // onFallback — runs on main thread via engine's scope
@@ -309,11 +313,26 @@ fun PlayerScreen(
         error = null
         allServersFailed = false
         val isCustom = target is CustomTarget
-        engine.loadStream(stream, isCustom, settings.autoplay)
-        // Apply mute immediately — safe to set on player any time
-        engine.player.volume = if (muted) 0f else 1f
-        // Note: playWhenReady is set inside engine.loadStream() after prepare().
-        // Setting it here would be overwritten by the async coroutine.
+
+        // YT-EXTRACT: Detect YouTube URLs at load time — branch to async extraction
+        val streamUrl = stream.url
+        if (streamUrl != null && YouTubeUrl.isYouTubeUrl(streamUrl)) {
+            val videoId = YouTubeUrl.youtubeVideoId(streamUrl)
+            if (videoId == null) {
+                error = "Invalid YouTube URL"
+                return
+            }
+            // Signal the LaunchedEffect to begin extraction
+            ytExtractStream = stream
+            ytExtractId = videoId
+        } else {
+            // YT-EXTRACT: Normal (non-YouTube) playback path — unchanged
+            ytExtractId = null
+            ytExtractStream = null
+            isExtracting = false
+            engine.loadStream(stream, isCustom, settings.autoplay)
+            engine.player.volume = if (muted) 0f else 1f
+        }
     }
 
     // ── Player event listener ────────────────────────────────────────────────
@@ -335,6 +354,57 @@ fun PlayerScreen(
     // ── Effects ──────────────────────────────────────────────────────────────
     LaunchedEffect(currentServer, previewMode) {
         if (!previewMode) loadStream(currentServer)
+    }
+
+    // YT-EXTRACT: Async extraction — runs when ytExtractId changes (set by loadStream).
+    // This LaunchedEffect is inside the composable scope so scope/launch are available.
+    // Cancels automatically if ytExtractId changes (user switches video) or composable leaves.
+    LaunchedEffect(ytExtractId) {
+        val videoId = ytExtractId ?: return@LaunchedEffect
+        val stream = ytExtractStream ?: return@LaunchedEffect
+        val isCustom = target is CustomTarget
+
+        isExtracting = true
+        error = null
+
+        val result = YouTubeExtractor.extract(videoId)
+
+        // Guard: if server changed while extracting, discard this result
+        if (ytExtractId != videoId) return@LaunchedEffect
+
+        isExtracting = false
+
+        when (result) {
+            is YtResult.Muxed -> {
+                // YT-EXTRACT: muxed — single URL carries video+audio, maps to server.url
+                val ephemeral = stream.copy(url = result.url, videoUrl = null, audioUrl = null)
+                engine.loadStream(ephemeral, isCustom, settings.autoplay)
+                engine.player.volume = if (muted) 0f else 1f
+            }
+            is YtResult.Split -> {
+                // YT-EXTRACT: split — separate video+audio URLs, maps to server.videoUrl+audioUrl
+                val ephemeral = stream.copy(url = null, videoUrl = result.videoUrl, audioUrl = result.audioUrl)
+                engine.loadStream(ephemeral, isCustom, settings.autoplay)
+                engine.player.volume = if (muted) 0f else 1f
+            }
+            is YtResult.Failure -> {
+                error = when (result.reason) {
+                    YtError.FATAL -> "This video is not available. The app may need an update."
+                    YtError.RECAPTCHA -> "YouTube requires a ReCaptcha solve. Please try again."
+                    YtError.RATE_LIMIT -> "YouTube is rate-limiting. Please try again in a few minutes."
+                    YtError.AGE_RESTRICTED -> "This video has an age restriction and cannot be played here."
+                    YtError.GEO_RESTRICTED -> "This video is not available in your region."
+                    YtError.LIVE_STREAM -> "Live YouTube streams are not supported in this app."
+                    YtError.NO_STREAMS -> "Could not load this video. Try another server."
+                    YtError.UNKNOWN -> "Could not load this video. Try another server."
+                }
+                // Try next server before showing error card
+                if (target.servers.size > 1 && target.servers.indexOf(stream) < target.servers.lastIndex) {
+                    error = null
+                    triggerFallback()
+                }
+            }
+        }
     }
 
     // ── Same-server retry (triggered by triggerFallback when retries remain) ─
@@ -501,9 +571,9 @@ fun PlayerScreen(
                     )
             )
 
-            // 1.7. Syncing / buffering overlay — fades out when playback starts
+            // 1.7. Syncing / buffering / extracting overlay — fades out when playback starts
             androidx.compose.animation.AnimatedVisibility(
-                visible = isSyncing && !playing,
+                visible = isExtracting || (isSyncing && !playing),
                 enter = fadeIn(tween(300)),
                 exit = fadeOut(tween(600)),
                 modifier = Modifier.fillMaxSize(),
@@ -524,7 +594,14 @@ fun PlayerScreen(
                             strokeWidth = 2.5.dp,
                         )
                         val delayVal = settings.streamDelaySeconds
-                        if (delayVal > 0) {
+                        if (isExtracting) {
+                            Text(
+                                "Extracting YouTube stream...",
+                                color = LinkColors.MutedText,
+                                fontSize = 12.sp,
+                                fontFamily = MonoFont,
+                            )
+                        } else if (delayVal > 0) {
                             Text(
                                 "Syncing to stay ${delayVal}s behind live...",
                                 color = LinkColors.MutedText,

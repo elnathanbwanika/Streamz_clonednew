@@ -36,10 +36,19 @@ private const val STALL_TICKS_THRESHOLD = 80
 
 class PlayerEngine(
     private val context: Context,
-    private val client: OkHttpClient,
+    private val baseClient: OkHttpClient,
     private val globalDelaySeconds: Int,
     private val onFallback: () -> Unit
 ) {
+    private val client = baseClient.newBuilder().addInterceptor { chain ->
+        val req = chain.request()
+        if (req.url.host.contains("googlevideo.com")) {
+            chain.proceed(req.newBuilder().header("Referer", "https://www.youtube.com/").build())
+        } else {
+            chain.proceed(req)
+        }
+    }.build()
+
     val player: ExoPlayer = ExoPlayer.Builder(context)
         .setLoadControl(
             DefaultLoadControl.Builder()
