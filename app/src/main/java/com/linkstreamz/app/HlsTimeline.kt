@@ -35,6 +35,13 @@ class HlsTimeline(
     val syncing = MutableStateFlow(true)
     private var stopped = false
 
+    companion object {
+        /** Retry playlist fetches this many times before skipping a poll cycle. */
+        const val PLAYLIST_FETCH_RETRIES = 3
+        /** Live window: how many segments we expose to ExoPlayer at once. */
+        const val LIVE_WINDOW_SEGMENTS = 8
+    }
+
     fun start() {
         scope.launch {
             while (!stopped && isLive) {
@@ -56,18 +63,36 @@ class HlsTimeline(
             .headers(headers.toHeaders())
             .build()
 
-        val body = suspendCancellableCoroutine<String?> { cont ->
-            client.newCall(request).enqueue(object : Callback {
-                override fun onFailure(call: Call, e: IOException) {
-                    if (cont.isActive) cont.resume(null)
-                }
-                override fun onResponse(call: Call, response: Response) {
-                    if (cont.isActive) {
-                        cont.resume(response.body?.string())
+        var attempt = 0
+        var delayMs = 500L
+        var body: String? = null
+        while (attempt <= PLAYLIST_FETCH_RETRIES) {
+            body = suspendCancellableCoroutine { cont ->
+                val call = client.newCall(request)
+                cont.invokeOnCancellation { call.cancel() }
+                call.enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        if (cont.isActive) cont.resume(null)
                     }
-                }
-            })
-        } ?: return
+                    override fun onResponse(call: Call, response: Response) {
+                        if (cont.isActive) {
+                            cont.resume(if (response.isSuccessful) response.body?.string() else null)
+                        }
+                    }
+                })
+            }
+            if (body != null) break
+            attempt++
+            if (attempt <= PLAYLIST_FETCH_RETRIES) {
+                AppLogger.d("Timeline", "Playlist fetch failed (attempt $attempt/$PLAYLIST_FETCH_RETRIES), retry in ${delayMs}ms")
+                delay(delayMs)
+                delayMs = (delayMs * 2).coerceAtMost(4_000L)
+            }
+        }
+        if (body == null) {
+            AppLogger.e("Timeline", "All playlist fetch retries exhausted for $playlistUrl")
+            return
+        }
 
         parsePlaylist(body)
     }
@@ -192,8 +217,8 @@ class HlsTimeline(
             return emptyResult.toString()
         }
 
-        // Keep last 6 segments for live
-        val window = if (isLive) eligibleSegments.takeLast(6) else eligibleSegments
+        // Keep last LIVE_WINDOW_SEGMENTS segments for live (8 = ~80s at 10s/seg for HD runway)
+        val window = if (isLive) eligibleSegments.takeLast(LIVE_WINDOW_SEGMENTS) else eligibleSegments
         
         result.append("#EXT-X-MEDIA-SEQUENCE:${window.first().sequence}\n")
         

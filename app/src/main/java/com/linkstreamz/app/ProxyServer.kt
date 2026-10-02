@@ -128,16 +128,40 @@ class StreamProxyServer(
         call.respondText(playlist, ContentType.parse("application/vnd.apple.mpegurl"))
     }
 
-    private suspend fun executeRequest(request: Request): Response? {
-        return suspendCancellableCoroutine { cont ->
-            client.newCall(request).enqueue(object : Callback {
-                override fun onFailure(call: Call, e: IOException) {
-                    if (cont.isActive) cont.resume(null)
-                }
-                override fun onResponse(call: Call, response: Response) {
-                    if (cont.isActive) cont.resume(response)
-                }
-            })
+    private suspend fun executeRequest(request: Request, maxRetries: Int = MAX_SEGMENT_RETRIES): Response? {
+        var attempt = 0
+        var delayMs = 1_000L
+        while (attempt <= maxRetries) {
+            val response = suspendCancellableCoroutine<Response?> { cont ->
+                val call = client.newCall(request)
+                cont.invokeOnCancellation { call.cancel() }
+                call.enqueue(object : Callback {
+                    override fun onFailure(call: Call, e: IOException) {
+                        if (cont.isActive) cont.resume(null)
+                    }
+                    override fun onResponse(call: Call, response: Response) {
+                        if (cont.isActive) cont.resume(response)
+                    }
+                })
+            }
+            // Treat a null (network error) or server-error response as retryable
+            if (response != null && (response.isSuccessful || response.code in 400..499)) {
+                // 4xx errors are the server's definitive answer — don't retry those
+                return response
+            }
+            attempt++
+            if (attempt <= maxRetries) {
+                AppLogger.d("Proxy", "Request failed (attempt $attempt/$maxRetries), retrying in ${delayMs}ms: ${request.url}")
+                kotlinx.coroutines.delay(delayMs)
+                delayMs = (delayMs * 2).coerceAtMost(8_000L)
+            }
         }
+        AppLogger.e("Proxy", "All $maxRetries retries exhausted for ${request.url}")
+        return null
+    }
+
+    companion object {
+        /** Retry each segment/playlist fetch up to this many times before giving up. */
+        const val MAX_SEGMENT_RETRIES = 3
     }
 }

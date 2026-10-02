@@ -156,6 +156,7 @@ fun SettingsScreen(
         onRefresh            = onRefresh,
         onReset              = viewModel::resetSettings,
         onCustomStream       = onCustomStream,
+        onCustomUrlChange    = viewModel::setCustomUrl,
     )
 }
 
@@ -179,6 +180,7 @@ fun SettingsScreenContent(
     onRefresh: suspend () -> Unit,
     onReset: () -> Unit,
     onCustomStream: (String) -> Unit,
+    onCustomUrlChange: (String) -> Unit,
     initialExpandedSection: String? = "PLAYBACK",
 ) {
     var expandedSection by remember { mutableStateOf(initialExpandedSection) }
@@ -334,8 +336,6 @@ fun SettingsScreenContent(
 
             // ── CUSTOM STREAM ─────────────────────────────────────────────────
             item {
-                // customUrl is intentionally NOT persisted – lives only in composition.
-                var customUrl      by remember { mutableStateOf("") }
                 val focusRequester = remember { FocusRequester() }
 
                 SettingsSectionCard(
@@ -351,16 +351,16 @@ fun SettingsScreenContent(
                         icon     = Icons.Default.Link,
                         title    = "Play your own link",
                         subtitle = "Paste an HLS (.m3u8) or MP4 URL. " +
-                                   "It plays instantly and isn't saved.",
+                                   "It plays instantly and is saved locally.",
                     )
                     Spacer(Modifier.height(10.dp))
                     BrandUrlField(
-                        value          = customUrl,
-                        onValueChange  = { customUrl = it },
+                        value          = uiState.customUrl,
+                        onValueChange  = onCustomUrlChange,
                         focusRequester = focusRequester,
                         onGo           = {
-                            if (customUrl.isBlank()) focusRequester.requestFocus()
-                            else onCustomStream(customUrl.trim())
+                            if (uiState.customUrl.isBlank()) focusRequester.requestFocus()
+                            else onCustomStream(uiState.customUrl.trim())
                         },
                     )
                     Spacer(Modifier.height(10.dp))
@@ -368,8 +368,8 @@ fun SettingsScreenContent(
                         text    = "Play now",
                         icon    = Icons.Default.PlayArrow,
                         onClick = {
-                            if (customUrl.isBlank()) focusRequester.requestFocus()
-                            else onCustomStream(customUrl.trim())
+                            if (uiState.customUrl.isBlank()) focusRequester.requestFocus()
+                            else onCustomStream(uiState.customUrl.trim())
                         },
                     )
                 }
@@ -426,7 +426,7 @@ fun SettingsScreenContent(
             item {
                 Spacer(Modifier.height(14.dp))
                 Text(
-                    text          = "LINK STREAMZ · v1.0",
+                    text          = "LINK STREAMZ · v${BuildConfig.VERSION_NAME}",
                     color         = LinkColors.FooterText,
                     fontFamily    = MonoFont,
                     fontSize      = 11.sp,
@@ -1003,6 +1003,7 @@ fun PreviewSettingsPlaybackOpen() {
             onRefresh              = {},
             onReset                = {},
             onCustomStream         = {},
+            onCustomUrlChange      = {},
             initialExpandedSection = "PLAYBACK",
         )
     }
@@ -1029,6 +1030,7 @@ fun PreviewSettingsAllCollapsed() {
             onRefresh              = {},
             onReset                = {},
             onCustomStream         = {},
+            onCustomUrlChange      = {},
             initialExpandedSection = null,            // all collapsed
         )
     }

@@ -51,9 +51,9 @@ import java.util.concurrent.TimeUnit
 // ── Shared OkHttp client (one per process, connection pooling) ─────────────────
 private val sharedOkHttpClient: OkHttpClient by lazy {
     OkHttpClient.Builder()
-        .connectionPool(ConnectionPool(5, 5, TimeUnit.MINUTES))
-        .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
+        .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
         .retryOnConnectionFailure(true)
         .build()
@@ -117,6 +117,7 @@ fun PlayerScreen(
     val context = LocalContext.current
     val activity = context.findActivity()
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
 
     val server = target.selectedServer ?: target.servers.firstOrNull()
     var currentServer by remember(target, server) { mutableStateOf(server) }
@@ -126,6 +127,9 @@ fun PlayerScreen(
     var fallbackIndex by remember { mutableIntStateOf(0) }
     var userPickedManually by remember { mutableStateOf(false) }
     var allServersFailed by remember { mutableStateOf(false) }
+
+    // Per-server retry: how many times we've retried the current server before switching
+    var retryCount by remember { mutableIntStateOf(0) }
 
     var locked by remember { mutableStateOf(false) }
     var playing by remember { mutableStateOf(false) }
@@ -156,8 +160,28 @@ fun PlayerScreen(
     val isSyncing by engine.isSyncing.collectAsStateWithLifecycle()
 
     // ── Fallback logic ───────────────────────────────────────────────────────
+    /** How many times to retry the same server before moving to the next. */
+    val MAX_SERVER_RETRIES = 3
+
+    // Incremented each time we want to schedule a same-server retry.
+    // LaunchedEffect(retryTrigger) below watches this and does the delayed reload.
+    var retryTrigger by remember { mutableIntStateOf(0) }
+
     fun triggerFallback() {
         if (allServersFailed) return
+
+        // If we haven't exhausted retries for this server, retry it in place
+        if (retryCount < MAX_SERVER_RETRIES) {
+            retryCount++
+            val label = currentServer?.name?.ifBlank { "current server" } ?: "current server"
+            AppLogger.d("Engine", "Retrying $label (attempt $retryCount/$MAX_SERVER_RETRIES)")
+            // Signal the LaunchedEffect below to schedule the reload after a short delay
+            retryTrigger++
+            return
+        }
+
+        // Retries exhausted — advance to the next server
+        retryCount = 0
         if (userPickedManually) {
             // Even manually-picked server failed — still try to fallback but allow it
         }
@@ -309,6 +333,13 @@ fun PlayerScreen(
     // ── Effects ──────────────────────────────────────────────────────────────
     LaunchedEffect(currentServer?.url, previewMode) {
         if (!previewMode) loadStream(currentServer)
+    }
+
+    // ── Same-server retry (triggered by triggerFallback when retries remain) ─
+    LaunchedEffect(retryTrigger) {
+        if (retryTrigger == 0) return@LaunchedEffect // skip initial composition
+        delay(2_000L) // brief pause lets transient network errors clear
+        loadStream(currentServer)
     }
 
     LaunchedEffect(Unit) {
@@ -529,6 +560,7 @@ fun PlayerScreen(
                 onServerSelect = { idx ->
                     val picked = target.servers.getOrNull(idx) ?: return@PlayerOverlay
                     userPickedManually = true
+                    retryCount = 0  // fresh retries on the newly picked server
                     currentServer = picked
                 },
                 onVolumeChange = { v ->
@@ -576,6 +608,7 @@ fun PlayerScreen(
                             error = null
                             allServersFailed = false
                             fallbackIndex = 0
+                            retryCount = 0
                             userPickedManually = false
                             loadStream(currentServer)
                         }) { Text("Try again") }
@@ -598,6 +631,7 @@ fun PlayerScreen(
             onDismiss = { serverMenu = false },
             onPick = {
                 userPickedManually = true
+                retryCount = 0  // fresh retries on the newly picked server
                 currentServer = it
                 serverMenu = false
             }

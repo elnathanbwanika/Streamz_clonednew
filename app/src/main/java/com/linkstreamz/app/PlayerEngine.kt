@@ -16,19 +16,37 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import androidx.media3.exoplayer.DefaultLoadControl
 
 /**
  * Owns a single ExoPlayer instance for the duration of one player screen session.
  * Handles direct playback (with headers), proxied playback (with delay), stall detection,
  * and fallback triggering. Call [release] when the screen is disposed.
  */
+
+// Stall: how many consecutive 250 ms ticks at the same position triggers fallback.
+// 80 × 250 ms = 20 s — generous for HD segments that take time to download.
+private const val STALL_TICKS_THRESHOLD = 80
+
 class PlayerEngine(
     private val context: Context,
     private val client: OkHttpClient,
     private val globalDelaySeconds: Int,
     private val onFallback: () -> Unit
 ) {
-    val player: ExoPlayer = ExoPlayer.Builder(context).build()
+    val player: ExoPlayer = ExoPlayer.Builder(context)
+        .setLoadControl(
+            DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                    /* minBufferMs      */ 8_000,   // 8 s min — enough for HD segments
+                    /* maxBufferMs      */ 120_000,  // 2 min max — smooth HD without re-fetch
+                    /* bufferForPlaybackMs           */ 3_000,  // start playing after 3 s ready
+                    /* bufferForPlaybackAfterRebufferMs */ 5_000 // 5 s to recover after a stall
+                )
+                .setPrioritizeTimeOverSizeThresholds(true) // prefer keeping time over byte count
+                .build()
+        )
+        .build()
 
     init {
         player.addListener(object : androidx.media3.common.Player.Listener {
@@ -134,12 +152,18 @@ class PlayerEngine(
                 currentProxy != null -> {
                     // Proxy handles headers; player just talks to localhost
                     DefaultHttpDataSource.Factory()
+                        .setConnectTimeoutMs(30000)
+                        .setReadTimeoutMs(30000)
                 }
                 server.headers.isNotEmpty() -> {
                     OkHttpDataSource.Factory(client)
                         .setDefaultRequestProperties(server.headers)
                 }
-                else -> DefaultHttpDataSource.Factory()
+                else -> {
+                    DefaultHttpDataSource.Factory()
+                        .setConnectTimeoutMs(30000)
+                        .setReadTimeoutMs(30000)
+                }
             }
 
             val mediaItem = androidx.media3.common.MediaItem.fromUri(playUrl)
@@ -166,14 +190,22 @@ class PlayerEngine(
 
     /**
      * Call this every ~250 ms from the UI polling loop.
-     * Triggers [onFallback] if the player is stuck for ≥ 12 seconds while it should be playing.
+     * Triggers [onFallback] if the player is stuck for ≥ 20 seconds while actively playing.
+     *
+     * We intentionally skip the check when the player is BUFFERING — the player is doing
+     * legitimate work (downloading HD segments) and has not stalled.
      */
     fun checkStall() {
-        if (player.playbackState == androidx.media3.common.Player.STATE_READY && player.playWhenReady) {
+        val state = player.playbackState
+        val isActivelyPlaying = state == androidx.media3.common.Player.STATE_READY
+            && player.playWhenReady
+            && player.isPlaying // only count as stall when we're truly in a playing tick
+
+        if (isActivelyPlaying) {
             val pos = player.currentPosition
             if (pos == lastPosition) {
                 stallCount++
-                if (stallCount >= 48) { // 48 × 250 ms = 12 s
+                if (stallCount >= STALL_TICKS_THRESHOLD) {
                     stallCount = 0
                     onFallback()
                 }
@@ -181,8 +213,14 @@ class PlayerEngine(
                 stallCount = 0
             }
             lastPosition = pos
-        } else {
-            stallCount = 0
+        } else if (state != androidx.media3.common.Player.STATE_BUFFERING) {
+            // Reset when idle/ended; don't reset during buffering so a long rebuffer
+            // that never recovers will eventually still trigger the fallback on the
+            // next READY tick.
+            if (state == androidx.media3.common.Player.STATE_IDLE ||
+                state == androidx.media3.common.Player.STATE_ENDED) {
+                stallCount = 0
+            }
         }
     }
 
