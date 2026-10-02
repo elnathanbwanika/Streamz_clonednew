@@ -37,22 +37,23 @@ class StreamProxyServer(
     private val timelines = ConcurrentHashMap<String, HlsTimeline>()
 
     fun start() {
-        runBlocking {
-            server = embeddedServer(CIO, port = 0, host = "127.0.0.1") {
-                routing {
-                    get("/{token}/{path...}") {
-                        val token = call.parameters["token"]
-                        if (token != sessionToken) {
-                            call.respond(HttpStatusCode.Forbidden, "Invalid token")
-                            return@get
-                        }
-                        val path = call.parameters.getAll("path")?.joinToString("/") ?: ""
-                        handleRequest(call, path)
+        // Pre-allocate a free port so we know it before Ktor starts.
+        // Called from withContext(Dispatchers.IO) in PlayerEngine — already on IO thread.
+        val freePort = java.net.ServerSocket(0).use { it.localPort }
+        localPort = freePort
+        server = embeddedServer(CIO, port = freePort, host = "127.0.0.1") {
+            routing {
+                get("/{token}/{path...}") {
+                    val token = call.parameters["token"]
+                    if (token != sessionToken) {
+                        call.respond(HttpStatusCode.Forbidden, "Invalid token")
+                        return@get
                     }
+                    val path = call.parameters.getAll("path")?.joinToString("/") ?: ""
+                    handleRequest(call, path)
                 }
-            }.start(wait = false)
-            localPort = server?.resolvedConnectors()?.firstOrNull()?.port ?: 0
-        }
+            }
+        }.start(wait = false)
     }
 
     fun stop() {

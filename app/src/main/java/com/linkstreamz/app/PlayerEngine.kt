@@ -77,13 +77,24 @@ class PlayerEngine(
     // Adding one here too would double-fire onFallback() and corrupt fallback state.
 
     private var loadJob: Job? = null
+    private var loadingUrl: String? = null
+
+    /** True while a loadStream coroutine is actively running (between setMediaSource and prepare completing). */
+    val isLoading: Boolean get() = loadJob?.isActive == true
 
     /**
      * Loads [server] into the player. Stops any running proxy first.
      * [isCustom] skips proxy usage (used for the "Play your own link" feature).
      */
     fun loadStream(server: StreamServer, isCustom: Boolean = false, autoplay: Boolean = true) {
+        // If we're already loading this exact URL, don't cancel and restart — let it finish.
+        if (loadingUrl == server.url && loadJob?.isActive == true) {
+            AppLogger.d("Engine", "loadStream: already loading ${server.url}, skipping duplicate")
+            player.playWhenReady = autoplay
+            return
+        }
         loadJob?.cancel()
+        loadingUrl = server.url
         loadJob = scope.launch {
             // Tear down previous proxy and reset stall state
             stopProxy()

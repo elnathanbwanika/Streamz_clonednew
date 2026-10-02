@@ -223,7 +223,16 @@ fun PlayerScreen(
                     engine.pause()
                 }
                 Lifecycle.Event.ON_START -> {
-                    if (resumeOnForeground) engine.resume()
+                    if (resumeOnForeground) {
+                        val state = engine.player.playbackState
+                        if (state == androidx.media3.common.Player.STATE_IDLE ||
+                            state == androidx.media3.common.Player.STATE_ENDED) {
+                            // Player died while backgrounded — reload
+                            AppLogger.d("Engine", "ON_START: player in IDLE/ENDED, reloading")
+                        } else {
+                            engine.resume()
+                        }
+                    }
                 }
                 else -> Unit
             }
@@ -286,6 +295,11 @@ fun PlayerScreen(
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 playing = isPlaying
+            }
+            override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                // If playWhenReady just became false but isPlaying hasn't updated yet,
+                // force playing=false so the UI immediately shows the play button.
+                if (!playWhenReady) playing = false
             }
         }
         engine.player.addListener(listener)
@@ -477,8 +491,35 @@ fun PlayerScreen(
                 state = controlsState,
                 visible = controlsVisible || error != null,
                 onPlayPause = {
-                    AppLogger.d("Engine", "UI Play/Pause button clicked. currently playing=$playing")
-                    if (playing) engine.player.pause() else engine.player.play()
+                    val state = engine.player.playbackState
+                    val pwr = engine.player.playWhenReady
+                    AppLogger.d("Engine", "UI Play/Pause clicked. playing=$playing pwr=$pwr state=$state loading=${engine.isLoading}")
+                    when {
+                        playing -> {
+                            // Actively playing — pause
+                            engine.player.pause()
+                        }
+                        pwr && state == androidx.media3.common.Player.STATE_BUFFERING -> {
+                            // Buffering toward playback — pause
+                            engine.player.pause()
+                        }
+                        state == androidx.media3.common.Player.STATE_READY -> {
+                            // Ready but paused — resume
+                            engine.player.play()
+                        }
+                        engine.isLoading -> {
+                            // Load coroutine in flight — just ensure we want to play when ready
+                            AppLogger.d("Engine", "Load in flight, ensuring playWhenReady=true")
+                            engine.player.playWhenReady = true
+                        }
+                        state == androidx.media3.common.Player.STATE_IDLE ||
+                        state == androidx.media3.common.Player.STATE_ENDED -> {
+                            // Player dead and no load in flight — restart
+                            AppLogger.d("Engine", "Restarting stream (state=$state)")
+                            loadStream(currentServer)
+                        }
+                        else -> engine.player.play()
+                    }
                 },
                 onRewind = { seekBy(-settings.skipLength) },
                 onForward = { seekBy(settings.skipLength) },
@@ -543,15 +584,7 @@ fun PlayerScreen(
                 }
             }
 
-            // Logs overlay (dev only)
-            val logsList by AppLogger.logs.collectAsState()
-            if (logsList.isNotEmpty()) {
-                LazyColumn(Modifier.fillMaxWidth().fillMaxHeight(0.4f).align(Alignment.TopCenter).background(Color.Black.copy(alpha = 0.7f)).padding(8.dp)) {
-                    items(logsList) { log ->
-                        Text(log, color = Color.Green, fontSize = 9.sp, fontFamily = MonoFont, lineHeight = 11.sp)
-                    }
-                }
-            }
+
         }
 
         // ── Related Content (below video) ─────────────────────────────────
