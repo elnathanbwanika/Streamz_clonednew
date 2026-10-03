@@ -45,6 +45,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.compose.SubcomposeAsyncImage
+import coil.compose.SubcomposeAsyncImageContent
 import coil.request.ImageRequest
 
 @Composable
@@ -225,6 +227,9 @@ fun Crest(team: Team, size: androidx.compose.ui.unit.Dp = 36.dp) {
         "b3" -> Brush.linearGradient(listOf(Color(0xFFE2443A), Color(0xFF7A1010)))
         else -> Brush.linearGradient(listOf(Color(0xFF5A6CFF), Color(0xFF1A2A86)))
     }
+
+    val fallbackText = team.initials.take(3).uppercase().takeIf { it.isNotBlank() } ?: "?"
+
     Box(
         Modifier
             .size(size)
@@ -239,27 +244,47 @@ fun Crest(team: Team, size: androidx.compose.ui.unit.Dp = 36.dp) {
             .border(1.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
         contentAlignment = Alignment.Center,
     ) {
-        if (team.logo != null) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current).data(team.logo).crossfade(true).build(),
+        val textStyle = TextStyle(
+            color = Color.White,
+            fontSize = if (size < 32.dp) 10.5.sp else 11.sp,
+            fontWeight = FontWeight.Bold,
+            shadow = Shadow(
+                color = Color.Black.copy(alpha = 0.7f),
+                offset = Offset(0f, 2f),
+                blurRadius = 4f
+            )
+        )
+
+        if (!team.logo.isNullOrBlank()) {
+            coil.compose.SubcomposeAsyncImage(
+                model = coil.request.ImageRequest.Builder(LocalContext.current)
+                    .data(team.logo)
+                    .crossfade(true)
+                    .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Inside,
-                modifier = Modifier.padding(3.dp).matchParentSize(),
-            )
+                modifier = Modifier.padding(3.dp).matchParentSize()
+            ) {
+                when (painter.state) {
+                    is coil.compose.AsyncImagePainter.State.Loading -> {
+                        Text(fallbackText, style = textStyle)
+                    }
+                    is coil.compose.AsyncImagePainter.State.Error -> {
+                        android.util.Log.d("Crest", "Falling back to text for ${team.initials}")
+                        Text(fallbackText, style = textStyle)
+                    }
+                    is coil.compose.AsyncImagePainter.State.Success -> {
+                        android.util.Log.d("Crest", "Rendering badge for ${team.initials}: ${team.logo}")
+                        SubcomposeAsyncImageContent()
+                    }
+                    else -> {
+                        Text(fallbackText, style = textStyle)
+                    }
+                }
+            }
         } else {
-            Text(
-                team.initials,
-                color = Color.White,
-                fontSize = if (size < 32.dp) 10.5.sp else 11.sp,
-                fontWeight = FontWeight.Bold,
-                style = TextStyle(
-                    shadow = Shadow(
-                        color = Color.Black.copy(alpha = 0.7f),
-                        offset = Offset(0f, 2f),
-                        blurRadius = 4f
-                    )
-                )
-            )
+            android.util.Log.d("Crest", "Falling back to text for ${team.initials}")
+            Text(fallbackText, style = textStyle)
         }
     }
 }

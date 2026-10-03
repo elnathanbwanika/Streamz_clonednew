@@ -247,13 +247,8 @@ class EventsRepository(private val preview: Boolean = false) {
             val code = obj["code"]?.stringValue()?.trim()?.uppercase()
                 ?: return@mapNotNull null
             val name = obj["name"]?.stringValue() ?: code
-            // FEED: "badge" from JSON → Team.logo. Empty string treated as no logo.
             val badge = obj["badge"]?.stringValue()?.takeIf { it.isNotBlank() }
-            val initials = obj["short"]?.stringValue()
-                ?: name.filter { it.isLetterOrDigit() }.split(" ")
-                    .filter { it.isNotBlank() }
-                    .joinToString("") { it.first().uppercase() }
-                    .take(3)
+            val initials = code.take(3)
             val hue = (name.hashCode().absoluteValue % 4) + 1
             code to Team(name = name, crestClass = "b$hue", initials = initials, logo = badge)
         }.toMap()
