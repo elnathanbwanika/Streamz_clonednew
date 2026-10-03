@@ -256,21 +256,34 @@ fun Crest(team: Team, size: androidx.compose.ui.unit.Dp = 36.dp) {
         )
 
         if (!team.logo.isNullOrBlank()) {
+            val modelData = remember(team.logo) {
+                if (team.logo.startsWith("data:image")) {
+                    try {
+                        val base64String = team.logo.substringAfter(",")
+                        android.util.Base64.decode(base64String, android.util.Base64.DEFAULT)
+                    } catch (e: Exception) {
+                        team.logo
+                    }
+                } else {
+                    team.logo
+                }
+            }
+
             coil.compose.SubcomposeAsyncImage(
                 model = coil.request.ImageRequest.Builder(LocalContext.current)
-                    .data(team.logo)
+                    .data(modelData)
                     .crossfade(true)
                     .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Inside,
                 modifier = Modifier.padding(3.dp).matchParentSize()
             ) {
-                when (painter.state) {
+                when (val state = painter.state) {
                     is coil.compose.AsyncImagePainter.State.Loading -> {
                         Text(fallbackText, style = textStyle)
                     }
                     is coil.compose.AsyncImagePainter.State.Error -> {
-                        android.util.Log.d("Crest", "Falling back to text for ${team.initials}")
+                        android.util.Log.e("Crest", "Badge load failed for ${team.initials}: ${state.result.throwable.message}", state.result.throwable)
                         Text(fallbackText, style = textStyle)
                     }
                     is coil.compose.AsyncImagePainter.State.Success -> {
