@@ -35,10 +35,14 @@ class StreamProxyServer(
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val timelines = ConcurrentHashMap<String, HlsTimeline>()
+    
+    // We create a custom client for the proxy with redirects enabled, and default browser headers
+    private val proxyClient = client.newBuilder()
+        .followRedirects(true)
+        .followSslRedirects(true)
+        .build()
 
     fun start() {
-        // Pre-allocate a free port so we know it before Ktor starts.
-        // Called from withContext(Dispatchers.IO) in PlayerEngine — already on IO thread.
         val freePort = java.net.ServerSocket(0).use { it.localPort }
         localPort = freePort
         server = embeddedServer(CIO, port = freePort, host = "127.0.0.1") {
@@ -64,11 +68,9 @@ class StreamProxyServer(
 
     private suspend fun handleRequest(call: ApplicationCall, path: String) {
         val urlParam = call.request.queryParameters["url"]
-        AppLogger.d("Proxy", "handleRequest: path=$path urlParam=$urlParam")
         
         if (path == "master.m3u8") {
-            // Fetch master playlist
-            val request = Request.Builder().url(sourceUrl).headers(headers.toHeaders()).build()
+            val request = buildRequest(sourceUrl, null)
             val response = executeRequest(request)
             if (response == null || !response.isSuccessful) {
                 call.respond(HttpStatusCode.BadGateway, "Failed to fetch master")
@@ -76,50 +78,74 @@ class StreamProxyServer(
             }
             val body = response.body?.string() ?: ""
             if (body.contains("#EXT-X-STREAM-INF")) {
-                // It's a master playlist. Rewrite variants.
                 val rewritten = HlsParser.rewritePlaylist(
                     body, sourceUrl, "http://127.0.0.1:$localPort/$sessionToken/variant.m3u8"
                 )
                 call.respondText(rewritten, ContentType.parse("application/vnd.apple.mpegurl"))
             } else {
-                // It's a media playlist directly
                 handleVariant(call, sourceUrl)
             }
         } else if (path == "variant.m3u8" && urlParam != null) {
             handleVariant(call, urlParam)
         } else if (urlParam != null) {
-            // Segment or key
             val range = call.request.headers[HttpHeaders.Range]
-            val requestBuilder = Request.Builder().url(urlParam).headers(headers.toHeaders())
-            if (range != null) {
-                requestBuilder.header("Range", range)
-            }
-            val request = requestBuilder.build()
+            val request = buildRequest(urlParam, range)
             val response = executeRequest(request)
             if (response == null) {
                 call.respond(HttpStatusCode.BadGateway, "Segment failed")
                 return
             }
+
+            AppLogger.d("Proxy", "Streaming segment: $urlParam (Status: ${response.code})")
+
             val bytes = response.body?.bytes() ?: ByteArray(0)
-            val code = HttpStatusCode.fromValue(response.code)
-            call.respondBytes(bytes, status = code)
+            val ct = response.body?.contentType()
+                ?.let { ContentType.parse(it.toString()) }
+                ?: ContentType.Application.OctetStream
+            val statusCode = HttpStatusCode.fromValue(response.code)
+
+            // Forward Content-Range and Accept-Ranges headers if present (for 206 support)
+            response.header("Content-Range")?.let { call.response.header("Content-Range", it) }
+            response.header("Accept-Ranges")?.let { call.response.header("Accept-Ranges", it) }
+            response.close()
+
+            call.respondBytes(bytes, ct, statusCode)
         } else {
             call.respond(HttpStatusCode.BadRequest, "Missing url parameter")
         }
     }
+    
+    private fun buildRequest(url: String, range: String?): Request {
+        val requestBuilder = Request.Builder().url(url)
+        val requestHeaders = mutableMapOf(
+            "User-Agent" to "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36",
+            "Accept" to "*/*"
+        )
+        try {
+            val uri = URI.create(url)
+            val origin = "${uri.scheme}://${uri.authority}"
+            requestHeaders["Origin"] = origin
+            requestHeaders["Referer"] = "$origin/"
+        } catch (e: Exception) {}
+        
+        headers.forEach { (k, v) -> requestHeaders[k] = v }
+        if (range != null) {
+            requestHeaders["Range"] = range
+        }
+        requestBuilder.headers(requestHeaders.toHeaders())
+        return requestBuilder.build()
+    }
 
     private suspend fun handleVariant(call: ApplicationCall, variantUrl: String) {
         val timeline = timelines.getOrPut(variantUrl) {
-            HlsTimeline(client, variantUrl, headers, delaySeconds).apply {
+            HlsTimeline(proxyClient, variantUrl, headers, delaySeconds).apply {
                 start()
-                // Mirror the syncing state
                 scope.launch {
                     syncing.collect { isSyncing.value = it }
                 }
             }
         }
         
-        // Wait if still syncing and it's a live stream
         if (timeline.syncing.value && delaySeconds > 0) {
             delay(1000)
         }
@@ -133,35 +159,38 @@ class StreamProxyServer(
         var delayMs = 1_000L
         while (attempt <= maxRetries) {
             val response = suspendCancellableCoroutine<Response?> { cont ->
-                val call = client.newCall(request)
+                val call = proxyClient.newCall(request)
                 cont.invokeOnCancellation { call.cancel() }
                 call.enqueue(object : Callback {
                     override fun onFailure(call: Call, e: IOException) {
+                        AppLogger.e("Proxy", "Request failed: ${request.url}", e)
                         if (cont.isActive) cont.resume(null)
                     }
                     override fun onResponse(call: Call, response: Response) {
+                        AppLogger.d("Proxy", "Response: ${response.code} from ${request.url}")
+                        if (!response.isSuccessful && response.code !in 200..299) {
+                            val bodyPreview = response.peekBody(200).string()
+                            AppLogger.e("Proxy", "Bad response: ${response.code}, body: $bodyPreview")
+                        }
                         if (cont.isActive) cont.resume(response)
                     }
                 })
             }
-            // Treat a null (network error) or server-error response as retryable
             if (response != null && (response.isSuccessful || response.code in 400..499)) {
-                // 4xx errors are the server's definitive answer — don't retry those
                 return response
             }
+            response?.close()
             attempt++
             if (attempt <= maxRetries) {
-                AppLogger.d("Proxy", "Request failed (attempt $attempt/$maxRetries), retrying in ${delayMs}ms: ${request.url}")
+                AppLogger.d("Proxy", "Retrying ($attempt/$maxRetries) in ${delayMs}ms: ${request.url}")
                 kotlinx.coroutines.delay(delayMs)
                 delayMs = (delayMs * 2).coerceAtMost(8_000L)
             }
         }
-        AppLogger.e("Proxy", "All $maxRetries retries exhausted for ${request.url}")
         return null
     }
 
     companion object {
-        /** Retry each segment/playlist fetch up to this many times before giving up. */
         const val MAX_SEGMENT_RETRIES = 3
     }
 }

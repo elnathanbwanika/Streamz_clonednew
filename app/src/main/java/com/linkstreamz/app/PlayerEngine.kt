@@ -1,9 +1,10 @@
 package com.linkstreamz.app
 
 import android.content.Context
+import android.net.Uri
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
-import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
@@ -49,6 +50,42 @@ class PlayerEngine(
         }
     }.build()
 
+    /**
+     * Creates a DataSource.Factory for ExoPlayer with:
+     * - Browser-like User-Agent, Origin, Referer, Accept headers
+     * - Cross-protocol redirect support (http ↔ https)
+     * - 20 s connect/read timeouts
+     * - Any extra [headers] from the server config merged on top
+     */
+    private fun createDataSourceFactory(
+        ctx: Context,
+        headers: Map<String, String>,
+        sourceUrl: String
+    ): DefaultDataSource.Factory {
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(20_000)
+            .setReadTimeoutMs(20_000)
+
+        val merged = mutableMapOf(
+            "User-Agent" to "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36",
+            "Accept" to "*/*"
+        )
+        try {
+            val uri = Uri.parse(sourceUrl)
+            if (uri.scheme == "http" || uri.scheme == "https") {
+                val origin = "${uri.scheme}://${uri.host}"
+                merged["Origin"] = origin
+                merged["Referer"] = "$origin/"
+            }
+        } catch (_: Exception) {}
+
+        headers.forEach { (k, v) -> merged[k] = v }
+        httpFactory.setDefaultRequestProperties(merged)
+        AppLogger.d("Engine", "DataSourceFactory for $sourceUrl headers=${merged.keys}")
+        return DefaultDataSource.Factory(ctx, httpFactory)
+    }
+
     val player: ExoPlayer = ExoPlayer.Builder(context)
         .setLoadControl(
             DefaultLoadControl.Builder()
@@ -67,6 +104,17 @@ class PlayerEngine(
         player.addListener(object : androidx.media3.common.Player.Listener {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 AppLogger.e("Engine", "PlayerError: ${error.errorCodeName}", error)
+                var cause: Throwable? = error.cause
+                while (cause != null) {
+                    AppLogger.e("Engine", "Cause: ${cause.javaClass.simpleName} - ${cause.message}")
+                    if (cause is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
+                        AppLogger.e("Engine", "InvalidResponseCode: ${cause.responseCode} for ${cause.dataSpec.uri}")
+                        cause.headerFields.forEach { (k, v) ->
+                            AppLogger.e("Engine", "  Header $k: $v")
+                        }
+                    }
+                    cause = cause.cause
+                }
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
                 val stateName = when(playbackState) {
@@ -136,12 +184,13 @@ class PlayerEngine(
         // If we're already loading this exact server, don't cancel and restart — let it finish.
         if (key != null && key == loadingKey && loadJob?.isActive == true) {
             AppLogger.d("Engine", "loadStream: already loading key=$key, skipping duplicate")
-            player.playWhenReady = autoplay
+            
             return
         }
         loadJob?.cancel()
         loadingKey = key
         loadJob = scope.launch {
+            player.playWhenReady = autoplay
             // Tear down previous proxy and reset stall state
             stopProxy()
             stallCount = 0
@@ -184,38 +233,15 @@ class PlayerEngine(
                         muxedUrl
                     }
 
-                    val dataSourceFactory = when {
-                        currentProxy != null -> {
-                            // Proxy handles headers; player just talks to localhost
-                            DefaultHttpDataSource.Factory()
-                                .setConnectTimeoutMs(30000)
-                                .setReadTimeoutMs(30000)
-                        }
-                        server.headers.isNotEmpty() -> {
-                            OkHttpDataSource.Factory(client)
-                                .setDefaultRequestProperties(server.headers)
-                        }
-                        else -> {
-                            DefaultHttpDataSource.Factory()
-                                .setConnectTimeoutMs(30000)
-                                .setReadTimeoutMs(30000)
-                        }
-                    }
-
+                    val dataSourceFactory = createDataSourceFactory(context, server.headers, muxedUrl)
                     val mediaItem = androidx.media3.common.MediaItem.fromUri(playUrl)
-                    val source = if (playUrl.contains(".m3u8", ignoreCase = true) || currentProxy != null) {
-                        AppLogger.d("Engine", "Muxed/HLS: using HlsMediaSource for $playUrl")
-                        HlsMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
-                    } else {
-                        AppLogger.d("Engine", "Muxed/Progressive: using ProgressiveMediaSource for $playUrl")
-                        ProgressiveMediaSource.Factory(
-                            DefaultDataSource.Factory(context, dataSourceFactory)
-                        ).createMediaSource(mediaItem)
-                    }
+                    val source = DefaultMediaSourceFactory(context)
+                        .setDataSourceFactory(dataSourceFactory)
+                        .createMediaSource(mediaItem)
 
                     AppLogger.d("Engine", "Before setMediaSource (muxed): pwr=${player.playWhenReady} state=${player.playbackState}")
                     player.setMediaSource(source)
-                    player.playWhenReady = autoplay
+                    
                     player.prepare()
                     AppLogger.d("Engine", "After prepare() (muxed): pwr=${player.playWhenReady} state=${player.playbackState}")
                 }
@@ -230,24 +256,12 @@ class PlayerEngine(
                     val audioSrc = server.audioUrl!! // non-null guaranteed by serverMode()
                     isSyncing.value = false
 
-                    val dataSourceFactory = if (server.headers.isNotEmpty()) {
-                        OkHttpDataSource.Factory(client)
-                            .setDefaultRequestProperties(server.headers)
-                    } else {
-                        DefaultHttpDataSource.Factory()
-                            .setConnectTimeoutMs(30000)
-                            .setReadTimeoutMs(30000)
-                    }
-
                     fun buildSource(url: String): androidx.media3.exoplayer.source.MediaSource {
+                        val dsf = createDataSourceFactory(context, server.headers, url)
                         val item = androidx.media3.common.MediaItem.fromUri(url)
-                        return if (url.contains(".m3u8", ignoreCase = true)) {
-                            HlsMediaSource.Factory(dataSourceFactory).createMediaSource(item)
-                        } else {
-                            ProgressiveMediaSource.Factory(
-                                DefaultDataSource.Factory(context, dataSourceFactory)
-                            ).createMediaSource(item)
-                        }
+                        return DefaultMediaSourceFactory(context)
+                            .setDataSourceFactory(dsf)
+                            .createMediaSource(item)
                     }
 
                     val videoSource = buildSource(videoSrc)
@@ -261,7 +275,7 @@ class PlayerEngine(
                     AppLogger.d("Engine", "Split: videoSrc=$videoSrc audioSrc=$audioSrc")
                     AppLogger.d("Engine", "Before setMediaSource (split): pwr=${player.playWhenReady} state=${player.playbackState}")
                     player.setMediaSource(mergedSource)
-                    player.playWhenReady = autoplay
+                    
                     player.prepare()
                     AppLogger.d("Engine", "After prepare() (split): pwr=${player.playWhenReady} state=${player.playbackState}")
                 }
@@ -273,28 +287,16 @@ class PlayerEngine(
                     val audioSrc = server.audioUrl!! // non-null guaranteed by serverMode()
                     isSyncing.value = false
 
-                    val dataSourceFactory = if (server.headers.isNotEmpty()) {
-                        OkHttpDataSource.Factory(client)
-                            .setDefaultRequestProperties(server.headers)
-                    } else {
-                        DefaultHttpDataSource.Factory()
-                            .setConnectTimeoutMs(30000)
-                            .setReadTimeoutMs(30000)
-                    }
-
+                    val dataSourceFactory = createDataSourceFactory(context, server.headers, audioSrc)
                     val item = androidx.media3.common.MediaItem.fromUri(audioSrc)
-                    val source = if (audioSrc.contains(".m3u8", ignoreCase = true)) {
-                        HlsMediaSource.Factory(dataSourceFactory).createMediaSource(item)
-                    } else {
-                        ProgressiveMediaSource.Factory(
-                            DefaultDataSource.Factory(context, dataSourceFactory)
-                        ).createMediaSource(item)
-                    }
+                    val source = DefaultMediaSourceFactory(context)
+                        .setDataSourceFactory(dataSourceFactory)
+                        .createMediaSource(item)
 
                     AppLogger.d("Engine", "Audio-only: audioSrc=$audioSrc")
                     AppLogger.d("Engine", "Before setMediaSource (audio-only): pwr=${player.playWhenReady} state=${player.playbackState}")
                     player.setMediaSource(source)
-                    player.playWhenReady = autoplay
+                    
                     player.prepare()
                     AppLogger.d("Engine", "After prepare() (audio-only): pwr=${player.playWhenReady} state=${player.playbackState}")
                 }

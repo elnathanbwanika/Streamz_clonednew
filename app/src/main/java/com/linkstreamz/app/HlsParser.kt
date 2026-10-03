@@ -40,7 +40,15 @@ object HlsParser {
     }
 
     private fun resolveUri(base: String, relative: String): String {
-        return URI(base).resolve(relative).toString()
+        val baseUri = URI(base)
+        var resolved = baseUri.resolve(relative)
+        
+        if (baseUri.query != null) {
+            val baseQuery = baseUri.query
+            val newQuery = if (resolved.query == null) baseQuery else "${resolved.query}&$baseQuery"
+            resolved = URI(resolved.scheme, resolved.userInfo, resolved.host, resolved.port, resolved.path, newQuery, resolved.fragment)
+        }
+        return resolved.toString()
     }
     
     private fun encode(s: String): String = java.net.URLEncoder.encode(s, "UTF-8")

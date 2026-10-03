@@ -173,14 +173,19 @@ fun PlayerScreen(
     // LaunchedEffect(retryTrigger) below watches this and does the delayed reload.
     var retryTrigger by remember { mutableIntStateOf(0) }
 
-    fun triggerFallback() {
+    fun triggerFallback(httpCode: Int = 0) {
         if (allServersFailed) return
 
-        // If we haven't exhausted retries for this server, retry it in place
-        if (retryCount < MAX_SERVER_RETRIES) {
+        // Don't blindly retry client errors:
+        // 403/410 → immediate fallback to next server (don't waste retries)
+        // 404     → immediate fallback (stream gone)
+        // 5xx/0   → retry with backoff, then fallback
+        val skipRetries = httpCode == 403 || httpCode == 404 || httpCode == 410
+
+        if (!skipRetries && retryCount < MAX_SERVER_RETRIES) {
             retryCount++
             val label = currentServer?.name?.ifBlank { "current server" } ?: "current server"
-            AppLogger.d("Engine", "Retrying $label (attempt $retryCount/$MAX_SERVER_RETRIES)")
+            AppLogger.d("Engine", "Retrying $label (attempt $retryCount/$MAX_SERVER_RETRIES, code=$httpCode)")
             // Signal the LaunchedEffect below to schedule the reload after a short delay
             retryTrigger++
             return
@@ -188,15 +193,18 @@ fun PlayerScreen(
 
         // Retries exhausted — advance to the next server
         retryCount = 0
-        if (userPickedManually) {
-            // Even manually-picked server failed — still try to fallback but allow it
-        }
         val nextIndex = fallbackOrder.indexOfFirst { s ->
             s != currentServer && fallbackOrder.indexOf(s) > fallbackOrder.indexOf(currentServer)
         }
         if (nextIndex == -1 || fallbackIndex >= fallbackOrder.size - 1) {
             allServersFailed = true
-            error = "All servers failed. Please try again later."
+            error = when (httpCode) {
+                403 -> "Access denied (403). The stream may be geo-blocked."
+                404 -> "Stream not found (404). The event may have ended."
+                410 -> "Link expired (410). Please reload the app."
+                in 500..599 -> "Server error ($httpCode). Try again later."
+                else -> "All servers failed. Please try again later."
+            }
             return
         }
         fallbackIndex++
@@ -221,8 +229,18 @@ fun PlayerScreen(
     // mutable state, we install the listener post-creation.
     val engineFallbackListener = remember {
         object : androidx.media3.common.Player.Listener {
-            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                fallbackRef.value.invoke()
+            override fun onPlayerError(err: androidx.media3.common.PlaybackException) {
+                // Extract HTTP response code if available for smarter retry decisions
+                var httpCode = 0
+                var cause: Throwable? = err.cause
+                while (cause != null) {
+                    if (cause is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
+                        httpCode = cause.responseCode
+                        break
+                    }
+                    cause = cause.cause
+                }
+                fallbackRef.value.invoke(httpCode)
             }
         }
     }
@@ -259,8 +277,9 @@ fun PlayerScreen(
                         val state = engine.player.playbackState
                         if (state == androidx.media3.common.Player.STATE_IDLE ||
                             state == androidx.media3.common.Player.STATE_ENDED) {
-                            // Player died while backgrounded — reload
+                            // Player died while backgrounded — reload the current server
                             AppLogger.d("Engine", "ON_START: player in IDLE/ENDED, reloading")
+                            currentServer?.let { engine.loadStream(it, userPickedManually, true) }
                         } else {
                             engine.resume()
                         }
