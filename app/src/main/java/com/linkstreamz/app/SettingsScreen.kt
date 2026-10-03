@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -383,14 +384,28 @@ fun SettingsScreenContent(
                         },
                     )
                     Spacer(Modifier.height(10.dp))
-                    BrandPrimaryButton(
-                        text    = "Play now",
-                        icon    = Icons.Default.PlayArrow,
-                        onClick = {
-                            if (uiState.customUrl.isBlank() && uiState.customAudioUrl.isBlank()) focusRequester.requestFocus()
-                            else onCustomStream(uiState.customUrl.trim(), uiState.customAudioUrl.trim())
-                        },
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        BrandPrimaryButton(
+                            text    = "Play now",
+                            icon    = Icons.Default.PlayArrow,
+                            onClick = {
+                                if (uiState.customUrl.isBlank() && uiState.customAudioUrl.isBlank()) focusRequester.requestFocus()
+                                else onCustomStream(uiState.customUrl.trim(), uiState.customAudioUrl.trim())
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        BrandOutlinedButton(
+                            text    = "Clear",
+                            onClick = {
+                                onCustomUrlChange("")
+                                onCustomAudioUrlChange("")
+                            },
+                        )
+                    }
                 }
             }
 
@@ -852,6 +867,11 @@ fun BrandUrlField(
     focusRequester: FocusRequester,
     onGo: () -> Unit,
 ) {
+    var textFieldValue by remember { mutableStateOf(TextFieldValue(value)) }
+    if (textFieldValue.text != value) {
+        textFieldValue = textFieldValue.copy(text = value)
+    }
+
     var isFocused by remember { mutableStateOf(false) }
     val borderColor by animateColorAsState(
         targetValue   = if (isFocused) LinkColors.OrangePrimary else LinkColors.InputBorder,
@@ -877,8 +897,11 @@ fun BrandUrlField(
             .border(1.dp, borderColor, RoundedCornerShape(LinkDimens.InputRadius)),
     ) {
         BasicTextField(
-            value           = value,
-            onValueChange   = onValueChange,
+            value           = textFieldValue,
+            onValueChange   = {
+                textFieldValue = it
+                onValueChange(it.text)
+            },
             textStyle       = TextStyle(
                 color      = LinkColors.PrimaryText,
                 fontSize   = 13.sp,
@@ -896,7 +919,7 @@ fun BrandUrlField(
                 .focusRequester(focusRequester)
                 .onFocusChanged { isFocused = it.isFocused },
             decorationBox   = { innerTextField ->
-                if (value.isEmpty()) {
+                if (textFieldValue.text.isEmpty()) {
                     Text(
                         text       = "https://your-server/stream.m3u8",
                         color      = LinkColors.InputPlaceholder,
@@ -919,10 +942,10 @@ fun BrandPrimaryButton(
     text: String,
     icon: ImageVector,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier.fillMaxWidth(),
 ) {
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
             // Orange tinted elevation shadow
             .shadow(
                 elevation    = 6.dp,

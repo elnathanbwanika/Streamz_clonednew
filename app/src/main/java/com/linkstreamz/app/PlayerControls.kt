@@ -574,6 +574,8 @@ fun PlayerSettingsPanel(
     volume: Float,
     isFullscreen: Boolean,
     anchorBoundsInWindow: IntRect,
+    playerBrightness: Float,          // 5f..100f; 100f = full brightness (no dim)
+    onPlayerBrightnessChange: (Float) -> Unit,
     onVolumeChange: (Float) -> Unit,
     onFullscreenToggle: () -> Unit,
     onLockScreen: () -> Unit,
@@ -632,38 +634,8 @@ fun PlayerSettingsPanel(
         }
     }
 
-    // ── Brightness: read current window brightness on open ──────────────────
-    // No special permission needed — we only set the Activity's own window brightness.
-    fun readWindowBrightness(): Float {
-        val lp = activity?.window?.attributes ?: return 70f
-        // screenBrightness is -1.0 when the system controls it, 0.0..1.0 otherwise
-        return if (lp.screenBrightness < 0f) 70f
-               else (lp.screenBrightness * 100f).coerceIn(5f, 100f)
-    }
-
-    fun writeWindowBrightness(pct: Float) {
-        val win = activity?.window ?: return
-        val lp = win.attributes
-        lp.screenBrightness = (pct / 100f).coerceIn(0.05f, 1.0f)
-        win.attributes = lp
-    }
-
-    fun enableAutoBrightness() {
-        val win = activity?.window ?: return
-        val lp = win.attributes
-        // -1.0 hands control back to the system (Android constant: BRIGHTNESS_OVERRIDE_NONE)
-        lp.screenBrightness = android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
-        win.attributes = lp
-    }
-
-    var brightness by remember { mutableFloatStateOf(readWindowBrightness()) }
-    // Auto is ON initially only when the window hasn't been overridden
-    var isAutoBrightness by remember {
-        val lp = activity?.window?.attributes
-        mutableStateOf(lp == null || lp.screenBrightness < 0f)
-    }
-    // systemBrightness = current brightness as reported on open (used to snap back on auto re-enable)
-    val systemBrightness = remember { readWindowBrightness() }
+    // ── Player-local brightness: controlled via a dimming overlay on the player Box ─────
+    // No window/system brightness is changed — only the overlay alpha is updated via callback.
 
     Popup(
         popupPositionProvider = positionProvider,
@@ -710,13 +682,9 @@ fun PlayerSettingsPanel(
                 Box(Modifier.height(ItemSize), contentAlignment = Alignment.Center) {
                     PanelPopover(visible = openPopover == PopoverType.Brightness) {
                         Slider(
-                            value = brightness,
-                            onValueChange = { v ->
-                                brightness = v
-                                isAutoBrightness = false
-                                // Write to the Activity window — no permission needed
-                                writeWindowBrightness(v)
-                            },
+                            // playerBrightness is owned by PlayerScreen and applies a local overlay
+                            value = playerBrightness,
+                            onValueChange = { v -> onPlayerBrightnessChange(v) },
                             valueRange = 5f..100f,
                             modifier = Modifier.weight(1f),
                             colors = SliderDefaults.colors(
@@ -725,26 +693,20 @@ fun PlayerSettingsPanel(
                                 inactiveTrackColor = Color(0xFF2A1E14),
                             ),
                         )
-                        // Auto-brightness toggle button
-                        val autoActive = isAutoBrightness
+                        // "Reset" button — brings player back to full brightness
                         Box(
                             modifier = Modifier
                                 .size(32.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(if (autoActive) Orange else ItemBg)
-                                .border(1.dp, if (autoActive) Orange else ItemBorder, RoundedCornerShape(10.dp))
-                                .clickable {
-                                    isAutoBrightness = true
-                                    brightness = systemBrightness
-                                    // Hand brightness back to the OS
-                                    enableAutoBrightness()
-                                },
+                                .background(if (playerBrightness >= 100f) Orange else ItemBg)
+                                .border(1.dp, if (playerBrightness >= 100f) Orange else ItemBorder, RoundedCornerShape(10.dp))
+                                .clickable { onPlayerBrightnessChange(100f) },
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
                                 Icons.Default.BrightnessAuto,
-                                "Auto brightness",
-                                tint = if (autoActive) Color.Black else Orange,
+                                "Reset brightness",
+                                tint = if (playerBrightness >= 100f) Color.Black else Orange,
                                 modifier = Modifier.size(17.dp),
                             )
                         }
@@ -1024,6 +986,8 @@ fun PlayerOverlay(
     onFullscreenToggle: () -> Unit,
     onFloatWindow: () -> Unit,
     onInteraction: () -> Unit,
+    playerBrightness: Float,
+    onPlayerBrightnessChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Keep overlay showing while any menu is open, but never while locked
@@ -1169,6 +1133,8 @@ fun PlayerOverlay(
             volume = state.volume,
             isFullscreen = state.isFullscreen,
             anchorBoundsInWindow = settingsBtnBounds,
+            playerBrightness = playerBrightness,
+            onPlayerBrightnessChange = onPlayerBrightnessChange,
             onVolumeChange = { v ->
                 state.volume = v
                 onVolumeChange(v)

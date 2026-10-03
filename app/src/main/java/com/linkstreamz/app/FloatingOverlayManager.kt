@@ -40,7 +40,7 @@ object FloatingOverlayManager {
         val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
         windowManager = wm
 
-        val layoutParams = WindowManager.LayoutParams(
+        val wmParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
@@ -50,15 +50,15 @@ object FloatingOverlayManager {
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         )
-        layoutParams.gravity = Gravity.TOP or Gravity.START
-        layoutParams.x = 100
-        layoutParams.y = 100
+        wmParams.gravity = Gravity.TOP or Gravity.START
+        wmParams.x = 100
+        wmParams.y = 100
 
         // Match 16:9 aspect roughly
         val width = (context.resources.displayMetrics.widthPixels * 0.7f).toInt()
         val height = (width * 9f / 16f).toInt()
-        layoutParams.width = width
-        layoutParams.height = height
+        wmParams.width = width
+        wmParams.height = height
 
         val root = FrameLayout(context)
         
@@ -89,7 +89,7 @@ object FloatingOverlayManager {
                 setImageResource(iconRes)
                 setBackgroundColor(android.graphics.Color.parseColor("#66000000"))
                 setPadding(16, 16, 16, 16)
-                this.layoutParams = FrameLayout.LayoutParams(110, 110)
+                layoutParams = FrameLayout.LayoutParams(110, 110)
             }
         }
 
@@ -150,17 +150,17 @@ object FloatingOverlayManager {
                 MotionEvent.ACTION_DOWN -> {
                     resizeInitialX = event.rawX
                     resizeInitialY = event.rawY
-                    initialWidth = layoutParams.width
-                    initialHeight = layoutParams.height
+                    initialWidth = wmParams.width
+                    initialHeight = wmParams.height
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX - resizeInitialX
                     val newWidth = (initialWidth + dx).toInt().coerceIn(300, 1500)
                     val newHeight = (newWidth * 9f / 16f).toInt()
-                    layoutParams.width = newWidth
-                    layoutParams.height = newHeight
-                    wm.updateViewLayout(root, layoutParams)
+                    wmParams.width = newWidth
+                    wmParams.height = newHeight
+                    wm.updateViewLayout(root, wmParams)
                     true
                 }
                 else -> false
@@ -187,16 +187,16 @@ object FloatingOverlayManager {
             }
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
-                    initialX = layoutParams.x
-                    initialY = layoutParams.y
+                    initialX = wmParams.x
+                    initialY = wmParams.y
                     initialTouchX = event.rawX
                     initialTouchY = event.rawY
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    layoutParams.x = initialX + (event.rawX - initialTouchX).toInt()
-                    layoutParams.y = initialY + (event.rawY - initialTouchY).toInt()
-                    wm.updateViewLayout(root, layoutParams)
+                    wmParams.x = initialX + (event.rawX - initialTouchX).toInt()
+                    wmParams.y = initialY + (event.rawY - initialTouchY).toInt()
+                    wm.updateViewLayout(root, wmParams)
                     true
                 }
                 else -> false
@@ -211,7 +211,7 @@ object FloatingOverlayManager {
             }
         })
 
-        wm.addView(root, layoutParams)
+        wm.addView(root, wmParams)
         overlayView = root
         isFloating.value = true
     }

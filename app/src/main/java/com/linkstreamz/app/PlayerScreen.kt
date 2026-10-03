@@ -144,6 +144,8 @@ fun PlayerScreen(
     // YT-EXTRACT: Set by loadStream to signal LaunchedEffect to run extraction
     var ytExtractId by remember { mutableStateOf<String?>(null) }
     var ytExtractStream by remember { mutableStateOf<StreamServer?>(null) }
+    // Player-local brightness: 100f = no dim overlay; lower = darker player only, not the whole app
+    var playerBrightness by remember { mutableFloatStateOf(100f) }
 
     // Auto-hide controls state
     var controlsVisible by remember { mutableStateOf(true) }
@@ -556,20 +558,32 @@ fun PlayerScreen(
                 )
             }
 
+            // 1.2. Player Dimmer — applies brightness by drawing a black overlay
+            // brightness range is 5f..100f. 100f = 0 alpha, 5f = ~95% alpha
+            val dimAlpha = 1f - (playerBrightness / 100f).coerceIn(0f, 1f)
+            if (dimAlpha > 0f) {
+                Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = dimAlpha)))
+            }
 
             // 1.5. Scrim
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .background(
-                        Brush.verticalGradient(
-                            0.00f to Color.Black.copy(alpha = 0.28f),
-                            0.32f to Color.Transparent,
-                            0.55f to Color.Transparent,
-                            1.00f to Color.Black.copy(alpha = 0.55f)
+            androidx.compose.animation.AnimatedVisibility(
+                visible = controlsVisible,
+                enter = fadeIn(tween(300)),
+                exit = fadeOut(tween(600)),
+                modifier = Modifier.matchParentSize(),
+            ) {
+                Box(
+                    Modifier.fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                0.00f to Color.Black.copy(alpha = 0.28f),
+                                0.32f to Color.Transparent,
+                                0.55f to Color.Transparent,
+                                1.00f to Color.Black.copy(alpha = 0.55f)
+                            )
                         )
-                    )
-            )
+                )
+            }
 
             // 1.7. Syncing / buffering / extracting overlay — fades out when playback starts
             androidx.compose.animation.AnimatedVisibility(
@@ -688,6 +702,8 @@ fun PlayerScreen(
                     )
                 },
                 onInteraction = ::touchControls,
+                playerBrightness = playerBrightness,
+                onPlayerBrightnessChange = { v -> playerBrightness = v },
                 modifier = Modifier.matchParentSize(),
             )
 

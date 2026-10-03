@@ -105,6 +105,8 @@ fun PlayerOverlayPreview() {
                 onFullscreenToggle = {},
                 onFloatWindow = {},
                 onInteraction = {},
+                playerBrightness = 100f,
+                onPlayerBrightnessChange = {},
             )
         }
     }
@@ -162,6 +164,8 @@ fun ServersMenuScrollPreview() {
                     onFullscreenToggle = {},
                 onFloatWindow = {},
                     onInteraction = {},
+                    playerBrightness = 100f,
+                    onPlayerBrightnessChange = {},
                     modifier = Modifier.matchParentSize(),
                 )
             }
