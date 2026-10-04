@@ -254,7 +254,7 @@ private fun HomeHeader(onSettings: () -> Unit) {
             }
             Column {
                 Text("LINK STREAMZ", color = LinkColors.PrimaryText, fontFamily = DisplayFont, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
-                Text("WATCH EVERY MATCH LIVE", color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 9.5.sp, modifier = Modifier.padding(top = 5.dp), letterSpacing = .4.sp)
+                Text("Your Home For Streams", color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 9.5.sp, modifier = Modifier.padding(top = 5.dp), letterSpacing = .4.sp)
             }
         }
         IconButton(
