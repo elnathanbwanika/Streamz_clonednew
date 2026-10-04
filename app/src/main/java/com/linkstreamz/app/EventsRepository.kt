@@ -222,14 +222,14 @@ class EventsRepository(private val preview: Boolean = false) {
         val eventArray = (root["events"] as? JsonArray) ?: JsonArray(emptyList())
         val events = eventArray.mapIndexed { index, item ->
             normalizeEvent(item, index, teamMap)
-        }
+        }.sortedByDescending { it.id.toLongOrNull() ?: 0L } // FEED: sort newest first
         val eventById = events.associateBy { it.id }
 
         // FEED: Parse highlights[] — empty list when absent or malformed.
         val highlightArray = (root["highlights"] as? JsonArray) ?: JsonArray(emptyList())
         val highlights = highlightArray.mapIndexed { index, item ->
             normalizeHighlight(item, index, eventById, teamMap)
-        }
+        }.sortedByDescending { it.id.toLongOrNull() ?: 0L } // FEED: sort newest first
 
         return Feed(events, highlights, sports, leagues)
     }
