@@ -393,31 +393,6 @@ private fun QualityChip(text: String) {
 private fun SportIcon(sport: String, status: String = "") {
     val isLive = status == "live"
     val isUpcoming = status == "upcoming"
-    
-    val alpha = if (isLive) {
-        val infiniteTransition = rememberInfiniteTransition(label = "live_pulse")
-        infiniteTransition.animateFloat(
-            initialValue = 1.0f,
-            targetValue = 0.55f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(1600),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "alpha"
-        ).value
-    } else 1f
-
-    val modifier = Modifier
-        .size(13.dp)
-        .graphicsLayer { this.alpha = alpha }
-        .drawBehind {
-            if (isLive) {
-                drawCircle(
-                    color = LinkColors.OrangePrimary.copy(alpha = 0.4f * alpha),
-                    radius = size.minDimension * 1.5f
-                )
-            }
-        }
 
     val icon = if (isUpcoming) {
         Icons.Default.RadioButtonUnchecked
@@ -428,7 +403,51 @@ private fun SportIcon(sport: String, status: String = "") {
             else -> Icons.Default.Circle
         }
     }
-    Icon(icon, null, tint = LinkColors.OrangePrimary, modifier = modifier)
+
+    if (isLive) {
+        val infiniteTransition = rememberInfiniteTransition(label = "sport_radar")
+        
+        val scale by infiniteTransition.animateFloat(
+            initialValue = 1f,
+            targetValue = 2.5f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1500),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "radar_scale"
+        )
+        
+        val alpha by infiniteTransition.animateFloat(
+            initialValue = 0.8f,
+            targetValue = 0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1500),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "radar_alpha"
+        )
+
+        Box(
+            modifier = Modifier.size(13.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            // Expanding outer ring
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        this.alpha = alpha
+                    }
+                    .background(LinkColors.OrangePrimary, CircleShape)
+            )
+            // Static central sport icon
+            Icon(icon, null, tint = LinkColors.OrangePrimary, modifier = Modifier.matchParentSize())
+        }
+    } else {
+        Icon(icon, null, tint = LinkColors.OrangePrimary, modifier = Modifier.size(13.dp))
+    }
 }
 
 @Composable
