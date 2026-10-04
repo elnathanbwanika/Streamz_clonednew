@@ -95,7 +95,8 @@ android {
 
 dependencies {
     // YT-EXTRACT: NewPipeExtractor (pure Java — no Kotlin metadata conflict)
-    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5")
+    // Pinned to commit 94159dc971 from open PR #1545 to fix YouTube n-sig extraction (v0.26.5 is broken)
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:94159dc971")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs_nio:2.0.4")
     val composeBom = platform("androidx.compose:compose-bom:2024.12.01")
     implementation(composeBom)

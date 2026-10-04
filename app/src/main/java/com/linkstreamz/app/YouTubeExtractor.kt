@@ -120,25 +120,33 @@ object YouTubeExtractor {
                 }
             }
         } catch (e: ReCaptchaException) {
+            AppLogger.e("YTExtract", "ReCaptcha for $videoId", e)
             YtResult.Failure(YtError.RECAPTCHA, e.message ?: "ReCaptcha required")
         } catch (e: AgeRestrictedContentException) {
+            AppLogger.e("YTExtract", "Age restricted: $videoId", e)
             YtResult.Failure(YtError.AGE_RESTRICTED, e.message ?: "Age restricted")
         } catch (e: GeographicRestrictionException) {
+            AppLogger.e("YTExtract", "Geo restricted: $videoId", e)
             YtResult.Failure(YtError.GEO_RESTRICTED, e.message ?: "Geo restricted")
         } catch (e: ContentNotAvailableException) {
+            AppLogger.e("YTExtract", "ContentNotAvailable: $videoId — ${e.message}", e)
             val msg = e.message ?: ""
             if (msg.contains("live", ignoreCase = true))
                 YtResult.Failure(YtError.LIVE_STREAM, msg)
             else
                 YtResult.Failure(YtError.FATAL, msg)
         } catch (e: ExtractionException) {
+            AppLogger.e("YTExtract", "ExtractionException for $videoId — ${e.message}", e)
             YtResult.Failure(YtError.FATAL, e.message ?: "Extraction failed")
         } catch (e: ParsingException) {
+            AppLogger.e("YTExtract", "ParsingException for $videoId — ${e.message}", e)
             YtResult.Failure(YtError.UNKNOWN, e.message ?: "Parse error")
         } catch (e: java.io.IOException) {
             // Network error — do NOT cache so the user can retry
+            AppLogger.e("YTExtract", "IOException for $videoId — ${e.message}", e)
             return@withContext YtResult.Failure(YtError.UNKNOWN, e.message ?: "Network error")
         } catch (e: Exception) {
+            AppLogger.e("YTExtract", "Unknown exception for $videoId — ${e.javaClass.simpleName}: ${e.message}", e)
             YtResult.Failure(YtError.UNKNOWN, e.message ?: "Unknown error")
         }
 

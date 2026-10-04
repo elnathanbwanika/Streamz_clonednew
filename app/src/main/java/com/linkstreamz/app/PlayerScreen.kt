@@ -410,7 +410,7 @@ fun PlayerScreen(
             }
             is YtResult.Failure -> {
                 error = when (result.reason) {
-                    YtError.FATAL -> "This video is not available. The app may need an update."
+                    YtError.FATAL -> "YouTube could not load this video. It may be unavailable or restricted."
                     YtError.RECAPTCHA -> "YouTube requires a ReCaptcha solve. Please try again."
                     YtError.RATE_LIMIT -> "YouTube is rate-limiting. Please try again in a few minutes."
                     YtError.AGE_RESTRICTED -> "This video has an age restriction and cannot be played here."

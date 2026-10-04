@@ -52,10 +52,13 @@ class PlayerEngine(
 
     /**
      * Creates a DataSource.Factory for ExoPlayer with:
-     * - Browser-like User-Agent, Origin, Referer, Accept headers
+     * - Browser-like User-Agent and Accept headers
+     * - Correct Referer/Origin:
+     *     • googlevideo.com → Referer: https://www.youtube.com/ (required for YT CDN)
+     *     • everything else → Origin + Referer derived from the source host
      * - Cross-protocol redirect support (http ↔ https)
      * - 20 s connect/read timeouts
-     * - Any extra [headers] from the server config merged on top
+     * - Any extra [headers] from the server config merged on top (highest priority)
      */
     private fun createDataSourceFactory(
         ctx: Context,
@@ -73,16 +76,25 @@ class PlayerEngine(
         )
         try {
             val uri = Uri.parse(sourceUrl)
-            if (uri.scheme == "http" || uri.scheme == "https") {
-                val origin = "${uri.scheme}://${uri.host}"
-                merged["Origin"] = origin
-                merged["Referer"] = "$origin/"
+            val host = uri.host ?: ""
+            when {
+                // YouTube CDN — must use www.youtube.com as Referer, not the CDN host
+                host.contains("googlevideo.com") -> {
+                    merged["Referer"] = "https://www.youtube.com/"
+                }
+                // Standard HTTP/HTTPS source — derive Origin and Referer from host
+                uri.scheme == "http" || uri.scheme == "https" -> {
+                    val origin = "${uri.scheme}://$host"
+                    merged["Origin"] = origin
+                    merged["Referer"] = "$origin/"
+                }
             }
         } catch (_: Exception) {}
 
+        // Server-supplied headers always win (e.g. custom Referer from content.json)
         headers.forEach { (k, v) -> merged[k] = v }
         httpFactory.setDefaultRequestProperties(merged)
-        AppLogger.d("Engine", "DataSourceFactory for $sourceUrl headers=${merged.keys}")
+        AppLogger.d("Engine", "DataSourceFactory headers=${merged.keys} for $sourceUrl")
         return DefaultDataSource.Factory(ctx, httpFactory)
     }
 
