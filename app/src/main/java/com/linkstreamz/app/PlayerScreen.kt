@@ -141,6 +141,7 @@ fun PlayerScreen(
     var serverMenu by remember { mutableStateOf(false) }
     var seekMessage by remember { mutableStateOf<String?>(null) }
     var isExtracting by remember { mutableStateOf(false) }
+    var isBuffering by remember { mutableStateOf(false) }
     // YT-EXTRACT: Set by loadStream to signal LaunchedEffect to run extraction
     var ytExtractId by remember { mutableStateOf<String?>(null) }
     var ytExtractStream by remember { mutableStateOf<StreamServer?>(null) }
@@ -361,6 +362,15 @@ fun PlayerScreen(
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 playing = isPlaying
+                if (isPlaying) isBuffering = false
+            }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                isBuffering = playbackState == androidx.media3.common.Player.STATE_BUFFERING
+                if (playbackState == androidx.media3.common.Player.STATE_READY ||
+                    playbackState == androidx.media3.common.Player.STATE_IDLE ||
+                    playbackState == androidx.media3.common.Player.STATE_ENDED) {
+                    isBuffering = false
+                }
             }
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 // If playWhenReady just became false but isPlaying hasn't updated yet,
@@ -606,7 +616,7 @@ fun PlayerScreen(
 
             // 1.7. Syncing / buffering / extracting overlay — fades out when playback starts
             androidx.compose.animation.AnimatedVisibility(
-                visible = isExtracting || (isSyncing && !playing),
+                visible = isExtracting || isBuffering || (isSyncing && !playing),
                 enter = fadeIn(tween(300)),
                 exit = fadeOut(tween(600)),
                 modifier = Modifier.fillMaxSize(),
@@ -627,16 +637,21 @@ fun PlayerScreen(
                             strokeWidth = 2.5.dp,
                         )
                         val delayVal = settings.streamDelaySeconds
-                        if (isExtracting) {
-                            Text(
+                        when {
+                            isExtracting -> Text(
                                 "Extracting YouTube stream...",
                                 color = LinkColors.MutedText,
                                 fontSize = 12.sp,
                                 fontFamily = MonoFont,
                             )
-                        } else if (delayVal > 0) {
-                            Text(
+                            isSyncing && delayVal > 0 -> Text(
                                 "Syncing to stay ${delayVal}s behind live...",
+                                color = LinkColors.MutedText,
+                                fontSize = 12.sp,
+                                fontFamily = MonoFont,
+                            )
+                            isBuffering -> Text(
+                                "Loading stream...",
                                 color = LinkColors.MutedText,
                                 fontSize = 12.sp,
                                 fontFamily = MonoFont,

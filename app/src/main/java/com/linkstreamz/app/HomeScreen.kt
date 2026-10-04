@@ -64,6 +64,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.height
+import androidx.compose.runtime.mutableLongStateOf
 
 private enum class HomeFilter(val label: String) {
     ALL("All"), LIVE("Live"), UPCOMING("Upcoming"), FINISHED("Finished"), HIGHLIGHTS("Highlights")
@@ -137,9 +145,28 @@ fun HomeScreen(
                     FilterChip(item, counts[item] ?: 0, filter == item) { filter = item; }
                 }
             }
+            // FEED: Grace period — don't flash "Can't reach server" instantly on first load.
+            // Only show ErrorState after the error has persisted for at least 3 seconds.
+            var errorSinceMs by remember { mutableLongStateOf(0L) }
+            var showError by remember { mutableStateOf(false) }
+            LaunchedEffect(state) {
+                if (state is FeedState.Error) {
+                    if (errorSinceMs == 0L) errorSinceMs = System.currentTimeMillis()
+                    val elapsed = System.currentTimeMillis() - errorSinceMs
+                    if (elapsed < 3000L) {
+                        delay(3000L - elapsed)
+                    }
+                    // Only flip to error if we're still in Error state (not recovered)
+                    if (state is FeedState.Error) showError = true
+                } else {
+                    errorSinceMs = 0L
+                    showError = false
+                }
+            }
+
             when (val current = state) {
                 FeedState.Loading -> LoadingList()
-                FeedState.Error -> ErrorState { scope.launch { repository.load() } }
+                FeedState.Error -> if (showError) ErrorState { scope.launch { repository.load() } } else LoadingList()
                 is FeedState.Ready -> {
                     val items = when (filter) {
                         HomeFilter.HIGHLIGHTS -> current.feed.highlights.map { it as Any }
@@ -287,13 +314,38 @@ private fun FilterChip(filter: HomeFilter, count: Int, selected: Boolean, onClic
 
 @Composable
 private fun LoadingList() {
+    val shimmer = rememberInfiniteTransition(label = "shimmer")
+    val shimmerX by shimmer.animateFloat(
+        initialValue = -1f,
+        targetValue = 2f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "shimmer_x"
+    )
+
     LazyColumn(
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 44.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        items(3) {
-            Box(Modifier.fillMaxWidth().size(96.dp).background(Brush.horizontalGradient(listOf(LinkColors.CardBg, Color(0xFF1A1510), LinkColors.CardBg)), RoundedCornerShape(18.dp)))
+        items(5) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(96.dp)
+                    .background(
+                        Brush.horizontalGradient(
+                            colorStops = arrayOf(
+                                (shimmerX - 0.3f).coerceIn(0f, 1f) to LinkColors.CardBg,
+                                shimmerX.coerceIn(0f, 1f) to Color(0xFF2A2015),
+                                (shimmerX + 0.3f).coerceIn(0f, 1f) to LinkColors.CardBg,
+                            )
+                        ),
+                        RoundedCornerShape(18.dp)
+                    )
+            )
         }
     }
 }
