@@ -650,12 +650,6 @@ fun PlayerScreen(
                                 fontSize = 12.sp,
                                 fontFamily = MonoFont,
                             )
-                            isBuffering -> Text(
-                                "Loading stream...",
-                                color = LinkColors.MutedText,
-                                fontSize = 12.sp,
-                                fontFamily = MonoFont,
-                            )
                         }
                     }
                 }

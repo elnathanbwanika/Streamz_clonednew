@@ -145,6 +145,14 @@ fun HomeScreen(
                     FilterChip(item, counts[item] ?: 0, filter == item) { filter = item; }
                 }
             }
+            // FEED: Always show the loading shimmer for at least 3 seconds on first open.
+            // After 3s: show content if ready, or error if still failing.
+            var minDelayPassed by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                delay(3000L)
+                minDelayPassed = true
+            }
+
             // FEED: Grace period — don't flash "Can't reach server" instantly on first load.
             // Only show ErrorState after the error has persisted for at least 3 seconds.
             var errorSinceMs by remember { mutableLongStateOf(0L) }
@@ -166,8 +174,8 @@ fun HomeScreen(
 
             when (val current = state) {
                 FeedState.Loading -> LoadingList()
-                FeedState.Error -> if (showError) ErrorState { scope.launch { repository.load() } } else LoadingList()
-                is FeedState.Ready -> {
+                FeedState.Error -> if (minDelayPassed && showError) ErrorState { scope.launch { repository.load() } } else LoadingList()
+                is FeedState.Ready -> if (!minDelayPassed) LoadingList() else {
                     val items = when (filter) {
                         HomeFilter.HIGHLIGHTS -> current.feed.highlights.map { it as Any }
                         else -> current.feed.events.filter {
