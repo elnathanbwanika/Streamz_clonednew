@@ -145,8 +145,9 @@ fun PlayerScreen(
     // YT-EXTRACT: Set by loadStream to signal LaunchedEffect to run extraction
     var ytExtractId by remember { mutableStateOf<String?>(null) }
     var ytExtractStream by remember { mutableStateOf<StreamServer?>(null) }
-    // Player-local brightness: 100f = no dim overlay; lower = darker player only, not the whole app
-    var playerBrightness by remember { mutableFloatStateOf(100f) }
+    // Player-local brightness: 100f = no overlay (neutral); lower = darker, higher = brighter (white wash).
+    // Range 5f..150f. Default 35f (~35% brightness).
+    var playerBrightness by remember { mutableFloatStateOf(35f) }
 
     // Auto-hide controls state
     var controlsVisible by remember { mutableStateOf(true) }
@@ -587,11 +588,20 @@ fun PlayerScreen(
                 )
             }
 
-            // 1.2. Player Dimmer — applies brightness by drawing a black overlay
-            // brightness range is 5f..100f. 100f = 0 alpha, 5f = ~95% alpha
-            val dimAlpha = 1f - (playerBrightness / 100f).coerceIn(0f, 1f)
-            if (dimAlpha > 0f) {
-                Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = dimAlpha)))
+            // 1.2. Player Brightness — black overlay dims (5..100), white overlay boosts (100..150)
+            // 100f = neutral (no overlay). 5f = nearly black. 150f = significant white wash (+50%).
+            when {
+                playerBrightness < 100f -> {
+                    val dimAlpha = 1f - (playerBrightness / 100f).coerceIn(0f, 1f)
+                    if (dimAlpha > 0f)
+                        Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = dimAlpha)))
+                }
+                playerBrightness > 100f -> {
+                    // Map 100..150 → alpha 0..0.55 for a visible but not blown-out boost
+                    val boostAlpha = ((playerBrightness - 100f) / 50f).coerceIn(0f, 1f) * 0.55f
+                    if (boostAlpha > 0f)
+                        Box(Modifier.matchParentSize().background(Color.White.copy(alpha = boostAlpha)))
+                }
             }
 
             // 1.5. Scrim

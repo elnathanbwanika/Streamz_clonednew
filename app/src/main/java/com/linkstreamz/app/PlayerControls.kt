@@ -685,7 +685,7 @@ fun PlayerSettingsPanel(
                             // playerBrightness is owned by PlayerScreen and applies a local overlay
                             value = playerBrightness,
                             onValueChange = { v -> onPlayerBrightnessChange(v) },
-                            valueRange = 5f..100f,
+                            valueRange = 5f..150f,
                             modifier = Modifier.weight(1f),
                             colors = SliderDefaults.colors(
                                 thumbColor = Orange,
@@ -693,20 +693,20 @@ fun PlayerSettingsPanel(
                                 inactiveTrackColor = Color(0xFF2A1E14),
                             ),
                         )
-                        // "Reset" button — brings player back to full brightness
+                        // "Reset" button — brings player back to neutral brightness (100 = no overlay)
                         Box(
                             modifier = Modifier
                                 .size(32.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(if (playerBrightness >= 100f) Orange else ItemBg)
-                                .border(1.dp, if (playerBrightness >= 100f) Orange else ItemBorder, RoundedCornerShape(10.dp))
+                                .background(if (playerBrightness == 100f) Orange else ItemBg)
+                                .border(1.dp, if (playerBrightness == 100f) Orange else ItemBorder, RoundedCornerShape(10.dp))
                                 .clickable { onPlayerBrightnessChange(100f) },
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
                                 Icons.Default.BrightnessAuto,
                                 "Reset brightness",
-                                tint = if (playerBrightness >= 100f) Color.Black else Orange,
+                                tint = if (playerBrightness == 100f) Color.Black else Orange,
                                 modifier = Modifier.size(17.dp),
                             )
                         }
