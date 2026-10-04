@@ -306,38 +306,74 @@ fun Crest(team: Team, size: androidx.compose.ui.unit.Dp = 36.dp) {
 private fun MatchCenter(event: Event, status: String, nowMs: Long) {
     when (status) {
         "live" -> {
-            val infiniteTransition = rememberInfiniteTransition(label = "pulse_trans")
-            val alpha by infiniteTransition.animateFloat(
-                initialValue = 1.0f,
-                targetValue = 0.55f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1600),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "pulse_alpha"
-            )
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Box(
-                    Modifier.size(13.dp)
-                        .graphicsLayer { this.alpha = alpha }
-                        .drawBehind {
-                            drawCircle(
-                                color = LinkColors.OrangePrimary.copy(alpha = 0.4f * alpha),
-                                radius = size.minDimension * 1.5f
-                            )
-                        },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.Default.Circle, null, tint = LinkColors.OrangePrimary, modifier = Modifier.matchParentSize())
-                }
-                Text(currentMinute(event.startMs, nowMs) ?: "Live", color = LinkColors.OrangePrimary, fontFamily = MonoFont, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-            }
+            LiveIndicatorRadar(text = currentMinute(event.startMs, nowMs) ?: "LIVE")
         }
         "upcoming" -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("STARTS IN", color = LinkColors.OrangePrimary, fontFamily = MonoFont, fontSize = 9.sp, letterSpacing = .4.sp)
             Text(countdownText(event.startMs, nowMs) ?: event.at.ifBlank { "Soon" }, color = LinkColors.OrangePrimary, fontFamily = MonoFont, fontSize = 10.5.sp)
         }
         else -> Text("Ended", color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 10.sp)
+    }
+}
+
+@Composable
+fun LiveIndicatorRadar(text: String) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        val infiniteTransition = rememberInfiniteTransition(label = "radar")
+        
+        val scale by infiniteTransition.animateFloat(
+            initialValue = 1f,
+            targetValue = 2.5f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1500),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "radar_scale"
+        )
+        
+        val alpha by infiniteTransition.animateFloat(
+            initialValue = 0.8f,
+            targetValue = 0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1500),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "radar_alpha"
+        )
+
+        Box(
+            modifier = Modifier.size(12.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            // Expanding outer ring
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                        this.alpha = alpha
+                    }
+                    .background(LinkColors.OrangePrimary, CircleShape)
+            )
+            // Static central dot
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(LinkColors.OrangePrimary, CircleShape)
+            )
+        }
+        
+        Text(
+            text = text.uppercase(),
+            color = LinkColors.OrangePrimary,
+            fontFamily = MonoFont,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
