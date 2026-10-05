@@ -72,8 +72,17 @@ class StreamProxyServer(
         if (path == "master.m3u8") {
             val request = buildRequest(sourceUrl, null)
             val response = executeRequest(request)
-            if (response == null || !response.isSuccessful) {
+            if (response == null) {
                 call.respond(HttpStatusCode.BadGateway, "Failed to fetch master")
+                return
+            }
+            if (!response.isSuccessful) {
+                // Forward the real HTTP error code — don't wrap in 502.
+                // This lets ExoPlayer / the retry logic see the actual error (403, 404, etc.).
+                val realStatus = HttpStatusCode.fromValue(response.code)
+                val body = try { response.body?.string() ?: "" } finally { response.close() }
+                AppLogger.e("Proxy", "Master fetch failed: ${response.code} from $sourceUrl")
+                call.respond(realStatus, body)
                 return
             }
             val body = response.body?.string() ?: ""

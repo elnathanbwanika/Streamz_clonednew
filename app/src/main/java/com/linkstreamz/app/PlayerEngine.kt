@@ -220,10 +220,13 @@ class PlayerEngine(
                     val muxedUrl = server.url!! // non-null guaranteed by serverMode()
                     val useProxy = if (isCustom) false else server.useProxy
                     val effectiveDelay = server.delaySeconds ?: globalDelaySeconds
-
+                    // Only proxy when explicitly requested by the server config OR a server-specific
+                    // delay is set. The global DVR delay must NOT force unrelated streams through
+                    // the proxy — those streams may have CDN token auth that the proxy breaks.
+                    val serverSpecificDelay = server.delaySeconds ?: 0
                     val path = Uri.parse(muxedUrl).path ?: ""
                     val isM3u8 = path.endsWith(".m3u8", ignoreCase = true) || muxedUrl.contains(".m3u8?")
-                    val needsProxy = isM3u8 && !isCustom && (useProxy || effectiveDelay > 0)
+                    val needsProxy = isM3u8 && !isCustom && (useProxy || serverSpecificDelay > 0)
 
                     val playUrl: String = if (needsProxy) {
                         // proxy.start() uses runBlocking internally → must run on IO, not Main
