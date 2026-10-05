@@ -146,8 +146,8 @@ fun PlayerScreen(
     var ytExtractId by remember { mutableStateOf<String?>(null) }
     var ytExtractStream by remember { mutableStateOf<StreamServer?>(null) }
     // Player-local brightness: 100f = no overlay (neutral); lower = darker, higher = brighter (white wash).
-    // Range 5f..150f. Default 35f (~35% brightness).
-    var playerBrightness by remember { mutableFloatStateOf(35f) }
+    // Range 5f..300f. Default 100f (neutral — no overlay).
+    var playerBrightness by remember { mutableFloatStateOf(100f) }
 
     // Auto-hide controls state
     var controlsVisible by remember { mutableStateOf(true) }
@@ -597,8 +597,8 @@ fun PlayerScreen(
                         Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = dimAlpha)))
                 }
                 playerBrightness > 100f -> {
-                    // Map 100..150 → alpha 0..0.55 for a visible but not blown-out boost
-                    val boostAlpha = ((playerBrightness - 100f) / 50f).coerceIn(0f, 1f) * 0.55f
+                    // Map 100..300 → alpha 0..0.75 for a strong, visible boost at max
+                    val boostAlpha = ((playerBrightness - 100f) / 200f).coerceIn(0f, 1f) * 0.75f
                     if (boostAlpha > 0f)
                         Box(Modifier.matchParentSize().background(Color.White.copy(alpha = boostAlpha)))
                 }

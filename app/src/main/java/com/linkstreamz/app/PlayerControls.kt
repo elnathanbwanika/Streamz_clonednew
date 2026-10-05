@@ -685,7 +685,7 @@ fun PlayerSettingsPanel(
                             // playerBrightness is owned by PlayerScreen and applies a local overlay
                             value = playerBrightness,
                             onValueChange = { v -> onPlayerBrightnessChange(v) },
-                            valueRange = 5f..150f,
+                            valueRange = 5f..300f,
                             modifier = Modifier.weight(1f),
                             colors = SliderDefaults.colors(
                                 thumbColor = Orange,
