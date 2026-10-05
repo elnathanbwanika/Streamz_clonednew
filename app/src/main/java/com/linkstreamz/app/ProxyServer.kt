@@ -119,15 +119,10 @@ class StreamProxyServer(
         val requestBuilder = Request.Builder().url(url)
         val requestHeaders = mutableMapOf(
             "User-Agent" to "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36",
-            "Accept" to "*/*"
+            "Accept" to "*/*",
+            "Accept-Encoding" to "identity", // prevent gzip so we can stream raw bytes
         )
-        try {
-            val uri = URI.create(url)
-            val origin = "${uri.scheme}://${uri.authority}"
-            requestHeaders["Origin"] = origin
-            requestHeaders["Referer"] = "$origin/"
-        } catch (e: Exception) {}
-        
+        // Merge server-supplied headers last (highest priority — can override UA, add Referer, etc.)
         headers.forEach { (k, v) -> requestHeaders[k] = v }
         if (range != null) {
             requestHeaders["Range"] = range

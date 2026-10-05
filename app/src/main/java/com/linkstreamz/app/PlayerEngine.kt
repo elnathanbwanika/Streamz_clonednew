@@ -121,7 +121,9 @@ class PlayerEngine(
                     AppLogger.e("Engine", "Cause: ${cause.javaClass.simpleName} - ${cause.message}")
                     if (cause is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
                         AppLogger.e("Engine", "InvalidResponseCode: ${cause.responseCode} for ${cause.dataSpec.uri}")
-                        cause.headerFields.forEach { (k, v) ->
+                        cause.headerFields.entries.forEach { entry ->
+                            val k = entry.key ?: "(status-line)"
+                            val v = entry.value
                             AppLogger.e("Engine", "  Header $k: $v")
                         }
                     }
