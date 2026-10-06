@@ -33,8 +33,16 @@ val Accent = Color(0xFFFF6600)
 val Accent2 = Color(0xFFFF8533)
 val AccentSoft = Color(0x24FF6600)
 val Ease = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)
-val DisplayFont = androidx.compose.ui.text.font.FontFamily.SansSerif
-val MonoFont = androidx.compose.ui.text.font.FontFamily.Monospace
+val DisplayFont = androidx.compose.ui.text.font.FontFamily(
+    androidx.compose.ui.text.font.Font(R.font.syncopate_bold, androidx.compose.ui.text.font.FontWeight.Bold),
+    androidx.compose.ui.text.font.Font(R.font.syncopate_regular, androidx.compose.ui.text.font.FontWeight.Normal)
+)
+val BodyFont = androidx.compose.ui.text.font.FontFamily(
+    androidx.compose.ui.text.font.Font(R.font.inter_regular, androidx.compose.ui.text.font.FontWeight.Normal)
+)
+val MonoFont = androidx.compose.ui.text.font.FontFamily(
+    androidx.compose.ui.text.font.Font(R.font.jetbrains_mono, androidx.compose.ui.text.font.FontWeight.Normal)
+)
 
 private val LinkColorScheme = darkColorScheme(
     background = LinkColors.ScreenBg,
@@ -61,8 +69,8 @@ fun LinkStreamzTheme(content: @Composable () -> Unit) {
 }
 
 private val LinkTypography = androidx.compose.material3.Typography(
-    bodyLarge = androidx.compose.ui.text.TextStyle(fontFamily = DisplayFont, color = LinkColors.PrimaryText),
-    bodyMedium = androidx.compose.ui.text.TextStyle(fontFamily = DisplayFont, color = LinkColors.PrimaryText),
+    bodyLarge = androidx.compose.ui.text.TextStyle(fontFamily = BodyFont, color = LinkColors.PrimaryText),
+    bodyMedium = androidx.compose.ui.text.TextStyle(fontFamily = BodyFont, color = LinkColors.PrimaryText),
     labelSmall = androidx.compose.ui.text.TextStyle(fontFamily = MonoFont, color = LinkColors.MutedText),
 )
 

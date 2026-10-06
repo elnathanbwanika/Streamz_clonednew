@@ -96,6 +96,8 @@ class MainActivity : ComponentActivity() {
 
                 val navController = rememberNavController()
                 val repository = remember { EventsRepository() }
+                val moviesRepo = remember { MoviesRepository() }
+                val channelsRepo = remember { ChannelsRepository() }
                 val settingsRepository = remember { SettingsRepository(applicationContext) }
                 
                 // Using custom factory to pass the repository
@@ -117,6 +119,9 @@ class MainActivity : ComponentActivity() {
                         composable("home") {
                             HomeScreen(
                                 repository = repository,
+                                moviesRepo = moviesRepo,
+                                channelsRepo = channelsRepo,
+                                settings = settings,
                                 onSettings = { navController.navigate("settings") },
                                 onPlayer = {
                                     target = it

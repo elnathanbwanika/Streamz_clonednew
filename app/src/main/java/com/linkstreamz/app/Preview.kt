@@ -21,6 +21,9 @@ fun LinkStreamzHomePreview() {
     LinkStreamzTheme {
         HomeScreen(
             repository = remember { EventsRepository(preview = true) },
+            moviesRepo = remember { MoviesRepository() },
+            channelsRepo = remember { ChannelsRepository() },
+            settings = SettingsUiState(),
             onSettings = {},
             onPlayer = {},
         )

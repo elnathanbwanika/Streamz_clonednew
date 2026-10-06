@@ -74,12 +74,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.mutableLongStateOf
 
 private enum class HomeFilter(val label: String) {
-    ALL("All"), LIVE("Live"), UPCOMING("Upcoming"), FINISHED("Finished"), HIGHLIGHTS("Highlights")
+    ALL("All"), LIVE("Live"), UPCOMING("Upcoming"), FINISHED("Finished"), HIGHLIGHTS("Highlights"), MOVIES("Movies"), CHANNELS("Channels")
 }
 
 @Composable
 fun HomeScreen(
     repository: EventsRepository,
+    moviesRepo: MoviesRepository,
+    channelsRepo: ChannelsRepository,
+    settings: SettingsUiState,
     onSettings: () -> Unit,
     onPlayer: (PlayerTarget) -> Unit,
 ) {
@@ -89,6 +92,7 @@ fun HomeScreen(
     var filter by remember { mutableStateOf(HomeFilter.ALL) }
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
     var dialogTarget by remember { mutableStateOf<PlayerTarget?>(null) }
+    var watchItem by remember { mutableStateOf<Any?>(null) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
@@ -130,10 +134,16 @@ fun HomeScreen(
             HomeFilter.UPCOMING to events.count { effectiveStatus(it.startMs, it.status, nowMs) == "upcoming" },
             HomeFilter.FINISHED to events.count { effectiveStatus(it.startMs, it.status, nowMs) == "finished" },
             HomeFilter.HIGHLIGHTS to (feed?.highlights?.size ?: 0),
+            HomeFilter.MOVIES to (moviesRepo.movies.size + moviesRepo.series.size),
+            HomeFilter.CHANNELS to channelsRepo.channels.size,
         )
     }
 
     Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+        if (watchItem != null) {
+            WatchScreen(item = watchItem!!, settings = settings, onBack = { watchItem = null })
+            return@Box
+        }
         Column(Modifier.fillMaxSize().appBackground()) {
             HomeHeader(onSettings)
             LazyRow(
@@ -172,33 +182,39 @@ fun HomeScreen(
                 }
             }
 
-            when (val current = state) {
-                FeedState.Loading -> LoadingList()
-                FeedState.Error -> if (minDelayPassed && showError) ErrorState { scope.launch { repository.load() } } else LoadingList()
-                is FeedState.Ready -> if (!minDelayPassed) LoadingList() else {
-                    val items = when (filter) {
-                        HomeFilter.HIGHLIGHTS -> current.feed.highlights.map { it as Any }
-                        else -> current.feed.events.filter {
-                            filter == HomeFilter.ALL || effectiveStatus(it.startMs, it.status, nowMs) == filter.name.lowercase()
-                        }.map { it as Any }
-                    }
-                    if (items.isEmpty()) {
-                        EmptyState(if (filter == HomeFilter.HIGHLIGHTS) "No highlights yet." else "No events here yet.")
-                    } else {
-                        LazyColumn(
-                            state = listState,
-                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 44.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.fillMaxSize(),
-                        ) {
-                            items(items, key = { item -> if (item is Event) "event-${item.id}" else "highlight-${(item as Highlight).id}" }) { item ->
-                                when (item) {
-                                    is Event -> EventCard(item, nowMs, {
-                                        selectTarget(EventTarget(item), onPlayer, { dialogTarget = it }, context)
-                                    })
-                                    is Highlight -> HighlightCard(item, {
-                                        selectTarget(HighlightTarget(item), onPlayer, { dialogTarget = it }, context)
-                                    })
+            if (filter == HomeFilter.MOVIES) {
+                MoviesScreen(moviesRepo, onWatch = { item -> watchItem = item })
+            } else if (filter == HomeFilter.CHANNELS) {
+                ChannelsScreen(channelsRepo, onWatch = { channel -> watchItem = channel })
+            } else {
+                when (val current = state) {
+                    FeedState.Loading -> LoadingList()
+                    FeedState.Error -> if (minDelayPassed && showError) ErrorState { scope.launch { repository.load() } } else LoadingList()
+                    is FeedState.Ready -> if (!minDelayPassed) LoadingList() else {
+                        val items = when (filter) {
+                            HomeFilter.HIGHLIGHTS -> current.feed.highlights.map { it as Any }
+                            else -> current.feed.events.filter {
+                                filter == HomeFilter.ALL || effectiveStatus(it.startMs, it.status, nowMs) == filter.name.lowercase()
+                            }.map { it as Any }
+                        }
+                        if (items.isEmpty()) {
+                            EmptyState(if (filter == HomeFilter.HIGHLIGHTS) "No highlights yet." else "No events here yet.")
+                        } else {
+                            LazyColumn(
+                                state = listState,
+                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 44.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                items(items, key = { item -> if (item is Event) "event-${item.id}" else "highlight-${(item as Highlight).id}" }) { item ->
+                                    when (item) {
+                                        is Event -> EventCard(item, nowMs, {
+                                            selectTarget(EventTarget(item), onPlayer, { dialogTarget = it }, context)
+                                        })
+                                        is Highlight -> HighlightCard(item, {
+                                            selectTarget(HighlightTarget(item), onPlayer, { dialogTarget = it }, context)
+                                        })
+                                    }
                                 }
                             }
                         }

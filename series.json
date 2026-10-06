@@ -1,0 +1,244 @@
+[
+  {
+    "id": "sr-1",
+    "kind": "series",
+    "vj": "VJ Emmy",
+    "translated": true,
+    "title": "Silent Witness",
+    "genre": "MYSTERY",
+    "year": 2024,
+    "thumb": "https://picsum.photos/seed/sr1/600/340",
+    "seasons": [
+      {
+        "number": 1,
+        "episodes": [
+          {
+            "n": 1,
+            "title": "The Beginning",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
+            "dur": "9:54",
+            "thumb": "https://picsum.photos/seed/e111/200/120"
+          },
+          {
+            "n": 2,
+            "title": "Shadows",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4",
+            "dur": "9:45",
+            "thumb": "https://picsum.photos/seed/e112/200/120"
+          },
+          {
+            "n": 3,
+            "title": "The Bridge",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4",
+            "dur": "9:29",
+            "thumb": "https://picsum.photos/seed/e113/200/120"
+          },
+          {
+            "n": 4,
+            "title": "Cold Trail",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4",
+            "dur": "9:27",
+            "thumb": "https://picsum.photos/seed/e114/200/120"
+          }
+        ]
+      },
+      {
+        "number": 2,
+        "episodes": [
+          {
+            "n": 1,
+            "title": "Homecoming",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+            "dur": "12:14",
+            "thumb": "https://picsum.photos/seed/e121/200/120"
+          },
+          {
+            "n": 2,
+            "title": "The Letter",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+            "dur": "14:48",
+            "thumb": "https://picsum.photos/seed/e122/200/120"
+          },
+          {
+            "n": 3,
+            "title": "Broken Glass",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+            "dur": "9:56",
+            "thumb": "https://picsum.photos/seed/e123/200/120"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "sr-2",
+    "kind": "series",
+    "vj": "VJ Ulio",
+    "translated": true,
+    "title": "Steel Horizon",
+    "genre": "SCI-FI",
+    "year": 2023,
+    "thumb": "https://picsum.photos/seed/sr2/600/340",
+    "seasons": [
+      {
+        "number": 1,
+        "episodes": [
+          {
+            "n": 1,
+            "title": "Ignition",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4",
+            "dur": "9:29",
+            "thumb": "https://picsum.photos/seed/e211/200/120"
+          },
+          {
+            "n": 2,
+            "title": "Orbit",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4",
+            "dur": "9:27",
+            "thumb": "https://picsum.photos/seed/e212/200/120"
+          },
+          {
+            "n": 3,
+            "title": "The Signal",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+            "dur": "12:14",
+            "thumb": "https://picsum.photos/seed/e213/200/120"
+          }
+        ]
+      },
+      {
+        "number": 2,
+        "episodes": [
+          {
+            "n": 1,
+            "title": "Decay",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+            "dur": "14:48",
+            "thumb": "https://picsum.photos/seed/e221/200/120"
+          },
+          {
+            "n": 2,
+            "title": "Re-entry",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+            "dur": "9:56",
+            "thumb": "https://picsum.photos/seed/e222/200/120"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "sr-3",
+    "kind": "series",
+    "vj": "VJ Marley",
+    "translated": true,
+    "title": "Echoes of Tomorrow",
+    "genre": "SCI-FI",
+    "year": 2024,
+    "thumb": "https://picsum.photos/seed/sr3/600/340",
+    "seasons": [
+      {
+        "number": 1,
+        "episodes": [
+          {
+            "n": 1,
+            "title": "Yesterday",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+            "dur": "12:14",
+            "thumb": "https://picsum.photos/seed/e311/200/120"
+          },
+          {
+            "n": 2,
+            "title": "Tomorrow",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+            "dur": "14:48",
+            "thumb": "https://picsum.photos/seed/e312/200/120"
+          },
+          {
+            "n": 3,
+            "title": "Paradox",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+            "dur": "9:56",
+            "thumb": "https://picsum.photos/seed/e313/200/120"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "sr-4",
+    "kind": "series",
+    "vj": null,
+    "translated": false,
+    "title": "Crimson Signal",
+    "genre": "THRILLER",
+    "year": 2023,
+    "thumb": "https://picsum.photos/seed/sr4/600/340",
+    "seasons": [
+      {
+        "number": 1,
+        "episodes": [
+          {
+            "n": 1,
+            "title": "Red Static",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+            "dur": "9:56",
+            "thumb": "https://picsum.photos/seed/e411/200/120"
+          },
+          {
+            "n": 2,
+            "title": "Dead Air",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+            "dur": "10:53",
+            "thumb": "https://picsum.photos/seed/e412/200/120"
+          },
+          {
+            "n": 3,
+            "title": "Interference",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
+            "dur": "9:54",
+            "thumb": "https://picsum.photos/seed/e413/200/120"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "sr-5",
+    "kind": "series",
+    "vj": null,
+    "translated": false,
+    "title": "Iron Coast",
+    "genre": "ACTION",
+    "year": 2022,
+    "thumb": "https://picsum.photos/seed/sr5/600/340",
+    "seasons": [
+      {
+        "number": 1,
+        "episodes": [
+          {
+            "n": 1,
+            "title": "Landfall",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
+            "dur": "9:54",
+            "thumb": "https://picsum.photos/seed/e511/200/120"
+          },
+          {
+            "n": 2,
+            "title": "The Wall",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/VolkswagenGTIReview.mp4",
+            "dur": "9:45",
+            "thumb": "https://picsum.photos/seed/e512/200/120"
+          },
+          {
+            "n": 3,
+            "title": "Undertow",
+            "video": "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WeAreGoingOnBullrun.mp4",
+            "dur": "9:29",
+            "thumb": "https://picsum.photos/seed/e513/200/120"
+          }
+        ]
+      }
+    ]
+  }
+]
