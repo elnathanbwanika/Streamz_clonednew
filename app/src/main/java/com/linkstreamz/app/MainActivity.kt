@@ -113,6 +113,8 @@ class MainActivity : ComponentActivity() {
                 var target by remember { mutableStateOf<PlayerTarget?>(null) }
 
                 LaunchedEffect(repository) { repository.start(this) }
+                LaunchedEffect(moviesRepo)  { moviesRepo.start(this) }
+                LaunchedEffect(channelsRepo) { channelsRepo.start(this) }
 
                 Box(modifier = Modifier.fillMaxSize()) {
                     NavHost(navController = navController, startDestination = "home") {
@@ -135,6 +137,8 @@ class MainActivity : ComponentActivity() {
                                     target = it,
                                     settings = settings,
                                     repository = repository,
+                                    moviesRepo = moviesRepo,
+                                    channelsRepo = channelsRepo,
                                     onBack = { navController.popBackStack() },
                                     onTarget = { newTarget ->
                                         if (newTarget.servers.isEmpty()) {
@@ -169,17 +173,20 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    // Floating Logs Button & Dialog
+                    // Floating Logs Button — hidden when player is in fullscreen
                     var showLogs by remember { mutableStateOf(false) }
                     val currentLogs by AppLogger.logs.collectAsStateWithLifecycle()
+                    val isPlayerFullscreen by PlayerFullscreenState.isFullscreen
 
-                    androidx.compose.material3.SmallFloatingActionButton(
-                        onClick = { showLogs = true },
-                        modifier = Modifier
-                            .align(androidx.compose.ui.Alignment.BottomEnd)
-                            .padding(16.dp)
-                    ) {
-                        Text("Logs")
+                    if (!isPlayerFullscreen) {
+                        androidx.compose.material3.SmallFloatingActionButton(
+                            onClick = { showLogs = true },
+                            modifier = Modifier
+                                .align(androidx.compose.ui.Alignment.BottomEnd)
+                                .padding(16.dp)
+                        ) {
+                            Text("Logs")
+                        }
                     }
 
                     if (showLogs) {

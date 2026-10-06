@@ -151,7 +151,7 @@ class EventsRepository(private val preview: Boolean = false) {
         if (!silent) _state.value = FeedState.Loading
         try {
             // FEED: Single GET to content.json — the only remote call in the app.
-            val feed = fetchAndParse()
+            val feed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { fetchAndParse() }
             _state.value = FeedState.Ready(feed)
         } catch (_: Exception) {
             // FEED: On any error, only switch to Error state when there is no

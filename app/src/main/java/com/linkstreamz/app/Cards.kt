@@ -106,6 +106,41 @@ fun HighlightCard(
 }
 
 @Composable
+fun SingleItemCard(
+    categoryLine: String,
+    team: Team,
+    statusText: String?,
+    isLive: Boolean,
+    onClick: () -> Unit,
+) {
+    CardFrame(onClick = onClick) {
+        CardLeague(
+            icon = { 
+                if (isLive) Box(Modifier.size(7.dp).background(Color(0xFFFF3B30), CircleShape)) 
+                else Icon(Icons.Default.PlayArrow, null, tint = LinkColors.OrangePrimary, modifier = Modifier.size(13.dp))
+            },
+            label = categoryLine,
+        )
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            TeamSide(team, right = false, Modifier.weight(1f))
+            if (statusText != null) {
+                Text(
+                    statusText,
+                    color = if (isLive) Color(0xFFFF3B30) else LinkColors.MutedText,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 8.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun CardFrame(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -309,7 +344,7 @@ private fun MatchCenter(event: Event, status: String, nowMs: Long) {
             LiveIndicatorRadar(text = currentMinute(event.startMs, nowMs) ?: "LIVE")
         }
         "upcoming" -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("STARTS IN", color = LinkColors.OrangePrimary, fontFamily = MonoFont, fontSize = 9.sp, letterSpacing = .4.sp)
+            Text("STARTS IN", color = LinkColors.OrangePrimary, fontFamily = MonoFont, fontSize = 6.5.sp, letterSpacing = 0.3.sp, maxLines = 1, softWrap = false, textAlign = TextAlign.Center)
             Text(countdownText(event.startMs, nowMs) ?: event.at.ifBlank { "Soon" }, color = LinkColors.OrangePrimary, fontFamily = MonoFont, fontSize = 10.5.sp)
         }
         else -> Text("Ended", color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 10.sp)

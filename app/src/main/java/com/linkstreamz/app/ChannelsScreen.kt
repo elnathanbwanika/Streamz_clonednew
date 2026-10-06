@@ -39,9 +39,9 @@ private val CAT_ROWS = listOf(
 private val LIVE_RED = Color(0xFFFF3B30)
 
 @Composable
-fun ChannelsScreen(repository: ChannelsRepository, onWatch: (Channel) -> Unit) {
-    val allChannels = repository.channels
+fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
     var searchQuery by remember { mutableStateOf("") }
+    val allChannels = channels
     var localFilter by remember { mutableStateOf(true) }   // true = Local, false = Abroad
     var catFilter   by remember { mutableStateOf<String?>(null) }
 
@@ -207,7 +207,7 @@ private fun SectionHeader(title: String, showLiveDot: Boolean = false) {
         if (showLiveDot) {
             Box(Modifier.size(7.dp).background(LIVE_RED, CircleShape))
         }
-        Text(title, color = LinkColors.PrimaryText, fontFamily = DisplayFont, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+        Text(title, color = LinkColors.PrimaryText, fontFamily = DisplayFont, fontWeight = FontWeight.Bold, fontSize = 16.sp)
     }
 }
 

@@ -53,9 +53,7 @@ data class MoviesFilterState(
 )
 
 @Composable
-fun MoviesScreen(repository: MoviesRepository, onWatch: (Any) -> Unit) {
-    val movies = repository.movies
-    val series = repository.series
+fun MoviesScreen(movies: List<Movie>, series: List<Series>, onWatch: (Any) -> Unit) {
     var searchQuery by remember { mutableStateOf("") }
     var showSearch by remember { mutableStateOf(false) }
     var showFilter by remember { mutableStateOf(false) }
@@ -64,9 +62,34 @@ fun MoviesScreen(repository: MoviesRepository, onWatch: (Any) -> Unit) {
 
     fun byId(id: String): Any? = movies.find { it.id == id } ?: series.find { it.id == id }
 
-    val newlyAdded = NEWLY_ADDED_IDS.mapNotNull { byId(it) }
-    val trendingMovies = TRENDING_MOVIE_IDS.mapNotNull { byId(it) }
-    val trendingSeries: List<Any> = series
+    val filteredMovies = remember(movies, filterState) {
+        movies.filter { item ->
+            val matchTranslated = when (filterState.translatedFilter) {
+                TranslatedFilter.TRANSLATED -> item.translated
+                TranslatedFilter.NON_TRANSLATED -> !item.translated
+            }
+            val matchVj = filterState.vjFilter == null || item.vj == filterState.vjFilter
+            matchTranslated && matchVj
+        }
+    }
+
+    val filteredSeries = remember(series, filterState) {
+        series.filter { item ->
+            val matchTranslated = when (filterState.translatedFilter) {
+                TranslatedFilter.TRANSLATED -> item.translated
+                TranslatedFilter.NON_TRANSLATED -> !item.translated
+            }
+            val matchVj = filterState.vjFilter == null || item.vj == filterState.vjFilter
+            matchTranslated && matchVj
+        }
+    }
+
+    val newlyAdded = remember(filteredMovies, filteredSeries, filterState) {
+        val list = if (filterState.contentType == MediaContentType.MOVIES) filteredMovies else filteredSeries
+        list.takeLast(10).reversed()
+    }
+    val trendingMovies = remember(filteredMovies) { filteredMovies.take(10) }
+    val trendingSeries = remember(filteredSeries) { filteredSeries.take(10) }
 
     if (viewAllRow != null) {
         val (rowTitle, rowItems) = when (viewAllRow) {
@@ -161,30 +184,36 @@ fun MoviesScreen(repository: MoviesRepository, onWatch: (Any) -> Unit) {
                 }
             } else {
                 // ── Newly Added row
-                item {
-                    MoviesRowHeader(title = "Newly Added", onViewAll = { viewAllRow = "newly" })
-                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(newlyAdded) { item -> MediaCard(item = item, onClick = { onWatch(item) }) }
+                if (newlyAdded.isNotEmpty()) {
+                    item {
+                        MoviesRowHeader(title = "Newly Added", onViewAll = { viewAllRow = "newly" })
+                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            items(newlyAdded) { item -> MediaCard(item = item, onClick = { onWatch(item) }) }
+                        }
+                        Spacer(Modifier.height(24.dp))
                     }
-                    Spacer(Modifier.height(24.dp))
                 }
 
                 // ── Trending Movies row
-                item {
-                    MoviesRowHeader(title = "Trending Movies", onViewAll = { viewAllRow = "trendingMovies" })
-                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(trendingMovies) { item -> MediaCard(item = item, onClick = { onWatch(item) }) }
+                if (trendingMovies.isNotEmpty() && filterState.contentType == MediaContentType.MOVIES) {
+                    item {
+                        MoviesRowHeader(title = "Trending Movies", onViewAll = { viewAllRow = "trendingMovies" })
+                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            items(trendingMovies) { item -> MediaCard(item = item, onClick = { onWatch(item) }) }
+                        }
+                        Spacer(Modifier.height(24.dp))
                     }
-                    Spacer(Modifier.height(24.dp))
                 }
 
                 // ── Trending Series row
-                item {
-                    MoviesRowHeader(title = "Trending Series", onViewAll = { viewAllRow = "trendingSeries" })
-                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(trendingSeries) { item -> MediaCard(item = item, onClick = { onWatch(item) }) }
+                if (trendingSeries.isNotEmpty() && filterState.contentType == MediaContentType.SERIES) {
+                    item {
+                        MoviesRowHeader(title = "Trending Series", onViewAll = { viewAllRow = "trendingSeries" })
+                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            items(trendingSeries) { item -> MediaCard(item = item, onClick = { onWatch(item) }) }
+                        }
+                        Spacer(Modifier.height(24.dp))
                     }
-                    Spacer(Modifier.height(24.dp))
                 }
             }
         }
@@ -207,7 +236,7 @@ private fun MoviesRowHeader(title: String, onViewAll: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(title, color = LinkColors.PrimaryText, fontFamily = DisplayFont, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+        Text(title, color = LinkColors.PrimaryText, fontFamily = DisplayFont, fontWeight = FontWeight.Bold, fontSize = 16.sp)
         Text(
             "View all",
             color = LinkColors.OrangePrimary,
@@ -241,7 +270,7 @@ fun ViewAllScreen(title: String, items: List<Any>, onBack: () -> Unit, onWatch: 
                 Text("←", color = LinkColors.OrangePrimary, fontSize = 18.sp)
             }
             Spacer(Modifier.width(12.dp))
-            Text(title, color = LinkColors.PrimaryText, fontFamily = DisplayFont, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            Text(title, color = LinkColors.PrimaryText, fontFamily = BodyFont, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
             Spacer(Modifier.weight(1f))
             Text("${items.size} items", color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 11.sp)
         }
@@ -340,7 +369,7 @@ fun MoviesFilterDialog(
                 .padding(20.dp)
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Filter", color = LinkColors.PrimaryText, fontFamily = DisplayFont, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text("Filter", color = LinkColors.PrimaryText, fontFamily = BodyFont, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                 IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
                     Icon(Icons.Default.Close, null, tint = LinkColors.MutedText, modifier = Modifier.size(16.dp))
                 }

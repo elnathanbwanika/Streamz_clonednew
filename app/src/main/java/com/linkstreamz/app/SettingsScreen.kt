@@ -132,6 +132,14 @@ object LinkDimens {
     val IconTileR     = 11.dp   // icon tile corner radius
     val InputRadius   = 14.dp
     val BtnRadius     = 14.dp
+
+    // ── Inline player frame (Task 2) ──────────────────────────────────────────
+    // Outer orange border frame used in portrait/embedded mode only.
+    val PlayerOuterRadius  = 8.dp      // outer corner radius
+    val PlayerBorderWidth  = 1.5.dp    // orange border width
+    val PlayerGap          = 3.dp      // dark gap between border and video
+    val PlayerInnerRadius  = 3.5.dp    // inner clip radius (= outer − border − gap)
+    val PlayerGapColor     = Color(0xFF0D0805)  // dark brown gap fill
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

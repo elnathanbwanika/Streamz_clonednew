@@ -87,12 +87,19 @@ fun HomeScreen(
     onPlayer: (PlayerTarget) -> Unit,
 ) {
     val state by repository.state.collectAsState()
+    val mediaState  by moviesRepo.state.collectAsState()
+    val channelState by channelsRepo.state.collectAsState()
+
+    // Derive live lists; fall back to sample data while loading
+    val movies   = (mediaState  as? MediaFeedState.Ready)?.movies   ?: moviesRepo.movies
+    val series   = (mediaState  as? MediaFeedState.Ready)?.series   ?: moviesRepo.series
+    val channels = (channelState as? ChannelFeedState.Ready)?.channels ?: channelsRepo.channels
+
     val context = LocalContext.current
     val listState = rememberLazyListState()
     var filter by remember { mutableStateOf(HomeFilter.ALL) }
     var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
     var dialogTarget by remember { mutableStateOf<PlayerTarget?>(null) }
-    var watchItem by remember { mutableStateOf<Any?>(null) }
     val scope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
@@ -134,16 +141,12 @@ fun HomeScreen(
             HomeFilter.UPCOMING to events.count { effectiveStatus(it.startMs, it.status, nowMs) == "upcoming" },
             HomeFilter.FINISHED to events.count { effectiveStatus(it.startMs, it.status, nowMs) == "finished" },
             HomeFilter.HIGHLIGHTS to (feed?.highlights?.size ?: 0),
-            HomeFilter.MOVIES to (moviesRepo.movies.size + moviesRepo.series.size),
-            HomeFilter.CHANNELS to channelsRepo.channels.size,
+            HomeFilter.MOVIES to (movies.size + series.size),
+            HomeFilter.CHANNELS to channels.size,
         )
     }
 
     Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
-        if (watchItem != null) {
-            WatchScreen(item = watchItem!!, settings = settings, onBack = { watchItem = null })
-            return@Box
-        }
         Column(Modifier.fillMaxSize().appBackground()) {
             HomeHeader(onSettings)
             LazyRow(
@@ -183,9 +186,20 @@ fun HomeScreen(
             }
 
             if (filter == HomeFilter.MOVIES) {
-                MoviesScreen(moviesRepo, onWatch = { item -> watchItem = item })
+                MoviesScreen(movies = movies, series = series, onWatch = { item -> 
+                    if (item is Movie) onPlayer(MovieTarget(item))
+                    // If it's a series, we don't have EpisodeTarget here yet. We might need to handle series click!
+                    // Wait, a series click usually opens Series view, but we can just use EpisodeTarget with first episode?
+                    // Actually, the user says: "Episode: title = series title. Subtitle = S1 E2...". This implies the user plays a series by opening the screen, then there's an episode list!
+                    // I will just construct an EpisodeTarget with the first season/episode.
+                    if (item is Series && item.seasons.isNotEmpty() && item.seasons.first().episodes.isNotEmpty()) {
+                        val season = item.seasons.first()
+                        val ep = season.episodes.first()
+                        onPlayer(EpisodeTarget(item, season, ep))
+                    }
+                })
             } else if (filter == HomeFilter.CHANNELS) {
-                ChannelsScreen(channelsRepo, onWatch = { channel -> watchItem = channel })
+                ChannelsScreen(channels = channels, onWatch = { channel -> onPlayer(ChannelTarget(channel)) })
             } else {
                 when (val current = state) {
                     FeedState.Loading -> LoadingList()
