@@ -214,6 +214,7 @@ fun LinkStreamzSettingsPreview() {
             onCustomStream = { _, _ -> },
             onCustomUrlChange = {},
             onCustomAudioUrlChange = {},
+            onCustomProxyUrlChange = {},
         )
     }
 }

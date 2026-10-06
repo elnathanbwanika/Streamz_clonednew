@@ -35,6 +35,7 @@ data class SettingsUiState(
     val streamDelaySeconds: Int      = 20,
     val customUrl: String            = "",
     val customAudioUrl: String       = "",
+    val customProxyUrl: String       = "",
 )
 
 // ── ViewModel ─────────────────────────────────────────────────────────────────
@@ -74,6 +75,9 @@ class SettingsViewModel(private val repository: SettingsRepository) : ViewModel(
     }
     fun setCustomAudioUrl(value: String)      = viewModelScope.launch {
         repository.update { it.copy(customAudioUrl = value) }
+    }
+    fun setCustomProxyUrl(value: String)      = viewModelScope.launch {
+        repository.update { it.copy(customProxyUrl = value) }
     }
 
     /** Clears DataStore; all values revert to SettingsUiState() defaults. */

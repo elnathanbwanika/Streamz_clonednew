@@ -159,6 +159,7 @@ fun SettingsScreen(
         onCustomStream       = onCustomStream,
         onCustomUrlChange    = viewModel::setCustomUrl,
         onCustomAudioUrlChange = viewModel::setCustomAudioUrl,
+        onCustomProxyUrlChange = viewModel::setCustomProxyUrl,
     )
 }
 
@@ -184,6 +185,7 @@ fun SettingsScreenContent(
     onCustomStream: (String, String) -> Unit,
     onCustomUrlChange: (String) -> Unit,
     onCustomAudioUrlChange: (String) -> Unit,
+    onCustomProxyUrlChange: (String) -> Unit,
     initialExpandedSection: String? = "PLAYBACK",
 ) {
     var expandedSection by remember { mutableStateOf(initialExpandedSection) }
@@ -406,6 +408,31 @@ fun SettingsScreenContent(
                             },
                         )
                     }
+                }
+            }
+
+            // ── NETWORK ───────────────────────────────────────────────────────
+            item {
+                val proxySummary = if (uiState.customProxyUrl.isNotBlank()) "Proxy active" else "No proxy"
+                SettingsSectionCard(
+                    label          = "NETWORK",
+                    summary        = proxySummary,
+                    isExpanded     = expandedSection == "NETWORK",
+                    onToggleExpand = {
+                        expandedSection = if (expandedSection == "NETWORK") null else "NETWORK"
+                    },
+                ) {
+                    SettingRow(
+                        icon     = Icons.Default.Public,
+                        title    = "Custom HTTP/SOCKS Proxy",
+                        subtitle = "Bypass geo-blocks by routing streams through a proxy server (e.g. 192.168.1.5:8080 or socks5://192.168.1.5:1080). Leave blank to disable.",
+                    )
+                    BrandUrlField(
+                        value          = uiState.customProxyUrl,
+                        onValueChange  = onCustomProxyUrlChange,
+                        focusRequester = remember { androidx.compose.ui.focus.FocusRequester() },
+                        onGo           = { },
+                    )
                 }
             }
 
@@ -1047,6 +1074,7 @@ fun PreviewSettingsPlaybackOpen() {
             onCustomStream         = { _, _ -> },
             onCustomUrlChange      = {},
             onCustomAudioUrlChange = {},
+            onCustomProxyUrlChange = {},
             initialExpandedSection = "PLAYBACK",
         )
     }
@@ -1075,6 +1103,7 @@ fun PreviewSettingsAllCollapsed() {
             onCustomStream         = { _, _ -> },
             onCustomUrlChange      = {},
             onCustomAudioUrlChange = {},
+            onCustomProxyUrlChange = {},
             initialExpandedSection = null,            // all collapsed
         )
     }

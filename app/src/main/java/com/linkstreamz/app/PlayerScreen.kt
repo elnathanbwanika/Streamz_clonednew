@@ -154,10 +154,32 @@ fun PlayerScreen(
     var lastInteractionMs by remember { mutableStateOf(System.currentTimeMillis()) }
 
     // ── PlayerEngine (owns ExoPlayer + proxy) ────────────────────────────────
-    val engine = remember {
+    val baseClient = remember(settings.customProxyUrl) {
+        val builder = sharedOkHttpClient.newBuilder()
+        val proxyStr = settings.customProxyUrl.trim()
+        if (proxyStr.isNotBlank()) {
+            try {
+                val clean = proxyStr.replace("http://", "").replace("https://", "").replace("socks5://", "")
+                val parts = clean.split(":")
+                if (parts.size == 2) {
+                    val host = parts[0]
+                    val port = parts[1].toInt()
+                    val type = if (proxyStr.startsWith("socks5")) java.net.Proxy.Type.SOCKS else java.net.Proxy.Type.HTTP
+                    builder.proxy(java.net.Proxy(type, java.net.InetSocketAddress(host, port)))
+                }
+            } catch (e: Exception) {
+                AppLogger.e("PlayerScreen", "Invalid proxy config: $proxyStr")
+            }
+        } else {
+            builder.proxy(java.net.Proxy.NO_PROXY)
+        }
+        builder.build()
+    }
+
+    val engine = remember(settings.customProxyUrl) {
         PlayerEngine(
             context = context,
-            baseClient = sharedOkHttpClient,
+            baseClient = baseClient,
             globalDelaySeconds = settings.streamDelaySeconds,
         ) {
             // onFallback — runs on main thread via engine's scope

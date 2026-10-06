@@ -30,6 +30,7 @@ class SettingsRepository(private val context: Context) {
         val streamDelaySeconds  = intPreferencesKey("streamDelaySeconds")
         val customUrl           = androidx.datastore.preferences.core.stringPreferencesKey("customUrl")
         val customAudioUrl      = androidx.datastore.preferences.core.stringPreferencesKey("customAudioUrl")
+        val customProxyUrl      = androidx.datastore.preferences.core.stringPreferencesKey("customProxyUrl")
     }
 
     // ── Read ──────────────────────────────────────────────────────────────────
@@ -45,6 +46,7 @@ class SettingsRepository(private val context: Context) {
             streamDelaySeconds  = prefs[Keys.streamDelaySeconds]  ?: 20,
             customUrl           = prefs[Keys.customUrl]           ?: "",
             customAudioUrl      = prefs[Keys.customAudioUrl]      ?: "",
+            customProxyUrl      = prefs[Keys.customProxyUrl]      ?: "",
         )
     }
 
@@ -65,6 +67,7 @@ class SettingsRepository(private val context: Context) {
                 streamDelaySeconds  = prefs[Keys.streamDelaySeconds]  ?: 20,
                 customUrl           = prefs[Keys.customUrl]           ?: "",
                 customAudioUrl      = prefs[Keys.customAudioUrl]      ?: "",
+                customProxyUrl      = prefs[Keys.customProxyUrl]      ?: "",
             )
             val next = transform(current)
             prefs[Keys.autoplay]            = next.autoplay
@@ -75,6 +78,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.streamDelaySeconds]  = next.streamDelaySeconds
             prefs[Keys.customUrl]           = next.customUrl
             prefs[Keys.customAudioUrl]      = next.customAudioUrl
+            prefs[Keys.customProxyUrl]      = next.customProxyUrl
         }
     }
 

@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
@@ -56,8 +57,7 @@ class PlayerEngine(
      * - Correct Referer/Origin:
      *     • googlevideo.com → Referer: https://www.youtube.com/ (required for YT CDN)
      *     • everything else → Origin + Referer derived from the source host
-     * - Cross-protocol redirect support (http ↔ https)
-     * - 20 s connect/read timeouts
+     * - OkHttp as the underlying client (so custom proxies are respected)
      * - Any extra [headers] from the server config merged on top (highest priority)
      */
     private fun createDataSourceFactory(
@@ -65,10 +65,7 @@ class PlayerEngine(
         headers: Map<String, String>,
         sourceUrl: String
     ): DefaultDataSource.Factory {
-        val httpFactory = DefaultHttpDataSource.Factory()
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(20_000)
-            .setReadTimeoutMs(20_000)
+        val httpFactory = OkHttpDataSource.Factory(baseClient)
 
         val merged = mutableMapOf(
             "User-Agent" to "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36",
