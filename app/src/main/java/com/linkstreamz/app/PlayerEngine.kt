@@ -110,6 +110,12 @@ class PlayerEngine(
         .build()
 
     init {
+        // Disable text tracks (captions/subtitles) by default so they don't show up automatically
+        player.trackSelectionParameters = player.trackSelectionParameters
+            .buildUpon()
+            .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, true)
+            .build()
+
         player.addListener(object : androidx.media3.common.Player.Listener {
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 AppLogger.e("Engine", "PlayerError: ${error.errorCodeName}", error)
