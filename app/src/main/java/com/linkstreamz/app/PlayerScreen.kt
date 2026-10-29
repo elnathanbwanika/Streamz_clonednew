@@ -107,7 +107,9 @@ data class ChannelTarget(
     val channel: Channel,
     override val selectedServer: StreamServer? = null,
 ) : PlayerTarget {
-    override val servers: List<StreamServer> = listOf(StreamServer("Auto", channel.videoUrl))
+    override val servers: List<StreamServer> = listOf(
+        StreamServer("Auto", channel.videoUrl, useTokenAuth = true)
+    )
     override val title: String = channel.title
     override val subtitle: String = listOfNotNull(channel.category, channel.country).joinToString(" | ")
     override fun withServer(server: StreamServer) = copy(selectedServer = server)
@@ -257,9 +259,10 @@ fun PlayerScreen(
         }
         if (nextIndex == -1 || fallbackIndex >= fallbackOrder.size - 1) {
             allServersFailed = true
+            AppLogger.e("Engine", "All servers failed. Last HTTP code: $httpCode")
             error = when (httpCode) {
-                403 -> "Access denied (403). The stream may be geo-blocked."
-                404 -> "Stream not found (404). The event may have ended."
+                403 -> "Stream not available in your location. Try either connecting VPN or using proxy in settings"
+                404 -> "This event has ended"
                 410 -> "Link expired (410). Please reload the app."
                 in 500..599 -> "Server error ($httpCode). Try again later."
                 else -> "All servers failed. Please try again later."
@@ -689,6 +692,7 @@ fun PlayerScreen(
                             },
                             onSwitchServer = { serverMenu = true },
                             hasMultipleServers = target.servers.size > 1,
+                            isFullscreen = false,
                         )
                     }
                 }
@@ -792,6 +796,7 @@ fun PlayerScreen(
                     },
                     onSwitchServer = { serverMenu = true },
                     hasMultipleServers = target.servers.size > 1,
+                    isFullscreen = true,
                 )
             }
         }
@@ -951,7 +956,7 @@ private fun RelatedContent(
                     RelatedCardModel.SingleItem(
                         key = it.id,
                         categoryLine = listOfNotNull(it.category, it.country).joinToString(" | "),
-                        imageUrl = null,
+                        imageUrl = it.logo,
                         initials = it.initials,
                         name = it.title,
                         statusText = "LIVE",

@@ -46,6 +46,7 @@ data class Channel(
     val category: String,
     val country: String,
     val initials: String,
+    val logo: String? = null,
     val color1: String,
     val color2: String,
     val program: String,

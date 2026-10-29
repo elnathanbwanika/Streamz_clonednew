@@ -254,11 +254,30 @@ class PlayerEngine(
                         muxedUrl
                     }
 
-                    val dataSourceFactory = createDataSourceFactory(context, server.headers, muxedUrl)
+                    val dataSourceFactory = if (server.useTokenAuth) {
+                        // TOKEN: Mint a fresh browser token before play; apply to every segment.
+                        val channelId = Uri.parse(muxedUrl).pathSegments.firstOrNull()
+                        if (channelId != null) {
+                            val repo = TokenEngine.repo
+                            if (repo.peek(channelId) == null) {
+                                repo.register(channelId, StreamConfig.playerUrl(channelId))
+                                repo.activeChannel = channelId
+                                runCatching { repo.tokenBlocking(channelId) }
+                                    .onFailure { AppLogger.e("Engine", "Token mint failed for $channelId", it) }
+                            }
+                        }
+                        TokenDataSourceFactory(TokenEngine.repo, TokenEngine.cookies, TokenEngine.profile)
+                    } else {
+                        createDataSourceFactory(context, server.headers, muxedUrl)
+                    }
                     val mediaItem = androidx.media3.common.MediaItem.fromUri(playUrl)
-                    val source = DefaultMediaSourceFactory(context)
+                    val sourceFactory = DefaultMediaSourceFactory(context)
                         .setDataSourceFactory(dataSourceFactory)
-                        .createMediaSource(mediaItem)
+                    // Apply TokenErrorPolicy for token-protected channels (403 → remint → retry)
+                    if (server.useTokenAuth) {
+                        sourceFactory.setLoadErrorHandlingPolicy(TokenErrorPolicy(TokenEngine.repo))
+                    }
+                    val source = sourceFactory.createMediaSource(mediaItem)
 
                     AppLogger.d("Engine", "Before setMediaSource (muxed): pwr=${player.playWhenReady} state=${player.playbackState}")
                     player.setMediaSource(source)

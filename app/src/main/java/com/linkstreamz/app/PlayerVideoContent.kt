@@ -60,6 +60,7 @@ fun PlayerVideoContent(
     onRetry: () -> Unit,
     onSwitchServer: () -> Unit,
     hasMultipleServers: Boolean,
+    isFullscreen: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
@@ -91,7 +92,17 @@ fun PlayerVideoContent(
                         }
                     }
                 },
-                update = { it.player = exoPlayer },
+                update = { playerView ->
+                    playerView.player = exoPlayer
+                    // In fullscreen: stretch to fill edge-to-edge (no black bars).
+                    // In portrait: fit inside the rounded frame.
+                    playerView.resizeMode = if (isFullscreen)
+                        androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
+                    else
+                        androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    // Corner clipping only needed in portrait (fullscreen is flush to screen edges)
+                    playerView.clipToOutline = !isFullscreen
+                },
                 modifier = Modifier.fillMaxSize(),
             )
         }

@@ -243,6 +243,7 @@ class ChannelsRepository {
             country  = obj.str("country") ?: "Uganda",
             initials = obj.str("initials", "abbr", "code")
                 ?: (obj.str("title", "name") ?: "??").split(" ").mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString(""),
+            logo     = obj.str("logo", "logoUrl", "logo_url", "channelLogo", "thumbnail", "thumb", "thumbnailUrl", "image", "imageUrl", "icon", "poster", "badge"),
             color1   = obj.str("c1", "color1", "primaryColor") ?: "#1A1A2E",
             color2   = obj.str("c2", "color2", "secondaryColor") ?: "#16213E",
             program  = obj.str("program", "currentShow", "now", "schedule") ?: "Now Live",

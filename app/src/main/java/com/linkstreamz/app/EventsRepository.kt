@@ -55,6 +55,9 @@ data class StreamServer(
     val videoUrl: String? = null,
     // Explicit audio source. Non-null in split mode and audio-only mode.
     val audioUrl: String? = null,
+    // When true, TokenDataSourceFactory mints a fresh browser token before every request.
+    // Set for channels that use the wideiptv/bluetier token protection system.
+    val useTokenAuth: Boolean = false,
 )
 
 /**

@@ -29,13 +29,27 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import android.widget.FrameLayout
+import android.view.ViewGroup
 import java.io.PrintWriter
 import java.io.StringWriter
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
+
+        // TOKEN: Initialise browser-identity token minting stack (must be before setContent)
+        TokenEngine.init(this)
+        // Attach the hidden 1dp WebView to a FrameLayout so layout is performed.
+        // Mints fail on some devices if the WebView has no parent view.
+        val webHost = FrameLayout(this).also { fl ->
+            fl.layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+            )
+        }
+        TokenEngine.minter.attach(webHost)
+
         // YT-EXTRACT: Initialize NewPipeExtractor with our OkHttp downloader (Step 2)
         try {
             val okClient = okhttp3.OkHttpClient.Builder()
