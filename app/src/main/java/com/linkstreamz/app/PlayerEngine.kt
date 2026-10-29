@@ -100,7 +100,7 @@ class PlayerEngine(
             DefaultLoadControl.Builder()
                 .setBufferDurationsMs(
                     /* minBufferMs      */ 8_000,   // 8 s min — enough for HD segments
-                    /* maxBufferMs      */ 120_000,  // 2 min max — smooth HD without re-fetch
+                    /* maxBufferMs      */ 30_000,  // 30 s max — prevents OOM on tablets
                     /* bufferForPlaybackMs           */ 3_000,  // start playing after 3 s ready
                     /* bufferForPlaybackAfterRebufferMs */ 5_000 // 5 s to recover after a stall
                 )

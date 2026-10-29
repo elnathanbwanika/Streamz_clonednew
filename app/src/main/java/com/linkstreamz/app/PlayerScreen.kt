@@ -517,7 +517,7 @@ fun PlayerScreen(
 
     LaunchedEffect(playing, settings.keepScreenOn) {
         if (playing && settings.keepScreenOn && !wakeLock.isHeld)
-            wakeLock.acquire(settings.hideControlsSeconds * 60_000L)
+            wakeLock.acquire(4 * 60 * 60 * 1000L) // 4-hour safety cap for playback
         else if (!playing && wakeLock.isHeld)
             wakeLock.release()
     }

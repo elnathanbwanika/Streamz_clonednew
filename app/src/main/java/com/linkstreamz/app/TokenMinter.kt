@@ -50,6 +50,8 @@ class TokenMinter(
                 val wv = obtainWebView()
                 val streamHost = Uri.parse(playerUrl).host.orEmpty()
                 var settled = false
+                val mainHandler = Handler(Looper.getMainLooper())
+                val probeRunnables = mutableListOf<Runnable>()
 
                 fun buildRecord(token: String) = TokenRecord(
                     channel     = channel,
@@ -69,6 +71,9 @@ class TokenMinter(
                 fun finish(record: TokenRecord?, error: String?) {
                     if (settled) return
                     settled = true
+                    // Cancel all pending probe callbacks to prevent post-settlement callbacks
+                    probeRunnables.forEach { mainHandler.removeCallbacks(it) }
+                    probeRunnables.clear()
                     wv.stopLoading()
                     if (record != null) cont.resume(record)
                     else cont.resumeWithException(TokenMintException(error ?: "mint failed"))
@@ -83,7 +88,7 @@ class TokenMinter(
                     cookies.syncFromWebView(streamHost, rawUrl)
                     CookieManager.getInstance().flush()
                     AppLogger.d("TokenMinter", "Harvested token for $channel exp=${parseExp(token)}")
-                    Handler(Looper.getMainLooper()).post { finish(buildRecord(token), null) }
+                    mainHandler.post { finish(buildRecord(token), null) }
                 }
 
                 // Replace the client on each mint — never accumulate listeners
@@ -100,8 +105,8 @@ class TokenMinter(
                         v.evaluateJavascript(DISMISS_JS, null)
                         // Poll for late-attached video sources (up to 12 s)
                         repeat(12) { i ->
-                            Handler(Looper.getMainLooper()).postDelayed({
-                                if (settled) return@postDelayed
+                            val r = Runnable {
+                                if (settled) return@Runnable
                                 v.evaluateJavascript(PROBE_JS) { raw ->
                                     val probe = raw?.trim('"')
                                         ?.replace("\\/", "/")
@@ -109,7 +114,9 @@ class TokenMinter(
                                     if (probe.contains(".m3u8") && probe.contains("token="))
                                         harvest(probe)
                                 }
-                            }, 1_000L * (i + 1))
+                            }
+                            probeRunnables += r
+                            mainHandler.postDelayed(r, 1_000L * (i + 1))
                         }
                     }
 
@@ -118,7 +125,7 @@ class TokenMinter(
                     ) = Unit  // ignore — let probe / timeout handle failures
                 }
 
-                Handler(Looper.getMainLooper()).postDelayed(
+                mainHandler.postDelayed(
                     { finish(null, "mint timeout for $channel") }, 15_000,
                 )
                 cont.invokeOnCancellation { settled = true; wv.stopLoading() }
