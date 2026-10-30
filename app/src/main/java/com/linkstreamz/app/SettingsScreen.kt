@@ -41,6 +41,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.*
@@ -152,7 +154,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel,
     onBack: () -> Unit,
     onRefresh: suspend () -> Unit,
-    onCustomStream: (String, String) -> Unit,
+    onCustomStream: (String, String, String, String, String) -> Unit,
 ) {
     SettingsScreenContent(
         uiState              = uiState,
@@ -164,10 +166,13 @@ fun SettingsScreen(
         onSetStreamDelay     = viewModel::setStreamDelaySeconds,
         onRefresh            = onRefresh,
         onReset              = viewModel::resetSettings,
-        onCustomStream       = onCustomStream,
-        onCustomUrlChange    = viewModel::setCustomUrl,
+        onCustomStream         = onCustomStream,
+        onCustomUrlChange      = viewModel::setCustomUrl,
         onCustomAudioUrlChange = viewModel::setCustomAudioUrl,
         onCustomProxyUrlChange = viewModel::setCustomProxyUrl,
+        onCustomRefererChange  = viewModel::setCustomReferer,
+        onCustomOriginChange   = viewModel::setCustomOrigin,
+        onCustomHeadersChange  = viewModel::setCustomHeaders,
     )
 }
 
@@ -190,10 +195,13 @@ fun SettingsScreenContent(
     onSetStreamDelay: (Int) -> Unit,
     onRefresh: suspend () -> Unit,
     onReset: () -> Unit,
-    onCustomStream: (String, String) -> Unit,
+    onCustomStream: (String, String, String, String, String) -> Unit,
     onCustomUrlChange: (String) -> Unit,
     onCustomAudioUrlChange: (String) -> Unit,
     onCustomProxyUrlChange: (String) -> Unit,
+    onCustomRefererChange: (String) -> Unit = {},
+    onCustomOriginChange: (String) -> Unit = {},
+    onCustomHeadersChange: (String) -> Unit = {},
     initialExpandedSection: String? = "PLAYBACK",
 ) {
     var expandedSection by remember { mutableStateOf(initialExpandedSection) }
@@ -374,7 +382,7 @@ fun SettingsScreenContent(
                         focusRequester = focusRequester,
                         onGo           = {
                             if (uiState.customUrl.isBlank() && uiState.customAudioUrl.isBlank()) focusRequester.requestFocus()
-                            else onCustomStream(uiState.customUrl.trim(), uiState.customAudioUrl.trim())
+                            else onCustomStream(uiState.customUrl.trim(), uiState.customAudioUrl.trim(), uiState.customReferer.trim(), uiState.customOrigin.trim(), uiState.customHeaders.trim())
                         },
                     )
                     Spacer(Modifier.height(10.dp))
@@ -390,9 +398,100 @@ fun SettingsScreenContent(
                         focusRequester = audioFocusRequester,
                         onGo           = {
                             if (uiState.customUrl.isBlank() && uiState.customAudioUrl.isBlank()) focusRequester.requestFocus()
-                            else onCustomStream(uiState.customUrl.trim(), uiState.customAudioUrl.trim())
+                            else onCustomStream(uiState.customUrl.trim(), uiState.customAudioUrl.trim(), uiState.customReferer.trim(), uiState.customOrigin.trim(), uiState.customHeaders.trim())
                         },
                     )
+                    Spacer(Modifier.height(12.dp))
+
+                    // ── Optional identity overrides ────────────────────────────
+                    var showAdvanced by remember { mutableStateOf(
+                        uiState.customReferer.isNotBlank() ||
+                        uiState.customOrigin.isNotBlank() ||
+                        uiState.customHeaders.isNotBlank()
+                    ) }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showAdvanced = !showAdvanced }
+                            .padding(horizontal = 14.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = "Request headers (optional)",
+                            color = LinkColors.MutedText,
+                            fontSize = 12.sp,
+                        )
+                        Icon(
+                            imageVector = if (showAdvanced) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            tint = LinkColors.MutedText,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                    if (showAdvanced) {
+                        // ── Shared styled text field for headers section ───────
+                        @Composable
+                        fun HeaderField(value: String, onChange: (String) -> Unit, placeholder: String) {
+                            OutlinedTextField(
+                                value         = value,
+                                onValueChange = onChange,
+                                modifier      = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                                placeholder   = { Text(placeholder, fontSize = 12.sp, color = LinkColors.InputPlaceholder) },
+                                textStyle     = androidx.compose.ui.text.TextStyle(
+                                    fontSize   = 12.sp,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                    color      = LinkColors.PrimaryText,
+                                ),
+                                colors        = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor   = LinkColors.OrangePrimary,
+                                    unfocusedBorderColor = LinkColors.MutedText.copy(alpha = 0.4f),
+                                    cursorColor          = LinkColors.OrangePrimary,
+                                ),
+                                singleLine    = true,
+                            )
+                        }
+
+                        Text("Referer", color = LinkColors.MutedText, fontSize = 11.sp,
+                            modifier = Modifier.padding(start = 14.dp, bottom = 3.dp, top = 4.dp))
+                        HeaderField(uiState.customReferer, onCustomRefererChange, "https://site.com/")
+
+                        Spacer(Modifier.height(8.dp))
+                        Text("Origin", color = LinkColors.MutedText, fontSize = 11.sp,
+                            modifier = Modifier.padding(start = 14.dp, bottom = 3.dp))
+                        HeaderField(uiState.customOrigin, onCustomOriginChange, "https://site.com")
+
+                        Spacer(Modifier.height(8.dp))
+                        Text("Extra headers — one per line as  Key: Value",
+                            color = LinkColors.MutedText, fontSize = 11.sp,
+                            modifier = Modifier.padding(start = 14.dp, bottom = 3.dp))
+                        OutlinedTextField(
+                            value         = uiState.customHeaders,
+                            onValueChange = onCustomHeadersChange,
+                            modifier      = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp)
+                                .heightIn(min = 80.dp),
+                            placeholder   = { Text("X-Token: abc123\nUser-Agent: MyApp",
+                                fontSize = 11.sp, color = LinkColors.InputPlaceholder) },
+                            textStyle     = androidx.compose.ui.text.TextStyle(
+                                fontSize   = 12.sp,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                color      = LinkColors.PrimaryText,
+                            ),
+                            colors        = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor   = LinkColors.OrangePrimary,
+                                unfocusedBorderColor = LinkColors.MutedText.copy(alpha = 0.4f),
+                                cursorColor          = LinkColors.OrangePrimary,
+                            ),
+                            maxLines      = 8,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text("Leave blank to let the app set headers automatically.",
+                            color = LinkColors.MutedText, fontSize = 10.sp,
+                            modifier = Modifier.padding(start = 14.dp, bottom = 6.dp))
+                    }
+
                     Spacer(Modifier.height(10.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -404,7 +503,7 @@ fun SettingsScreenContent(
                             icon    = Icons.Default.PlayArrow,
                             onClick = {
                                 if (uiState.customUrl.isBlank() && uiState.customAudioUrl.isBlank()) focusRequester.requestFocus()
-                                else onCustomStream(uiState.customUrl.trim(), uiState.customAudioUrl.trim())
+                                else onCustomStream(uiState.customUrl.trim(), uiState.customAudioUrl.trim(), uiState.customReferer.trim(), uiState.customOrigin.trim(), uiState.customHeaders.trim())
                             },
                             modifier = Modifier.weight(1f),
                         )
@@ -413,6 +512,9 @@ fun SettingsScreenContent(
                             onClick = {
                                 onCustomUrlChange("")
                                 onCustomAudioUrlChange("")
+                                onCustomRefererChange("")
+                                onCustomOriginChange("")
+                                onCustomHeadersChange("")
                             },
                         )
                     }
@@ -1079,7 +1181,7 @@ fun PreviewSettingsPlaybackOpen() {
             onSetStreamDelay       = {},
             onRefresh              = {},
             onReset                = {},
-            onCustomStream         = { _, _ -> },
+            onCustomStream         = { _, _, _, _, _ -> },
             onCustomUrlChange      = {},
             onCustomAudioUrlChange = {},
             onCustomProxyUrlChange = {},
@@ -1108,7 +1210,7 @@ fun PreviewSettingsAllCollapsed() {
             onSetStreamDelay       = {},
             onRefresh              = {},
             onReset                = {},
-            onCustomStream         = { _, _ -> },
+            onCustomStream         = { _, _, _, _, _ -> },
             onCustomUrlChange      = {},
             onCustomAudioUrlChange = {},
             onCustomProxyUrlChange = {},

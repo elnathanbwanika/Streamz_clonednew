@@ -31,6 +31,9 @@ class SettingsRepository(private val context: Context) {
         val customUrl           = androidx.datastore.preferences.core.stringPreferencesKey("customUrl")
         val customAudioUrl      = androidx.datastore.preferences.core.stringPreferencesKey("customAudioUrl")
         val customProxyUrl      = androidx.datastore.preferences.core.stringPreferencesKey("customProxyUrl")
+        val customReferer       = androidx.datastore.preferences.core.stringPreferencesKey("customReferer")
+        val customOrigin        = androidx.datastore.preferences.core.stringPreferencesKey("customOrigin")
+        val customHeaders       = androidx.datastore.preferences.core.stringPreferencesKey("customHeaders")
     }
 
     // ── Read ──────────────────────────────────────────────────────────────────
@@ -47,6 +50,9 @@ class SettingsRepository(private val context: Context) {
             customUrl           = prefs[Keys.customUrl]           ?: "",
             customAudioUrl      = prefs[Keys.customAudioUrl]      ?: "",
             customProxyUrl      = prefs[Keys.customProxyUrl]      ?: "",
+            customReferer       = prefs[Keys.customReferer]       ?: "",
+            customOrigin        = prefs[Keys.customOrigin]        ?: "",
+            customHeaders       = prefs[Keys.customHeaders]       ?: "",
         )
     }
 
@@ -68,6 +74,9 @@ class SettingsRepository(private val context: Context) {
                 customUrl           = prefs[Keys.customUrl]           ?: "",
                 customAudioUrl      = prefs[Keys.customAudioUrl]      ?: "",
                 customProxyUrl      = prefs[Keys.customProxyUrl]      ?: "",
+                customReferer       = prefs[Keys.customReferer]       ?: "",
+                customOrigin        = prefs[Keys.customOrigin]        ?: "",
+                customHeaders       = prefs[Keys.customHeaders]       ?: "",
             )
             val next = transform(current)
             prefs[Keys.autoplay]            = next.autoplay
@@ -79,6 +88,9 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.customUrl]           = next.customUrl
             prefs[Keys.customAudioUrl]      = next.customAudioUrl
             prefs[Keys.customProxyUrl]      = next.customProxyUrl
+            prefs[Keys.customReferer]       = next.customReferer
+            prefs[Keys.customOrigin]        = next.customOrigin
+            prefs[Keys.customHeaders]       = next.customHeaders
         }
     }
 

@@ -214,7 +214,7 @@ fun LinkStreamzSettingsPreview() {
             onSetStreamDelay = {},
             onRefresh = {},
             onReset = {},
-            onCustomStream = { _, _ -> },
+            onCustomStream = { _, _, _, _, _ -> },
             onCustomUrlChange = {},
             onCustomAudioUrlChange = {},
             onCustomProxyUrlChange = {},

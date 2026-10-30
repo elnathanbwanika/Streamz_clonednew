@@ -36,6 +36,12 @@ data class SettingsUiState(
     val customUrl: String            = "",
     val customAudioUrl: String       = "",
     val customProxyUrl: String       = "",
+    // Optional stream identity overrides for the custom player.
+    // When non-blank these are applied to every request for that stream.
+    val customReferer: String        = "",
+    val customOrigin: String         = "",
+    // Raw "Key: Value" lines, one per line.  Parsed at play time.
+    val customHeaders: String        = "",
 )
 
 // ── ViewModel ─────────────────────────────────────────────────────────────────
@@ -78,6 +84,15 @@ class SettingsViewModel(private val repository: SettingsRepository) : ViewModel(
     }
     fun setCustomProxyUrl(value: String)      = viewModelScope.launch {
         repository.update { it.copy(customProxyUrl = value) }
+    }
+    fun setCustomReferer(value: String)       = viewModelScope.launch {
+        repository.update { it.copy(customReferer = value) }
+    }
+    fun setCustomOrigin(value: String)        = viewModelScope.launch {
+        repository.update { it.copy(customOrigin = value) }
+    }
+    fun setCustomHeaders(value: String)       = viewModelScope.launch {
+        repository.update { it.copy(customHeaders = value) }
     }
 
     /** Clears DataStore; all values revert to SettingsUiState() defaults. */

@@ -413,7 +413,14 @@ class EventsRepository(private val preview: Boolean = false) {
         // ── Shared metadata ───────────────────────────────────────────────────
         val headersObj = server?.pick("headers") as? JsonObject
         // FEED: headers are passed through opaquely — including masked "••••••" values.
-        val headers = headersObj?.mapValues { it.value.stringValue() ?: "" } ?: emptyMap()
+        val baseHeaders = headersObj?.mapValues { it.value.stringValue() ?: "" }?.toMutableMap() ?: mutableMapOf()
+        // Optional top-level referer / origin fields on the server object merge into headers.
+        // If the admin panel sets these, they override whatever is in the headers object.
+        server?.pick("referer", "Referer")?.stringValue()?.takeIf { it.isNotBlank() }
+            ?.let { baseHeaders["Referer"] = it }
+        server?.pick("origin", "Origin")?.stringValue()?.takeIf { it.isNotBlank() }
+            ?.let { baseHeaders["Origin"] = it }
+        val headers: Map<String, String> = baseHeaders
         val useProxyRaw = server?.pick("useProxy")
         val useProxy = useProxyRaw?.stringValue()?.toBooleanStrictOrNull()
             ?: (useProxyRaw as? JsonPrimitive)?.booleanOrNull ?: false

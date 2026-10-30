@@ -171,13 +171,26 @@ class MainActivity : ComponentActivity() {
                                 viewModel = settingsViewModel,
                                 onBack = { navController.popBackStack() },
                                 onRefresh = { repository.load() },
-                                onCustomStream = { url, audioUrl ->
+                                onCustomStream = { url, audioUrl, referer, origin, rawHeaders ->
+                                    // Parse "Key: Value" lines into a map; merge with referer/origin
+                                    val extraHeaders = buildMap<String, String> {
+                                        rawHeaders.lines()
+                                            .map { it.trim() }
+                                            .filter { it.contains(':') }
+                                            .forEach { line ->
+                                                val k = line.substringBefore(':').trim()
+                                                val v = line.substringAfter(':').trim()
+                                                if (k.isNotEmpty()) put(k, v)
+                                            }
+                                        if (referer.isNotBlank()) put("Referer", referer)
+                                        if (origin.isNotBlank()) put("Origin", origin)
+                                    }
                                     val server = if (audioUrl.isNotBlank() && url.isNotBlank()) {
-                                        StreamServer("Custom Split", videoUrl = url, audioUrl = audioUrl)
+                                        StreamServer("Custom Split", videoUrl = url, audioUrl = audioUrl, headers = extraHeaders)
                                     } else if (audioUrl.isNotBlank()) {
-                                        StreamServer("Custom Audio", url = null, audioUrl = audioUrl)
+                                        StreamServer("Custom Audio", url = null, audioUrl = audioUrl, headers = extraHeaders)
                                     } else {
-                                        StreamServer("Custom", url = url)
+                                        StreamServer("Custom", url = url, headers = extraHeaders)
                                     }
                                     target = CustomTarget(server)
                                     navController.navigate("player")
