@@ -255,16 +255,21 @@ class PlayerEngine(
                     }
 
                     val dataSourceFactory = if (server.useTokenAuth) {
-                        // TOKEN: Mint a fresh browser token before play; apply to every segment.
+                        // TOKEN: Always register and mint a fresh token before play.
+                        // register() is idempotent; calling it every time ensures the
+                        // playerUrls map is populated even if the channel was never seen before.
                         val channelId = Uri.parse(muxedUrl).pathSegments.firstOrNull()
                         if (channelId != null) {
                             val repo = TokenEngine.repo
-                            if (repo.peek(channelId) == null) {
-                                repo.register(channelId, StreamConfig.playerUrl(channelId))
-                                repo.activeChannel = channelId
-                                runCatching { repo.tokenBlocking(channelId) }
-                                    .onFailure { AppLogger.e("Engine", "Token mint failed for $channelId", it) }
-                            }
+                            repo.register(channelId, StreamConfig.playerUrl(channelId))
+                            repo.activeChannel = channelId
+                            // Mint on the coroutine (already off main thread via Dispatchers.Main
+                            // but suspendable) so we don't block ExoPlayer's IO thread.
+                            runCatching {
+                                withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                    repo.tokenBlocking(channelId)
+                                }
+                            }.onFailure { AppLogger.e("Engine", "Token mint failed for $channelId", it) }
                         }
                         TokenDataSourceFactory(TokenEngine.repo, TokenEngine.cookies, TokenEngine.profile)
                     } else {

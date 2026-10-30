@@ -40,14 +40,13 @@ class MainActivity : ComponentActivity() {
 
         // TOKEN: Initialise browser-identity token minting stack (must be before setContent)
         TokenEngine.init(this)
-        // Attach the hidden 1dp WebView to a FrameLayout so layout is performed.
-        // Mints fail on some devices if the WebView has no parent view.
-        val webHost = FrameLayout(this).also { fl ->
-            fl.layoutParams = ViewGroup.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT,
-            )
+        // Attach the hidden 1×1 WebView to the window's decor view so it is part of
+        // the real view hierarchy. A WebView without a window root will not fire
+        // shouldInterceptRequest or execute JavaScript on many Android versions.
+        val webHost = FrameLayout(this).apply {
+            layoutParams = ViewGroup.LayoutParams(1, 1)
         }
+        window.addContentView(webHost, ViewGroup.LayoutParams(1, 1))
         TokenEngine.minter.attach(webHost)
 
         // YT-EXTRACT: Initialize NewPipeExtractor with our OkHttp downloader (Step 2)
