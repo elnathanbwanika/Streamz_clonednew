@@ -108,7 +108,11 @@ data class ChannelTarget(
     override val selectedServer: StreamServer? = null,
 ) : PlayerTarget {
     override val servers: List<StreamServer> = listOf(
-        StreamServer("Auto", channel.videoUrl, useTokenAuth = true)
+        StreamServer(
+            name        = "Auto",
+            url         = channel.videoUrl,
+            useTokenAuth = StreamConfig.requiresTokenAuth(channel.videoUrl),
+        )
     )
     override val title: String = channel.title
     override val subtitle: String = listOfNotNull(channel.category, channel.country).joinToString(" | ")

@@ -22,4 +22,27 @@ object StreamConfig {
 
     fun playerUrl(channelId: String): String =
         PLAYER_PAGE_TEMPLATE.replace("{CHANNEL}", channelId)
+
+    /**
+     * Returns true if the URL hostname belongs to a known token-protected CDN.
+     *
+     * This is used as a heuristic when the JSON feed does not explicitly set
+     * `useTokenAuth`. Add extra hostnames here as new token-protected providers
+     * are onboarded.
+     */
+    fun requiresTokenAuth(url: String?): Boolean {
+        if (url.isNullOrBlank()) return false
+        return try {
+            val host = android.net.Uri.parse(url).host?.lowercase() ?: return false
+            TOKEN_AUTH_HOSTS.any { host == it || host.endsWith(".$it") }
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** Hostnames (and their subdomains) that require browser-token authentication. */
+    private val TOKEN_AUTH_HOSTS = setOf(
+        "bluetier.top",
+        "wideiptv.top",
+    )
 }

@@ -129,6 +129,8 @@ dependencies {
     implementation("androidx.webkit:webkit:1.11.0")
     implementation("androidx.media3:media3-datasource:1.5.1")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    
+
 
     // youtubedl-android removed: added ~50 MB of Python native binaries to the APK
     // and caused crashes when the YoutubeDL engine was not properly initialised.

@@ -430,6 +430,15 @@ class EventsRepository(private val preview: Boolean = false) {
             ?: "Server ${index + 1}"
         val quality = server?.pick("quality", "q", "resolution")?.stringValue()
 
+        // ── Token auth: explicit JSON field wins; fall back to hostname heuristic ──
+        // Admin panel can set `"useTokenAuth": true` or `"token_auth": true` explicitly.
+        // If not set, we auto-detect based on whether the CDN hostname is known to be
+        // token-protected (e.g. bluetier.top, wideiptv.top).
+        val useTokenAuthRaw = server?.pick("useTokenAuth", "token_auth", "tokenAuth")
+        val useTokenAuth: Boolean = useTokenAuthRaw?.stringValue()?.toBooleanStrictOrNull()
+            ?: (useTokenAuthRaw as? JsonPrimitive)?.booleanOrNull
+            ?: StreamConfig.requiresTokenAuth(rawVideoUrl)
+
         // ── Apply normalization rules ─────────────────────────────────────────
         return when {
             rawVideoUrl != null && rawAudioUrl != null -> StreamServer(
@@ -441,6 +450,7 @@ class EventsRepository(private val preview: Boolean = false) {
                 headers = headers,
                 useProxy = useProxy,
                 delaySeconds = delaySeconds,
+                useTokenAuth = useTokenAuth,
             )
             rawVideoUrl != null -> StreamServer(
                 name = name,
@@ -451,6 +461,7 @@ class EventsRepository(private val preview: Boolean = false) {
                 headers = headers,
                 useProxy = useProxy,
                 delaySeconds = delaySeconds,
+                useTokenAuth = useTokenAuth,
             )
             rawAudioUrl != null -> StreamServer(
                 name = name,
