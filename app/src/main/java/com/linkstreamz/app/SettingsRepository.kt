@@ -34,6 +34,12 @@ class SettingsRepository(private val context: Context) {
         val customReferer       = androidx.datastore.preferences.core.stringPreferencesKey("customReferer")
         val customOrigin        = androidx.datastore.preferences.core.stringPreferencesKey("customOrigin")
         val customHeaders       = androidx.datastore.preferences.core.stringPreferencesKey("customHeaders")
+        // Global VPN / SOCKS5 proxy
+        val vpnHost             = androidx.datastore.preferences.core.stringPreferencesKey("vpnHost")
+        val vpnPort             = androidx.datastore.preferences.core.stringPreferencesKey("vpnPort")
+        val vpnUsername         = androidx.datastore.preferences.core.stringPreferencesKey("vpnUsername")
+        val vpnPassword         = androidx.datastore.preferences.core.stringPreferencesKey("vpnPassword")
+        val vpnUseHttp          = booleanPreferencesKey("vpnUseHttp")
     }
 
     // ── Read ──────────────────────────────────────────────────────────────────
@@ -53,6 +59,11 @@ class SettingsRepository(private val context: Context) {
             customReferer       = prefs[Keys.customReferer]       ?: "",
             customOrigin        = prefs[Keys.customOrigin]        ?: "",
             customHeaders       = prefs[Keys.customHeaders]       ?: "",
+            vpnHost             = prefs[Keys.vpnHost]             ?: "",
+            vpnPort             = prefs[Keys.vpnPort]             ?: "1080",
+            vpnUsername         = prefs[Keys.vpnUsername]         ?: "",
+            vpnPassword         = prefs[Keys.vpnPassword]         ?: "",
+            vpnUseHttp          = prefs[Keys.vpnUseHttp]          ?: false,
         )
     }
 
@@ -77,6 +88,11 @@ class SettingsRepository(private val context: Context) {
                 customReferer       = prefs[Keys.customReferer]       ?: "",
                 customOrigin        = prefs[Keys.customOrigin]        ?: "",
                 customHeaders       = prefs[Keys.customHeaders]       ?: "",
+                vpnHost             = prefs[Keys.vpnHost]             ?: "",
+                vpnPort             = prefs[Keys.vpnPort]             ?: "1080",
+                vpnUsername         = prefs[Keys.vpnUsername]         ?: "",
+                vpnPassword         = prefs[Keys.vpnPassword]         ?: "",
+                vpnUseHttp          = prefs[Keys.vpnUseHttp]          ?: false,
             )
             val next = transform(current)
             prefs[Keys.autoplay]            = next.autoplay
@@ -91,6 +107,11 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.customReferer]       = next.customReferer
             prefs[Keys.customOrigin]        = next.customOrigin
             prefs[Keys.customHeaders]       = next.customHeaders
+            prefs[Keys.vpnHost]             = next.vpnHost
+            prefs[Keys.vpnPort]             = next.vpnPort
+            prefs[Keys.vpnUsername]         = next.vpnUsername
+            prefs[Keys.vpnPassword]         = next.vpnPassword
+            prefs[Keys.vpnUseHttp]          = next.vpnUseHttp
         }
     }
 
@@ -98,4 +119,26 @@ class SettingsRepository(private val context: Context) {
 
     /** Clears all stored preferences; defaults from [SettingsUiState] take effect. */
     suspend fun reset() = context.settingsDataStore.edit { it.clear() }
+
+    /**
+     * Applies the VPN proxy config from [state] into [GlobalProxy] and persists it.
+     * Call this whenever the user taps "Apply" in the VPN settings section.
+     * The new proxy takes effect for all OkHttpClient instances on the NEXT app launch
+     * (clients already built won't change mid-session), except for WebView which is
+     * reconfigured immediately via ProxyController if on Android 10+.
+     */
+    fun applyVpnProxy(state: SettingsUiState) {
+        val host = state.vpnHost.trim()
+        val port = state.vpnPort.trim().toIntOrNull() ?: 1080
+        val proxyConfig = if (host.isNotBlank()) {
+            AppProxyConfig(
+                host     = host,
+                port     = port,
+                username = state.vpnUsername.trim(),
+                password = state.vpnPassword.trim(),
+                type     = if (state.vpnUseHttp) java.net.Proxy.Type.HTTP else java.net.Proxy.Type.SOCKS,
+            )
+        } else null
+        GlobalProxy.save(context, proxyConfig)
+    }
 }

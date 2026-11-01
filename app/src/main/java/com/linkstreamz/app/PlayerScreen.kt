@@ -51,10 +51,12 @@ import java.util.concurrent.TimeUnit
 
 // ── Shared OkHttp client (one per process, connection pooling) ─────────────────
 private val sharedOkHttpClient: OkHttpClient by lazy {
-    OkHttpClient.Builder()
+    // Base client — proxy is applied via GlobalProxy (WireGuard SOCKS5 server).
+    // The per-stream customProxyUrl in Settings was the old approach; GlobalProxy
+    // supersedes it and routes ALL traffic (streaming + API + token minting).
+    GlobalProxy.buildClient(connectTimeoutSec = 30, readTimeoutSec = 30)
+        .newBuilder()
         .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
         .retryOnConnectionFailure(true)
         .build()
@@ -194,30 +196,11 @@ fun PlayerScreen(
     var controlsVisible by remember { mutableStateOf(true) }
     var lastInteractionMs by remember { mutableStateOf(System.currentTimeMillis()) }
 
-    // ── PlayerEngine (owns ExoPlayer + proxy) ────────────────────────────────
-    val baseClient = remember(settings.customProxyUrl) {
-        val builder = sharedOkHttpClient.newBuilder()
-        val proxyStr = settings.customProxyUrl.trim()
-        if (proxyStr.isNotBlank()) {
-            try {
-                val clean = proxyStr.replace("http://", "").replace("https://", "").replace("socks5://", "")
-                val parts = clean.split(":")
-                if (parts.size == 2) {
-                    val host = parts[0]
-                    val port = parts[1].toInt()
-                    val type = if (proxyStr.startsWith("socks5")) java.net.Proxy.Type.SOCKS else java.net.Proxy.Type.HTTP
-                    builder.proxy(java.net.Proxy(type, java.net.InetSocketAddress(host, port)))
-                }
-            } catch (e: Exception) {
-                AppLogger.e("PlayerScreen", "Invalid proxy config: $proxyStr")
-            }
-        } else {
-            builder.proxy(java.net.Proxy.NO_PROXY)
-        }
-        builder.build()
-    }
+    // ── PlayerEngine (owns ExoPlayer + HLS proxy) ────────────────────────────
+    // GlobalProxy already applied the WireGuard SOCKS5 proxy to sharedOkHttpClient.
+    val baseClient = sharedOkHttpClient
 
-    val engine = remember(settings.customProxyUrl) {
+    val engine = remember {
         PlayerEngine(
             context = context,
             baseClient = baseClient,

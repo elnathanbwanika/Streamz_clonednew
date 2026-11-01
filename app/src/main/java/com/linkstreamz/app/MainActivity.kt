@@ -38,6 +38,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // PROXY: Load persisted proxy config before any network call is made.
+        // This ensures all OkHttpClient instances (PlayerEngine, EventsRepository,
+        // NewPipe) are built with the proxy applied.
+        GlobalProxy.load(this)
+
         // TOKEN: Initialise browser-identity token minting stack (must be before setContent)
         TokenEngine.init(this)
         // Attach the hidden 1×1 WebView to the window's decor view so it is part of
@@ -48,13 +53,21 @@ class MainActivity : ComponentActivity() {
         }
         window.addContentView(webHost, ViewGroup.LayoutParams(1, 1))
         TokenEngine.minter.attach(webHost)
-
-        // YT-EXTRACT: Initialize NewPipeExtractor with our OkHttp downloader (Step 2)
+        // PROXY: Apply proxy to WebView so token minting goes via the WireGuard server too.
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            GlobalProxy.buildWebViewProxyConfig()?.let { pc ->
+                androidx.webkit.ProxyController.getInstance()
+                    .setProxyOverride(pc, mainExecutor, Runnable {
+                        AppLogger.d("MainActivity", "WebView proxy applied: ${GlobalProxy.config?.host}:${GlobalProxy.config?.port}")
+                    })
+            }
+        }
+        // YT-EXTRACT: Initialize NewPipeExtractor with our proxied OkHttp downloader
         try {
-            val okClient = okhttp3.OkHttpClient.Builder()
-                .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                .build()
+            val okClient = GlobalProxy.buildClient(
+                connectTimeoutSec = 15,
+                readTimeoutSec    = 30,
+            )
             org.schabi.newpipe.extractor.NewPipe.init(NewPipeDownloader(okClient))
             org.schabi.newpipe.extractor.ServiceList.YouTube // force-load service
         } catch (e: Exception) {

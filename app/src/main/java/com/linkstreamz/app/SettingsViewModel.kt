@@ -42,6 +42,14 @@ data class SettingsUiState(
     val customOrigin: String         = "",
     // Raw "Key: Value" lines, one per line.  Parsed at play time.
     val customHeaders: String        = "",
+    // ── Global WireGuard / SOCKS5 proxy ──────────────────────────────────────
+    // When vpnHost is non-blank ALL app traffic (streams, API, token minting)
+    // is routed through this SOCKS5 (default) or HTTP proxy endpoint.
+    val vpnHost: String              = "",
+    val vpnPort: String              = "1080",
+    val vpnUsername: String          = "",
+    val vpnPassword: String          = "",
+    val vpnUseHttp: Boolean          = false,   // false = SOCKS5, true = HTTP proxy
 )
 
 // ── ViewModel ─────────────────────────────────────────────────────────────────
@@ -93,6 +101,33 @@ class SettingsViewModel(private val repository: SettingsRepository) : ViewModel(
     }
     fun setCustomHeaders(value: String)       = viewModelScope.launch {
         repository.update { it.copy(customHeaders = value) }
+    }
+
+    // ── VPN / Global proxy setters ────────────────────────────────────────────
+    fun setVpnHost(value: String)             = viewModelScope.launch {
+        repository.update { it.copy(vpnHost = value) }
+    }
+    fun setVpnPort(value: String)             = viewModelScope.launch {
+        repository.update { it.copy(vpnPort = value) }
+    }
+    fun setVpnUsername(value: String)         = viewModelScope.launch {
+        repository.update { it.copy(vpnUsername = value) }
+    }
+    fun setVpnPassword(value: String)         = viewModelScope.launch {
+        repository.update { it.copy(vpnPassword = value) }
+    }
+    fun setVpnUseHttp(value: Boolean)         = viewModelScope.launch {
+        repository.update { it.copy(vpnUseHttp = value) }
+    }
+
+    /**
+     * Persists the VPN proxy settings AND immediately applies them to [GlobalProxy].
+     * The caller should pass the current [SettingsUiState] snapshot.
+     * Note: OkHttpClient instances already built (PlayerEngine, EventsRepository) pick up
+     * the new proxy on the NEXT app launch. WebView proxy is updated immediately.
+     */
+    fun applyVpnProxy(state: SettingsUiState) = viewModelScope.launch {
+        repository.applyVpnProxy(state)
     }
 
     /** Clears DataStore; all values revert to SettingsUiState() defaults. */
