@@ -51,12 +51,10 @@ import java.util.concurrent.TimeUnit
 
 // ── Shared OkHttp client (one per process, connection pooling) ─────────────────
 private val sharedOkHttpClient: OkHttpClient by lazy {
-    // Base client — proxy is applied via GlobalProxy (WireGuard SOCKS5 server).
-    // The per-stream customProxyUrl in Settings was the old approach; GlobalProxy
-    // supersedes it and routes ALL traffic (streaming + API + token minting).
-    GlobalProxy.buildClient(connectTimeoutSec = 30, readTimeoutSec = 30)
-        .newBuilder()
+    OkHttpClient.Builder()
         .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)
         .retryOnConnectionFailure(true)
         .build()
@@ -197,7 +195,6 @@ fun PlayerScreen(
     var lastInteractionMs by remember { mutableStateOf(System.currentTimeMillis()) }
 
     // ── PlayerEngine (owns ExoPlayer + HLS proxy) ────────────────────────────
-    // GlobalProxy already applied the WireGuard SOCKS5 proxy to sharedOkHttpClient.
     val baseClient = sharedOkHttpClient
 
     val engine = remember {

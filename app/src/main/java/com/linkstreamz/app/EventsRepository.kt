@@ -127,12 +127,12 @@ sealed class FeedState {
 class EventsRepository(private val preview: Boolean = false) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    // FEED: OkHttp client routed through GlobalProxy (WireGuard server) when configured.
-    // Rebuilt lazily so a proxy change takes effect on next app launch.
-    private val httpClient: OkHttpClient = GlobalProxy.buildClient(
-        connectTimeoutSec = FETCH_TIMEOUT_SECONDS,
-        readTimeoutSec    = FETCH_TIMEOUT_SECONDS,
-    )
+    // FEED: OkHttp client — no proxy set, uses system default network routing.
+    // This correctly respects device-level VPNs (TUN interface).
+    private val httpClient: OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .readTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .build()
 
     private val _state = MutableStateFlow<FeedState>(FeedState.Loading)
     val state: StateFlow<FeedState> = _state.asStateFlow()
