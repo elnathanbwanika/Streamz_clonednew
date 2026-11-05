@@ -22,6 +22,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -983,6 +986,20 @@ private fun RelatedContent(
 
         if (cards.isEmpty()) {
             EmptyContentState(Icons.Default.Movie, "No other content available")
+        } else if (target is MovieTarget) {
+            // ── Movies: 3-column portrait-card grid (same style as ViewAllScreen) ──
+            val movieItems = movies.filter { it.id != target.movie.id }
+                .sortedBy { it.translated != target.movie.translated }
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 64.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                items(movieItems, key = { it.id }) { movie ->
+                    MediaCard(item = movie, onClick = { onTarget(MovieTarget(movie)) }, fullWidth = true)
+                }
+            }
         } else {
             LazyColumn(
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 64.dp),
@@ -990,7 +1007,7 @@ private fun RelatedContent(
             ) {
                 items(cards, key = { it.key }) { card ->
                     when (card) {
-                        is RelatedCardModel.Event -> EventCard(event = card.event, nowMs = card.nowMs, onClick = card.onClick)
+                        is RelatedCardModel.Event     -> EventCard(event = card.event, nowMs = card.nowMs, onClick = card.onClick)
                         is RelatedCardModel.Highlight -> HighlightCard(highlight = card.highlight, onClick = card.onClick)
                         is RelatedCardModel.SingleItem -> SingleItemCard(
                             categoryLine = card.categoryLine,
