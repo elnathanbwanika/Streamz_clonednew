@@ -189,6 +189,17 @@ fun PlayerScreen(
     // YT-EXTRACT: Set by loadStream to signal LaunchedEffect to run extraction
     var ytExtractId by remember { mutableStateOf<String?>(null) }
     var ytExtractStream by remember { mutableStateOf<StreamServer?>(null) }
+
+    // ── Playback resume (movies only) ─────────────────────────────────────────
+    // Load once from SharedPreferences when this movie target is first composed.
+    val movieId = (target as? MovieTarget)?.movie?.id
+    val resumePositionMs: Long = remember(movieId) {
+        if (movieId != null) PlaybackResume.get(context, movieId) else 0L
+    }
+    // True once we've applied the saved seek — prevents seeking again on reconnect/retry.
+    var hasAppliedResume by remember(movieId) { mutableStateOf(false) }
+    // Throttle counter so we save position only every ~2 s (8 × 250 ms) not every tick.
+    var resumeSaveTick by remember { mutableIntStateOf(0) }
     // Player-local brightness: 100f = no overlay (neutral); lower = darker, higher = brighter (white wash).
     // Range 5f..300f. Default 100f (neutral — no overlay).
     var playerBrightness by remember { mutableFloatStateOf(100f) }
@@ -419,6 +430,16 @@ fun PlayerScreen(
                     playbackState == androidx.media3.common.Player.STATE_ENDED) {
                     isBuffering = false
                 }
+                // ── Resume: seek to saved position on first STATE_READY ────────
+                if (playbackState == androidx.media3.common.Player.STATE_READY &&
+                    !hasAppliedResume && resumePositionMs > 0L && movieId != null) {
+                    hasAppliedResume = true
+                    engine.player.seekTo(resumePositionMs)
+                }
+                // ── Resume: clear saved position when movie finishes ───────────
+                if (playbackState == androidx.media3.common.Player.STATE_ENDED && movieId != null) {
+                    PlaybackResume.markFinished(context, movieId)
+                }
             }
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
                 // If playWhenReady just became false but isPlaying hasn't updated yet,
@@ -498,6 +519,14 @@ fun PlayerScreen(
             position = engine.player.currentPosition.coerceAtLeast(0L)
             duration = engine.player.duration
             engine.checkStall()
+            // ── Resume: persist position every ~2 s while a movie is playing ──
+            if (movieId != null && engine.player.isPlaying) {
+                resumeSaveTick++
+                if (resumeSaveTick >= 8) {
+                    resumeSaveTick = 0
+                    PlaybackResume.save(context, movieId, position, duration)
+                }
+            }
             delay(250)
         }
     }
