@@ -13,18 +13,19 @@ package com.linkstreamz.app
 //     the TUN interface, and starts the wireguard-go runtime.
 //   • We hold the GoBackend instance here and tear it down on stop().
 //
-// Flow:
-//   1. MainActivity calls WgManager.init(context) in onCreate().
-//   2. WgManager fetches StreamConfig.VPN_CONFIG_URL from the server.
-//      Server can respond with:
-//        a) Raw .conf text starting with "[Interface]" — used directly.
-//        b) JSON: {"active": true, "configUrl": "https://…/wg0.conf"}
-//           If active=false (or absent) the VPN is skipped entirely.
-//   3. Android VPN permission dialog is shown (once ever, stored by OS).
-//   4. GoBackend.setState(tunnel, UP, config) is called on a background thread.
-//      GoBackend starts its own VpnService, sets up the TUN, and routes traffic.
-//   5. If no active config is found the app routes traffic normally, and any
-//      device-level VPN the user has running continues to work.
+// Server integration:
+//   The VPN config lives on the SAME server as the rest of the app content
+//   (CONTENT_BASE_URL in NetworkConfig.kt — the GitHub Pages repo).
+//   No separate URL constant is needed.
+//
+//   The app tries the following lookup order:
+//     1. content.json "vpn" key — { "active": true, "configUrl": "…/wg0.conf" }
+//        OR  { "active": true, "config": "[Interface]\n…" }  (inline .conf)
+//     2. $CONTENT_BASE_URL/vpn/wg0.conf  (raw .conf file at a fixed path)
+//
+//   If the "vpn" section is absent, active=false, or all fetches fail,
+//   the app routes traffic normally (and any device-level VPN the user
+//   has connected continues to work without interference).
 // ─────────────────────────────────────────────────────────────────────────────
 
 import android.app.Activity
@@ -78,7 +79,8 @@ object WgManager {
 
     /**
      * Call from [MainActivity.onCreate].
-     * Fetches the VPN config from the server and starts the tunnel if active.
+     * Fetches the VPN config from the same server as the rest of the app and
+     * starts the tunnel if one is active.
      */
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -90,7 +92,7 @@ object WgManager {
                     return@launch
                 }
                 pendingConfigText = configText
-                AppLogger.d(TAG, "VPN config fetched (${configText.length} bytes), requesting permission")
+                AppLogger.d(TAG, "VPN config ready (${configText.length} bytes), requesting permission")
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                     requestPermissionThenStart(context)
                 }
@@ -117,9 +119,7 @@ object WgManager {
 
     /** Explicitly stop the tunnel (e.g. from settings or on app exit). */
     fun stop() {
-        scope.launch {
-            tearDownTunnel()
-        }
+        scope.launch { tearDownTunnel() }
     }
 
     // ── Internal ──────────────────────────────────────────────────────────────
@@ -141,7 +141,7 @@ object WgManager {
     }
 
     /**
-     * Starts the WireGuard tunnel on a background thread.
+     * Starts the WireGuard tunnel on a coroutine (IO dispatcher).
      * GoBackend internally starts GoBackend$VpnService (declared in the AAR
      * manifest), builds the TUN interface, and routes traffic through it.
      */
@@ -182,8 +182,6 @@ object WgManager {
                 activeTunnel = tunnel
 
                 AppLogger.d(TAG, "Calling GoBackend.setState(UP)…")
-                // Blocking call — GoBackend starts its own VpnService and
-                // hands off to the wireguard-go runtime.
                 backend.setState(tunnel, Tunnel.State.UP, wgCfg)
                 AppLogger.d(TAG, "GoBackend.setState(UP) returned")
 
@@ -214,61 +212,111 @@ object WgManager {
     // ── Config fetch ──────────────────────────────────────────────────────────
 
     /**
-     * Fetch and return the raw WireGuard .conf text, or null if VPN is disabled
-     * or the fetch fails.
+     * Fetches the WireGuard config from the app's existing content server.
+     *
+     * Lookup order:
+     *  1. content.json  "vpn" key   — same file the rest of the app uses.
+     *       { "active": true, "configUrl": "https://…/wg0.conf" }
+     *       { "active": true, "config": "[Interface]\n…"  }   (inline)
+     *  2. $CONTENT_BASE_URL/vpn/wg0.conf  — fixed side-file path.
+     *
+     * Returns the raw .conf text, or null if VPN is disabled / unavailable.
      */
     private fun fetchConfig(): String? {
-        val manifestUrl = StreamConfig.VPN_CONFIG_URL
-        if (manifestUrl.isBlank() || manifestUrl.contains("YOUR_SERVER")) {
-            Log.d(TAG, "VPN_CONFIG_URL not configured — skipping VPN")
-            return null
-        }
-        AppLogger.d(TAG, "Fetching VPN config from: $manifestUrl")
-
-        val body = try {
-            http.newCall(Request.Builder().url(manifestUrl).build()).execute().use { resp ->
-                if (!resp.isSuccessful) {
-                    AppLogger.d(TAG, "Config fetch returned HTTP ${resp.code} — skipping VPN")
-                    return null
-                }
-                resp.body?.string() ?: return null
+        // ── Step 1: check content.json "vpn" key ──────────────────────────────
+        AppLogger.d(TAG, "Checking content.json for VPN config (url: $CONTENT_JSON_URL)")
+        val contentJsonText = try {
+            http.newCall(Request.Builder().url(CONTENT_JSON_URL).build()).execute().use { resp ->
+                if (resp.isSuccessful) resp.body?.string() else null
             }
         } catch (e: Exception) {
-            AppLogger.d(TAG, "Config fetch failed: ${e.message} — skipping VPN")
-            return null
+            AppLogger.d(TAG, "content.json fetch failed: ${e.message}")
+            null
         }
 
-        val trimmed = body.trim()
-
-        // Case A: raw .conf
-        if (trimmed.startsWith("[Interface]", ignoreCase = true)) {
-            AppLogger.d(TAG, "Received raw WireGuard config")
-            return trimmed
+        if (contentJsonText != null) {
+            val confFromJson = parseVpnFromContentJson(contentJsonText)
+            if (confFromJson != null) return confFromJson
         }
 
-        // Case B: JSON manifest { "active": bool, "configUrl": "…" }
+        // ── Step 2: try fixed side-file path ──────────────────────────────────
+        val sideFileUrl = "$CONTENT_BASE_URL/vpn/wg0.conf"
+        AppLogger.d(TAG, "Trying side-file: $sideFileUrl")
         return try {
-            val json = JSONObject(trimmed)
-            if (!json.optBoolean("active", false)) {
-                AppLogger.d(TAG, "VPN manifest active=false — skipping VPN")
-                return null
-            }
-            val configUrl = json.optString("configUrl", "")
-            if (configUrl.isBlank()) {
-                AppLogger.e(TAG, "VPN manifest has no configUrl")
-                return null
-            }
-            AppLogger.d(TAG, "Fetching .conf from: $configUrl")
-            http.newCall(Request.Builder().url(configUrl).build()).execute().use { resp ->
+            http.newCall(Request.Builder().url(sideFileUrl).build()).execute().use { resp ->
                 if (!resp.isSuccessful) {
-                    AppLogger.e(TAG, "Conf file fetch returned HTTP ${resp.code}")
+                    AppLogger.d(TAG, "Side-file returned HTTP ${resp.code} — no VPN config found")
                     null
                 } else {
-                    resp.body?.string()?.trim()
+                    val body = resp.body?.string()?.trim()
+                    if (body != null && body.startsWith("[Interface]", ignoreCase = true)) {
+                        AppLogger.d(TAG, "Found raw WireGuard config at side-file path")
+                        body
+                    } else {
+                        AppLogger.d(TAG, "Side-file exists but is not a valid .conf — skipping VPN")
+                        null
+                    }
                 }
             }
         } catch (e: Exception) {
-            AppLogger.e(TAG, "Failed to parse VPN manifest: ${e.message}")
+            AppLogger.d(TAG, "Side-file fetch failed: ${e.message} — skipping VPN")
+            null
+        }
+    }
+
+    /**
+     * Parses the "vpn" key out of the content.json text.
+     *
+     * Supported shapes:
+     *   { "vpn": { "active": true, "configUrl": "https://…/wg0.conf" } }
+     *   { "vpn": { "active": true, "config": "[Interface]\n…"        } }
+     *
+     * Returns the raw .conf text, or null if absent / inactive.
+     */
+    private fun parseVpnFromContentJson(contentJsonText: String): String? {
+        return try {
+            val root = JSONObject(contentJsonText)
+            if (!root.has("vpn")) {
+                AppLogger.d(TAG, "content.json has no \"vpn\" key")
+                return null
+            }
+            val vpn = root.getJSONObject("vpn")
+            if (!vpn.optBoolean("active", false)) {
+                AppLogger.d(TAG, "content.json vpn.active=false — VPN disabled")
+                return null
+            }
+
+            // Inline config takes priority over configUrl
+            val inline = vpn.optString("config", "").trim()
+            if (inline.startsWith("[Interface]", ignoreCase = true)) {
+                AppLogger.d(TAG, "Using inline WireGuard config from content.json")
+                return inline
+            }
+
+            // configUrl — fetch the actual .conf
+            val configUrl = vpn.optString("configUrl", "").trim()
+            if (configUrl.isBlank()) {
+                AppLogger.e(TAG, "content.json vpn has no configUrl and no inline config")
+                return null
+            }
+            AppLogger.d(TAG, "Fetching .conf from configUrl: $configUrl")
+            http.newCall(Request.Builder().url(configUrl).build()).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    AppLogger.e(TAG, "configUrl fetch returned HTTP ${resp.code}")
+                    null
+                } else {
+                    val body = resp.body?.string()?.trim()
+                    if (body != null && body.startsWith("[Interface]", ignoreCase = true)) {
+                        AppLogger.d(TAG, "WireGuard config fetched from configUrl ✓")
+                        body
+                    } else {
+                        AppLogger.e(TAG, "configUrl response is not a valid WireGuard .conf")
+                        null
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            AppLogger.e(TAG, "Failed to parse vpn section: ${e.message}")
             null
         }
     }
@@ -290,9 +338,7 @@ object WgManager {
             ifaceBuilder.parsePrivateKey(parsed.iface.privateKey)
             for (addr in parsed.iface.addresses) ifaceBuilder.parseAddresses(addr)
             for (d   in parsed.iface.dns)       ifaceBuilder.parseDnsServers(d)
-            if (parsed.iface.mtu > 0) {
-                ifaceBuilder.parseMtu(parsed.iface.mtu.toString())
-            }
+            if (parsed.iface.mtu > 0) ifaceBuilder.parseMtu(parsed.iface.mtu.toString())
             // Per-app routing: only THIS app's traffic is tunnelled.
             ifaceBuilder.includeApplication(context.packageName)
 

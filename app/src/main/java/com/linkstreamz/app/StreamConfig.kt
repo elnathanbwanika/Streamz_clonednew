@@ -20,21 +20,8 @@ object StreamConfig {
     /** Origin header value sent with every HLS request. */
     const val ORIGIN = "https://wideiptv.top"
 
-    /**
-     * URL of the WireGuard VPN config file (or JSON manifest) on the admin server.
-     *
-     * Your server can respond with EITHER:
-     *   1. A raw WireGuard .conf file (content starts with "[Interface]")
-     *   2. A JSON manifest:  {"active": true, "configUrl": "https://…/wg0.conf"}
-     *      Set active=false to disable the VPN without deleting the file.
-     *
-     * ⚠ REPLACE THIS URL with the actual endpoint on your server.
-     *   e.g. "https://api.yourserver.com/vpn/config.conf"
-     *
-     * Leave blank (or keep "YOUR_SERVER") to disable in-app VPN entirely —
-     * the app will route traffic normally and respect any external VPN the user has connected.
-     */
-    const val VPN_CONFIG_URL = "https://YOUR_SERVER/vpn/wg0.conf"
+    // VPN config is served from the same content server as the rest of the app.
+    // No separate URL is needed — WgManager derives it from CONTENT_BASE_URL automatically.
 
     fun playerUrl(channelId: String): String =
         PLAYER_PAGE_TEMPLATE.replace("{CHANNEL}", channelId)
