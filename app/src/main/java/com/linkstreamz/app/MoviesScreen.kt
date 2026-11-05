@@ -25,7 +25,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
@@ -177,7 +176,7 @@ fun MoviesScreen(movies: List<Movie>, series: List<Series>, onWatch: (Any) -> Un
                     Text("${searchResults.size} results for \"$searchQuery\"", color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 }
                 item {
-                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         items(searchResults) { item -> MediaCard(item = item, onClick = { onWatch(item) }) }
                     }
                     Spacer(Modifier.height(16.dp))
@@ -187,7 +186,7 @@ fun MoviesScreen(movies: List<Movie>, series: List<Series>, onWatch: (Any) -> Un
                 if (newlyAdded.isNotEmpty()) {
                     item {
                         MoviesRowHeader(title = "Newly Added", onViewAll = { viewAllRow = "newly" })
-                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(newlyAdded) { item -> MediaCard(item = item, onClick = { onWatch(item) }) }
                         }
                         Spacer(Modifier.height(24.dp))
@@ -198,7 +197,7 @@ fun MoviesScreen(movies: List<Movie>, series: List<Series>, onWatch: (Any) -> Un
                 if (trendingMovies.isNotEmpty() && filterState.contentType == MediaContentType.MOVIES) {
                     item {
                         MoviesRowHeader(title = "Trending Movies", onViewAll = { viewAllRow = "trendingMovies" })
-                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(trendingMovies) { item -> MediaCard(item = item, onClick = { onWatch(item) }) }
                         }
                         Spacer(Modifier.height(24.dp))
@@ -209,7 +208,7 @@ fun MoviesScreen(movies: List<Movie>, series: List<Series>, onWatch: (Any) -> Un
                 if (trendingSeries.isNotEmpty() && filterState.contentType == MediaContentType.SERIES) {
                     item {
                         MoviesRowHeader(title = "Trending Series", onViewAll = { viewAllRow = "trendingSeries" })
-                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(trendingSeries) { item -> MediaCard(item = item, onClick = { onWatch(item) }) }
                         }
                         Spacer(Modifier.height(24.dp))
@@ -276,10 +275,10 @@ fun ViewAllScreen(title: String, items: List<Any>, onBack: () -> Unit, onWatch: 
         }
 
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
+            columns = GridCells.Fixed(3),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxSize()
         ) {
             items(items) { item ->
@@ -293,58 +292,143 @@ fun ViewAllScreen(title: String, items: List<Any>, onBack: () -> Unit, onWatch: 
 // Shared media card (Movie or Series)
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Returns a normalised VJ display string, or null when the item is not translated /
+ * the VJ field is blank / placeholder ("NA", "N/A", "-").
+ */
+private fun resolveVjLabel(vj: String?, translated: Boolean): String? {
+    if (!translated) return null
+    val raw = vj?.trim() ?: return null
+    if (raw.isBlank() || raw.equals("NA", ignoreCase = true) ||
+        raw.equals("N/A", ignoreCase = true) || raw == "-") return null
+    return if (raw.startsWith("VJ ", ignoreCase = true)) raw else "VJ $raw"
+}
+
 @Composable
 fun MediaCard(item: Any, onClick: () -> Unit, fullWidth: Boolean = false) {
-    val (id, title, genre, year, thumb, tag, duration) = when (item) {
-        is Movie -> CardData(item.id, item.title, item.genre, item.year, item.thumbUrl, "MOVIE", item.duration)
-        is Series -> {
-            val epCount = item.seasons.sumOf { it.episodes.size }
-            CardData(item.id, item.title, item.genre, item.year, item.thumbUrl, "SERIES", "S${item.seasons.size} · $epCount EP")
-        }
+    val (id, title, genre, year, thumb, tag, vjLabel) = when (item) {
+        is Movie  -> CardData(
+            id      = item.id,
+            title   = item.title,
+            genre   = item.genre,
+            year    = item.year,
+            thumb   = item.thumbUrl,
+            tag     = "MOVIE",
+            vjLabel = resolveVjLabel(item.vj, item.translated),
+        )
+        is Series -> CardData(
+            id      = item.id,
+            title   = item.title,
+            genre   = item.genre,
+            year    = item.year,
+            thumb   = item.thumbUrl,
+            tag     = "SERIES",
+            vjLabel = resolveVjLabel(item.vj, item.translated),
+        )
         else -> return
     }
 
     Column(
         modifier = Modifier
-            .then(if (fullWidth) Modifier.fillMaxWidth() else Modifier.width(155.dp))
+            .then(if (fullWidth) Modifier.fillMaxWidth() else Modifier.width(116.dp))
             .clip(RoundedCornerShape(12.dp))
             .background(LinkColors.CardBg)
             .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.16f), RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
     ) {
+        // ── Thumbnail: portrait 3:4, full card width ──────────────────────────
         Box(
             Modifier
                 .fillMaxWidth()
-                .aspectRatio(16f / 10f)
-                .background(Color(0xFF1A1A1A))
+                .aspectRatio(3f / 4f)
+                .background(Color(0xFF16110E))
         ) {
-            AsyncImage(model = thumb, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
-            // Gradient scrim
-            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.55f)))))
-            // Tag chip
+            AsyncImage(
+                model            = thumb,
+                contentDescription = null,
+                contentScale     = ContentScale.Crop,
+                modifier         = Modifier.fillMaxSize(),
+            )
+            // MOVIE / SERIES badge — top-left corner
             Box(
-                Modifier.align(Alignment.TopStart).padding(6.dp)
+                Modifier
+                    .align(Alignment.TopStart)
+                    .padding(6.dp)
                     .background(
-                        if (tag == "SERIES") Color(0xFF0A0A0A).copy(alpha = 0.85f) else LinkColors.OrangePrimary.copy(alpha = 0.85f),
-                        RoundedCornerShape(4.dp)
+                        if (tag == "SERIES") Color(0xFF0A0A0A).copy(alpha = 0.85f)
+                        else LinkColors.OrangePrimary.copy(alpha = 0.85f),
+                        RoundedCornerShape(4.dp),
                     )
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .padding(horizontal = 5.dp, vertical = 2.dp)
             ) {
-                Text(tag, color = if (tag == "SERIES") LinkColors.MutedText else Color.Black, fontFamily = MonoFont, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    text       = tag,
+                    color      = if (tag == "SERIES") LinkColors.MutedText else Color.Black,
+                    fontFamily = MonoFont,
+                    fontSize   = 7.sp,
+                    fontWeight = FontWeight.Bold,
+                )
             }
-            // Duration
-            Box(Modifier.align(Alignment.BottomEnd).padding(6.dp)) {
-                Text(duration, color = Color.White.copy(alpha = 0.85f), fontFamily = MonoFont, fontSize = 10.sp)
-            }
+            // Fallback play icon shown while image loads / if no thumb
+            // (AsyncImage shows nothing on failure — place icon under it so it
+            //  only appears when the image is absent)
+            Text(
+                text     = "▶",
+                color    = Color(0xFF3A2A20),
+                fontSize = 24.sp,
+                modifier = Modifier.align(Alignment.Center),
+            )
         }
-        Column(Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
-            Text(title, color = LinkColors.PrimaryText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("$genre · $year", color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 11.sp, maxLines = 1)
+
+        // ── Info area: fixed 58dp height so every card in a row is the same ──
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(58.dp)
+                .padding(horizontal = 9.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.Top,
+        ) {
+            // Title — 1 line, ellipsis
+            Text(
+                text       = title,
+                color      = LinkColors.PrimaryText,
+                fontWeight = FontWeight.SemiBold,
+                fontSize   = 12.sp,
+                maxLines   = 1,
+                overflow   = TextOverflow.Ellipsis,
+            )
+            // GENRE · YEAR — 1 line, monospace, muted
+            Text(
+                text          = "$genre · $year",
+                color         = LinkColors.MutedText,
+                fontFamily    = MonoFont,
+                fontSize      = 9.sp,
+                maxLines      = 1,
+                overflow      = TextOverflow.Ellipsis,
+                letterSpacing = 0.05.sp,
+            )
+            // VJ name — only for translated movies; space always reserved
+            Text(
+                text       = vjLabel ?: "",
+                color      = LinkColors.OrangePrimary,
+                fontFamily = MonoFont,
+                fontSize   = 9.sp,
+                maxLines   = 1,
+                overflow   = TextOverflow.Ellipsis,
+            )
         }
     }
 }
 
-private data class CardData(val id: String, val title: String, val genre: String, val year: Int, val thumb: String, val tag: String, val duration: String)
+private data class CardData(
+    val id:      String,
+    val title:   String,
+    val genre:   String,
+    val year:    Int,
+    val thumb:   String,
+    val tag:     String,
+    val vjLabel: String?,   // null = not translated / no VJ
+)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Filter Dialog (centered, not bottom sheet)
