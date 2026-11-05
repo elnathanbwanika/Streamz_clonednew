@@ -66,9 +66,6 @@ class MainActivity : ComponentActivity() {
         // VPN: Fetch WireGuard config from server and start per-app tunnel if active.
         // Falls back to normal routing (and respects external device VPNs) if no config.
         WgManager.init(this)
-        // VPN: Fetch WireGuard config from server and start per-app tunnel if active.
-        // Falls back to normal routing (and respects external device VPNs) if no config.
-        WgManager.init(this)
         
         val prefs = getSharedPreferences("crash_prefs", Context.MODE_PRIVATE)
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()

@@ -4,7 +4,6 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- VPN: required to call VpnService.Builder and establish the TUN interface -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
 
     <application
         android:networkSecurityConfig="@xml/network_security_config"
@@ -25,16 +24,9 @@
             </intent-filter>
         </activity>
 
-        <!-- WireGuard per-app VPN service -->
-        <service
-            android:name=".WgVpnService"
-            android:permission="android.permission.BIND_VPN_SERVICE"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <intent-filter>
-                <action android:name="android.net.VpnService" />
-            </intent-filter>
-        </service>
+        <!-- GoBackend$VpnService is declared in the wireguard-android AAR's
+             own AndroidManifest.xml and is merged automatically by Gradle.
+             No custom VpnService entry is needed here. -->
 
     </application>
 </manifest>
