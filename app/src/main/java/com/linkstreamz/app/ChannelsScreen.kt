@@ -42,13 +42,13 @@ import coil.request.ImageRequest
 
 private val CATEGORY_ORDER = listOf("General", "News", "Entertainment", "Music", "Sports", "Kids")
 
-private val CARD_BG            = Color(0xFF100C09)
-private val CARD_BORDER_REST   = Color(0xFF2E1C10)
-private val CARD_BORDER_PRESS  = Color(0xFFFF6600)
+private val CARD_BG            = Color(0xFF1A120C)
+private val CARD_BORDER_REST   = Color(0xFF3A2617)
+private val CARD_BORDER_PRESS  = Color(0xFFFF6A00)
 private val LIVE_RED           = Color(0xFFFF3B30)
-private val FALLBACK_CIRCLE_BG = Color(0xFF1A120C)
-private val ORANGE_ACCENT      = Color(0xFFFF6600)
-private val TEXT_NAME          = Color(0xFFF2EBE5)
+private val THUMB_BG           = Color(0xFF221610)
+private val ORANGE_ACCENT      = Color(0xFFFF6A00)
+private val TEXT_NAME          = Color(0xFFEFE6DD)
 private val PILL_BG            = Color(0xFF1A120C)
 private val PILL_BORDER        = Color(0xFF3A2415)
 private val PILL_TEXT          = Color(0xFFC9B8AA)
@@ -317,8 +317,6 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit) {
     val hasLogo = logoUrl.isNotBlank()
 
     val context = LocalContext.current
-    val density = LocalDensity.current
-    val targetPx = with(density) { 54.dp.roundToPx() } * 2 // 2x for full resolution
 
     val modelData = remember(logoUrl) {
         when {
@@ -332,88 +330,85 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit) {
         }
     }
 
-    val imageRequest = remember(modelData, targetPx) {
+    val imageRequest = remember(modelData) {
         ImageRequest.Builder(context)
             .data(modelData)
-            .size(targetPx, targetPx)
             .crossfade(true)
             .build()
     }
 
-    Box(
+    val cardShape = RoundedCornerShape(14.dp)
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .scale(scale)
-            .clip(RoundedCornerShape(10.dp))
+            .clip(cardShape)
             .background(CARD_BG)
-            .border(1.dp, borderColor, RoundedCornerShape(10.dp))
+            .border(1.dp, borderColor, cardShape)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = onClick
             )
-            .padding(start = 3.dp, end = 3.dp, top = 8.dp, bottom = 7.dp),
-        contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxWidth()
+        // ── Top section (thumbnail): fixed height 76dp, full width flush ──
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(76.dp)
+                .background(THUMB_BG),
+            contentAlignment = Alignment.Center
         ) {
-            // ── Logo with live dot overlay ─────────────────────────────────
-            Box(
-                modifier = Modifier.size(54.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                if (hasLogo) {
-                    SubcomposeAsyncImage(
-                        model = imageRequest,
-                        contentDescription = channel.title,
-                        modifier = Modifier.size(54.dp)
-                    ) {
-                        val imgPainter = painter
-                        when (imgPainter.state) {
-                            is AsyncImagePainter.State.Success -> {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .clip(CircleShape)
-                                        .background(Color.White)
-                                        .padding(8.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    androidx.compose.foundation.Image(
-                                        painter = imgPainter,
-                                        contentDescription = channel.title,
-                                        contentScale = ContentScale.Fit,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
-                            }
-                            else -> {
-                                ChannelFallbackCircle(channel.initials)
-                            }
+            if (hasLogo) {
+                SubcomposeAsyncImage(
+                    model = imageRequest,
+                    contentDescription = channel.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    val imgPainter = painter
+                    when (imgPainter.state) {
+                        is AsyncImagePainter.State.Success -> {
+                            androidx.compose.foundation.Image(
+                                painter = imgPainter,
+                                contentDescription = channel.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        }
+                        else -> {
+                            ChannelFallback(channel)
                         }
                     }
-                } else {
-                    ChannelFallbackCircle(channel.initials)
                 }
-
-                // ── Live indicator dot ─────────────────────────────────────
-                // 9dp red dot (#FF3B30) at top-right corner with 2dp ring in card background (#100C09)
-                if (isLive) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .size(13.dp)
-                            .background(CARD_BG, CircleShape)
-                            .padding(2.dp)
-                            .background(LIVE_RED.copy(alpha = liveAlpha), CircleShape)
-                    )
-                }
+            } else {
+                ChannelFallback(channel)
             }
 
-            // ── Channel name ───────────────────────────────────────────────
-            Spacer(Modifier.height(7.dp))
+            // ── Live indicator dot ─────────────────────────────────────────
+            // 10dp red dot (#FF3B30) with 1.5dp border in card background color (#1A120C)
+            if (isLive) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 6.dp, end = 6.dp)
+                        .size(13.dp)
+                        .background(CARD_BG, CircleShape)
+                        .padding(1.5.dp)
+                        .background(LIVE_RED.copy(alpha = liveAlpha), CircleShape)
+                )
+            }
+        }
+
+        // ── Bottom section (label): directly under thumbnail ───────────────
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(CARD_BG)
+                .padding(horizontal = 4.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
             Text(
                 text = channel.title,
                 color = TEXT_NAME,
@@ -429,20 +424,26 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ChannelFallbackCircle(initials: String, modifier: Modifier = Modifier) {
+private fun ChannelFallback(channel: Channel, modifier: Modifier = Modifier) {
+    val initialsText = remember(channel.initials, channel.title) {
+        val raw = channel.initials.trim()
+        if (raw.isNotBlank()) raw
+        else channel.title.split(" ").mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString("").ifBlank { "?" }
+    }
+    val fontSize = if (initialsText.length >= 3) 17.sp else 22.sp
+
     Box(
         modifier = modifier
-            .size(54.dp)
-            .clip(CircleShape)
-            .background(FALLBACK_CIRCLE_BG),
+            .fillMaxSize()
+            .background(THUMB_BG),
         contentAlignment = Alignment.Center
     ) {
         Text(
-            text = initials.take(2).uppercase(),
+            text = initialsText.uppercase(),
             color = ORANGE_ACCENT,
             fontFamily = DisplayFont,
             fontWeight = FontWeight.Bold,
-            fontSize = 15.sp,
+            fontSize = fontSize,
             textAlign = TextAlign.Center
         )
     }
