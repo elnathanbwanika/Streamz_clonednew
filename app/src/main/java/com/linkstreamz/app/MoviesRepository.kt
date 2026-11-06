@@ -53,9 +53,9 @@ class MoviesRepository {
     private val _state = MutableStateFlow<MediaFeedState>(MediaFeedState.Loading)
     val state: StateFlow<MediaFeedState> = _state.asStateFlow()
 
-    // Bundled sample data (used until the first successful fetch)
-    val movies: List<Movie> get() = (_state.value as? MediaFeedState.Ready)?.movies ?: SAMPLE_MOVIES
-    val series: List<Series> get() = (_state.value as? MediaFeedState.Ready)?.series ?: SAMPLE_SERIES
+    // Empty until the first successful fetch from the server
+    val movies: List<Movie> get() = (_state.value as? MediaFeedState.Ready)?.movies ?: emptyList()
+    val series: List<Series> get() = (_state.value as? MediaFeedState.Ready)?.series ?: emptyList()
 
     fun start(scope: CoroutineScope) {
         scope.launch(Dispatchers.IO) {
@@ -183,8 +183,8 @@ class ChannelsRepository {
     private val _state = MutableStateFlow<ChannelFeedState>(ChannelFeedState.Loading)
     val state: StateFlow<ChannelFeedState> = _state.asStateFlow()
 
-    // Bundled sample data until first successful fetch
-    val channels: List<Channel> get() = (_state.value as? ChannelFeedState.Ready)?.channels ?: SAMPLE_CHANNELS
+    // Empty until the first successful fetch from the server
+    val channels: List<Channel> get() = (_state.value as? ChannelFeedState.Ready)?.channels ?: emptyList()
 
     fun start(scope: CoroutineScope) {
         scope.launch(Dispatchers.IO) {

@@ -90,10 +90,10 @@ fun HomeScreen(
     val mediaState  by moviesRepo.state.collectAsState()
     val channelState by channelsRepo.state.collectAsState()
 
-    // Derive live lists; fall back to sample data while loading
-    val movies   = (mediaState  as? MediaFeedState.Ready)?.movies   ?: moviesRepo.movies
-    val series   = (mediaState  as? MediaFeedState.Ready)?.series   ?: moviesRepo.series
-    val channels = (channelState as? ChannelFeedState.Ready)?.channels ?: channelsRepo.channels
+    // Derive live lists; empty until fetched from server
+    val movies   = (mediaState  as? MediaFeedState.Ready)?.movies   ?: emptyList()
+    val series   = (mediaState  as? MediaFeedState.Ready)?.series   ?: emptyList()
+    val channels = (channelState as? ChannelFeedState.Ready)?.channels ?: emptyList()
 
     val context = LocalContext.current
     val listState = rememberLazyListState()
@@ -133,7 +133,7 @@ fun HomeScreen(
 
 
     val feed = (state as? FeedState.Ready)?.feed
-    val counts = remember(feed, nowMs) {
+    val counts = remember(feed, nowMs, movies, series, channels) {
         val events = feed?.events.orEmpty()
         mapOf(
             HomeFilter.ALL to events.size,
@@ -186,20 +186,24 @@ fun HomeScreen(
             }
 
             if (filter == HomeFilter.MOVIES) {
-                MoviesScreen(movies = movies, series = series, onWatch = { item -> 
-                    if (item is Movie) onPlayer(MovieTarget(item))
-                    // If it's a series, we don't have EpisodeTarget here yet. We might need to handle series click!
-                    // Wait, a series click usually opens Series view, but we can just use EpisodeTarget with first episode?
-                    // Actually, the user says: "Episode: title = series title. Subtitle = S1 E2...". This implies the user plays a series by opening the screen, then there's an episode list!
-                    // I will just construct an EpisodeTarget with the first season/episode.
-                    if (item is Series && item.seasons.isNotEmpty() && item.seasons.first().episodes.isNotEmpty()) {
-                        val season = item.seasons.first()
-                        val ep = season.episodes.first()
-                        onPlayer(EpisodeTarget(item, season, ep))
-                    }
-                })
+                if (mediaState is MediaFeedState.Loading) {
+                    LoadingList()
+                } else {
+                    MoviesScreen(movies = movies, series = series, onWatch = { item -> 
+                        if (item is Movie) onPlayer(MovieTarget(item))
+                        if (item is Series && item.seasons.isNotEmpty() && item.seasons.first().episodes.isNotEmpty()) {
+                            val season = item.seasons.first()
+                            val ep = season.episodes.first()
+                            onPlayer(EpisodeTarget(item, season, ep))
+                        }
+                    })
+                }
             } else if (filter == HomeFilter.CHANNELS) {
-                ChannelsScreen(channels = channels, onWatch = { channel -> onPlayer(ChannelTarget(channel)) })
+                if (channelState is ChannelFeedState.Loading) {
+                    LoadingList()
+                } else {
+                    ChannelsScreen(channels = channels, onWatch = { channel -> onPlayer(ChannelTarget(channel)) })
+                }
             } else {
                 when (val current = state) {
                     FeedState.Loading -> LoadingList()
