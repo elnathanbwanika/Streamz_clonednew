@@ -1,11 +1,18 @@
 package com.linkstreamz.app
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -17,36 +24,34 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
+import coil.request.ImageRequest
 
 private val CATEGORY_ORDER = listOf("General", "News", "Entertainment", "Music", "Sports", "Kids")
-private val CAT_ROWS = listOf(
-    "local"  to "Local Channels",
-    "Sports" to "Sports",
-    "News"   to "News",
-    "Entertainment" to "Entertainment",
-    "Kids"   to "Kids & Family",
-    "Music"  to "Music",
-    "intl"   to "International"
-)
-private val LIVE_RED = Color(0xFFFF3B30)
 
-// ── Channel card layout tuning ────────────────────────────────────────────────
-private val CHANNEL_CARD_SIZE = 130.dp
-private val CHANNEL_CARD_RADIUS = 14.dp
-private val CHANNEL_CARD_INSET = 6.dp        // gap from card edge to thumbnail/caption
-private val CHANNEL_THUMB_HEIGHT_FRACTION = 0.80f  // share of card height for the thumbnail
-private val CHANNEL_THUMB_RADIUS = 12.dp
-private val CHANNEL_THUMB_PADDING = 10.dp    // inner padding so the logo never touches the edge
-private val CHANNEL_CARD_BORDER = 0.5.dp
+private val CARD_BG            = Color(0xFF100C09)
+private val CARD_BORDER_REST   = Color(0xFF2E1C10)
+private val CARD_BORDER_PRESS  = Color(0xFFFF6600)
+private val LIVE_RED           = Color(0xFFFF3B30)
+private val FALLBACK_CIRCLE_BG = Color(0xFF1A120C)
+private val ORANGE_ACCENT      = Color(0xFFFF6600)
+private val TEXT_NAME          = Color(0xFFF2EBE5)
+private val PILL_BG            = Color(0xFF1A120C)
+private val PILL_BORDER        = Color(0xFF3A2415)
+private val PILL_TEXT          = Color(0xFFC9B8AA)
 
 @Composable
 fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
@@ -63,144 +68,159 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
             .let { list -> if (catFilter != null) list.filter { it.category == catFilter } else list }
     }
 
-    // Build rows according to prototype spec
     val localChannels = allChannels.filter { it.country == "Uganda" }
     val isSearch = searchQuery.length >= 2
 
-    LazyColumn(
-        contentPadding = PaddingValues(bottom = 80.dp),
-        modifier = Modifier.fillMaxSize()
-    ) {
-        // ── Search bar ─────────────────────────────────────────────────────
-        item {
-            Box(
-                Modifier.fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .background(LinkColors.CardBg, RoundedCornerShape(8.dp))
-                    .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.16f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Search, null, tint = LinkColors.MutedText, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Box(Modifier.weight(1f)) {
-                        if (searchQuery.isEmpty()) Text("Search channels or categories", color = LinkColors.MutedText, fontSize = 13.sp)
-                        BasicTextField(
-                            value = searchQuery, onValueChange = { searchQuery = it },
-                            textStyle = TextStyle(color = LinkColors.PrimaryText, fontSize = 13.sp, fontFamily = BodyFont),
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
+    Column(modifier = Modifier.fillMaxSize()) {
+        // ── Search bar (fixed outside scroll area) ─────────────────────────
+        Box(
+            Modifier.fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .background(LinkColors.CardBg, RoundedCornerShape(8.dp))
+                .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.16f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Search, null, tint = LinkColors.MutedText, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Box(Modifier.weight(1f)) {
+                    if (searchQuery.isEmpty()) Text("Search channels or categories", color = LinkColors.MutedText, fontSize = 13.sp)
+                    BasicTextField(
+                        value = searchQuery, onValueChange = { searchQuery = it },
+                        textStyle = TextStyle(color = LinkColors.PrimaryText, fontSize = 13.sp, fontFamily = BodyFont),
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }
 
-        // ── Local / Abroad segmented control ──────────────────────────────
+        // ── Local / Abroad segmented control & category chips (outside scroll area)
         if (!isSearch) {
-            item {
-                Row(
-                    Modifier.fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xFF0A0A0A))
-                        .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.16f), RoundedCornerShape(8.dp))
-                ) {
-                    listOf(true to "Local", false to "Abroad").forEach { (local, label) ->
-                        val selected = localFilter == local
-                        Box(
-                            Modifier.weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (selected) LinkColors.OrangePrimary else Color.Transparent)
-                                .clickable { localFilter = local; catFilter = null }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(label, color = if (selected) Color.Black else LinkColors.MutedText, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+            Row(
+                Modifier.fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color(0xFF0A0A0A))
+                    .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.16f), RoundedCornerShape(8.dp))
+            ) {
+                listOf(true to "Local", false to "Abroad").forEach { (local, label) ->
+                    val selected = localFilter == local
+                    Box(
+                        Modifier.weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (selected) LinkColors.OrangePrimary else Color.Transparent)
+                            .clickable { localFilter = local; catFilter = null }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(label, color = if (selected) Color.Black else LinkColors.MutedText, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+                    }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+
+            val scopedCategories = allChannels
+                .filter { if (localFilter) it.country == "Uganda" else it.country != "Uganda" }
+                .map { it.category }.distinct().sortedBy { CATEGORY_ORDER.indexOf(it).takeIf { i -> i >= 0 } ?: 99 }
+
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                item { CategoryChip("All", catFilter == null) { catFilter = null } }
+                items(scopedCategories) { cat -> CategoryChip(cat, catFilter == cat) { catFilter = if (catFilter == cat) null else cat } }
+            }
+            Spacer(Modifier.height(4.dp))
+        }
+
+        // ── Vertical 4-column Grid ─────────────────────────────────────────
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 76.dp),
+            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 90.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            if (isSearch) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Text(
+                        "${filtered.size} results for \"$searchQuery\"",
+                        color = LinkColors.MutedText,
+                        fontFamily = MonoFont,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
+                    )
+                }
+                items(filtered, key = { it.id }) { ch ->
+                    ChannelCard(channel = ch, onClick = { onWatch(ch) })
+                }
+            } else if (catFilter != null) {
+                val catItems = allChannels.filter {
+                    (if (localFilter) it.country == "Uganda" else it.country != "Uganda") && it.category == catFilter
+                }
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    SectionHeader(title = catFilter!!, count = catItems.size)
+                }
+                items(catItems, key = { it.id }) { ch ->
+                    ChannelCard(channel = ch, onClick = { onWatch(ch) })
+                }
+            } else if (localFilter) {
+                // Local rows: General/Entertainment local, Sports, Kids, News local
+                val localRow = localChannels.take(8)
+                if (localRow.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        SectionHeader(title = "Local Channels", count = localRow.size)
+                    }
+                    items(localRow, key = { "local_${it.id}" }) { ch ->
+                        ChannelCard(channel = ch, onClick = { onWatch(ch) })
+                    }
+                }
+                val localSports = allChannels.filter { it.category == "Sports" && it.country == "Uganda" }
+                if (localSports.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        SectionHeader(title = "Sports", count = localSports.size)
+                    }
+                    items(localSports, key = { "sports_${it.id}" }) { ch ->
+                        ChannelCard(channel = ch, onClick = { onWatch(ch) })
+                    }
+                }
+                val localNews = allChannels.filter { it.category == "News" && it.country == "Uganda" }
+                if (localNews.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        SectionHeader(title = "News", count = localNews.size)
+                    }
+                    items(localNews, key = { "news_${it.id}" }) { ch ->
+                        ChannelCard(channel = ch, onClick = { onWatch(ch) })
+                    }
+                }
+                val localEnt = allChannels.filter { it.category == "Entertainment" && it.country == "Uganda" }
+                if (localEnt.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        SectionHeader(title = "Entertainment", count = localEnt.size)
+                    }
+                    items(localEnt, key = { "ent_${it.id}" }) { ch ->
+                        ChannelCard(channel = ch, onClick = { onWatch(ch) })
+                    }
+                }
+            } else {
+                // Abroad rows
+                listOf(
+                    "Sports" to "Sports",
+                    "News" to "News",
+                    "Entertainment" to "Entertainment",
+                    "Kids" to "Kids & Family",
+                    "Music" to "Music",
+                    "General" to "International"
+                ).forEach { (cat, label) ->
+                    val chs = allChannels.filter { it.country != "Uganda" && it.category == cat }
+                    if (chs.isNotEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            SectionHeader(title = label, count = chs.size)
+                        }
+                        items(chs, key = { "abroad_${cat}_${it.id}" }) { ch ->
+                            ChannelCard(channel = ch, onClick = { onWatch(ch) })
                         }
                     }
-                }
-                Spacer(Modifier.height(4.dp))
-            }
-
-            // ── Category chips ─────────────────────────────────────────────
-            item {
-                val scopedCategories = allChannels
-                    .filter { if (localFilter) it.country == "Uganda" else it.country != "Uganda" }
-                    .map { it.category }.distinct().sortedBy { CATEGORY_ORDER.indexOf(it).takeIf { i -> i >= 0 } ?: 99 }
-
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    item { CategoryChip("All", catFilter == null) { catFilter = null } }
-                    items(scopedCategories) { cat -> CategoryChip(cat, catFilter == cat) { catFilter = if (catFilter == cat) null else cat } }
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-        }
-
-        // ── Search results ─────────────────────────────────────────────────
-        if (isSearch) {
-            item {
-                Text("${filtered.size} results for \"$searchQuery\"", color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
-            }
-            item {
-                ChannelRow(channels = filtered, onWatch = onWatch)
-            }
-            return@LazyColumn
-        }
-
-        // ── Category-filtered results ──────────────────────────────────────
-        if (catFilter != null) {
-            val catItems = allChannels.filter {
-                (if (localFilter) it.country == "Uganda" else it.country != "Uganda") && it.category == catFilter
-            }
-            item { SectionHeader("${catFilter} (${catItems.size})") }
-            item { ChannelRow(channels = catItems, onWatch = onWatch) }
-            return@LazyColumn
-        }
-
-        // ── Home rows per section ──────────────────────────────────────────
-        if (localFilter) {
-            // Local: General/Entertainment local, Sports, Kids, News local
-            item {
-                SectionHeader("Local Channels", showLiveDot = true)
-                ChannelRow(channels = localChannels.take(8), onWatch = onWatch)
-                Spacer(Modifier.height(24.dp))
-            }
-            val localSports = allChannels.filter { it.category == "Sports" && it.country == "Uganda" }
-            if (localSports.isNotEmpty()) item {
-                SectionHeader("Sports", showLiveDot = true)
-                ChannelRow(channels = localSports, onWatch = onWatch)
-                Spacer(Modifier.height(24.dp))
-            }
-            val localNews = allChannels.filter { it.category == "News" && it.country == "Uganda" }
-            if (localNews.isNotEmpty()) item {
-                SectionHeader("News", showLiveDot = true)
-                ChannelRow(channels = localNews, onWatch = onWatch)
-                Spacer(Modifier.height(24.dp))
-            }
-            val localEnt = allChannels.filter { it.category == "Entertainment" && it.country == "Uganda" }
-            if (localEnt.isNotEmpty()) item {
-                SectionHeader("Entertainment")
-                ChannelRow(channels = localEnt, onWatch = onWatch)
-                Spacer(Modifier.height(24.dp))
-            }
-        } else {
-            // Abroad rows
-            listOf(
-                "Sports" to "Sports",
-                "News" to "News",
-                "Entertainment" to "Entertainment",
-                "Kids" to "Kids & Family",
-                "Music" to "Music",
-                "General" to "International"
-            ).forEach { (cat, label) ->
-                val chs = allChannels.filter { it.country != "Uganda" && it.category == cat }
-                if (chs.isNotEmpty()) item {
-                    SectionHeader(label, showLiveDot = cat == "Sports" || cat == "News")
-                    ChannelRow(channels = chs, onWatch = onWatch)
-                    Spacer(Modifier.height(24.dp))
                 }
             }
         }
@@ -208,16 +228,46 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
 }
 
 @Composable
-private fun SectionHeader(title: String, showLiveDot: Boolean = false) {
+private fun SectionHeader(title: String, count: Int, modifier: Modifier = Modifier) {
     Row(
-        Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 14.dp, bottom = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        if (showLiveDot) {
-            Box(Modifier.size(7.dp).background(LIVE_RED, CircleShape))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Box(
+                Modifier
+                    .size(width = 3.dp, height = 15.dp)
+                    .clip(RoundedCornerShape(1.5.dp))
+                    .background(ORANGE_ACCENT)
+            )
+            Text(
+                text = title,
+                color = Color.White,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+            )
         }
-        Text(title, color = LinkColors.PrimaryText, fontFamily = DisplayFont, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(999.dp))
+                .background(PILL_BG)
+                .border(0.5.dp, PILL_BORDER, RoundedCornerShape(999.dp))
+                .padding(horizontal = 8.dp, vertical = 2.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = count.toString(),
+                color = PILL_TEXT,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Normal,
+            )
+        }
     }
 }
 
@@ -236,111 +286,164 @@ private fun CategoryChip(label: String, selected: Boolean, onClick: () -> Unit) 
 }
 
 @Composable
-private fun ChannelRow(channels: List<Channel>, onWatch: (Channel) -> Unit) {
-    LazyRow(
-        contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        items(channels) { ch -> ChannelCard(channel = ch, onClick = { onWatch(ch) }) }
-    }
-}
-
-@Composable
 fun ChannelCard(channel: Channel, onClick: () -> Unit) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.96f else 1f,
+        animationSpec = tween(100),
+        label = "channel_card_scale"
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (isPressed) CARD_BORDER_PRESS else CARD_BORDER_REST,
+        animationSpec = tween(100),
+        label = "channel_card_border"
+    )
+
+    // Soft pulse for live dot: alpha 1.0 to 0.4 and back over 1.6s
+    val infiniteTransition = rememberInfiniteTransition(label = "live_pulse")
+    val liveAlpha by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 0.4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "live_alpha"
+    )
+
+    val isLive = channel.videoUrl.isNotBlank()
     val logoUrl = channel.logo?.trim().orEmpty()
     val hasLogo = logoUrl.isNotBlank()
-    val thumbBacking = Color.White
+
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val targetPx = with(density) { 54.dp.roundToPx() } * 2 // 2x for full resolution
+
+    val modelData = remember(logoUrl) {
+        when {
+            logoUrl.startsWith("data:image") -> try {
+                android.util.Base64.decode(logoUrl.substringAfter(","), android.util.Base64.DEFAULT)
+            } catch (e: Exception) {
+                logoUrl
+            }
+            logoUrl.startsWith("http://") || logoUrl.startsWith("https://") -> logoUrl
+            else -> "$CONTENT_BASE_URL/${logoUrl.trimStart('/')}"
+        }
+    }
+
+    val imageRequest = remember(modelData, targetPx) {
+        ImageRequest.Builder(context)
+            .data(modelData)
+            .size(targetPx, targetPx)
+            .crossfade(true)
+            .build()
+    }
 
     Box(
         modifier = Modifier
-            .width(CHANNEL_CARD_SIZE)
-            .height(CHANNEL_CARD_SIZE)
-            .clip(RoundedCornerShape(CHANNEL_CARD_RADIUS))
-            .background(LinkColors.CardBg)
-            .border(CHANNEL_CARD_BORDER, LinkColors.LineAlpha, RoundedCornerShape(CHANNEL_CARD_RADIUS))
-            .clickable(onClick = onClick)
+            .fillMaxWidth()
+            .scale(scale)
+            .clip(RoundedCornerShape(10.dp))
+            .background(CARD_BG)
+            .border(1.dp, borderColor, RoundedCornerShape(10.dp))
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+            .padding(start = 3.dp, end = 3.dp, top = 8.dp, bottom = 7.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Column(Modifier.fillMaxSize()) {
-
-            // ── Thumbnail area ────────────────────────────────────────────
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            // ── Logo with live dot overlay ─────────────────────────────────
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(CHANNEL_THUMB_HEIGHT_FRACTION)
-                    .padding(start = CHANNEL_CARD_INSET, top = CHANNEL_CARD_INSET, end = CHANNEL_CARD_INSET)
-                    .clip(RoundedCornerShape(CHANNEL_THUMB_RADIUS))
-                    .background(thumbBacking),
+                modifier = Modifier.size(54.dp),
                 contentAlignment = Alignment.Center
             ) {
                 if (hasLogo) {
-                    // Supports absolute http(s) URLs, base64 data URIs, and paths
-                    // relative to the content server; falls back to initials on error.
-                    val modelData = remember(logoUrl) {
-                        when {
-                            logoUrl.startsWith("data:image") -> try {
-                                android.util.Base64.decode(logoUrl.substringAfter(","), android.util.Base64.DEFAULT)
-                            } catch (e: Exception) {
-                                logoUrl
-                            }
-                            logoUrl.startsWith("http://") || logoUrl.startsWith("https://") -> logoUrl
-                            else -> "$CONTENT_BASE_URL/${logoUrl.trimStart('/')}"
-                        }
-                    }
                     SubcomposeAsyncImage(
-                        model = coil.request.ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
-                            .data(modelData)
-                            .crossfade(true)
-                            .build(),
+                        model = imageRequest,
                         contentDescription = channel.title,
-                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(CHANNEL_THUMB_PADDING)
+                        modifier = Modifier.size(54.dp)
                     ) {
-                        when (painter.state) {
-                            is coil.compose.AsyncImagePainter.State.Success -> SubcomposeAsyncImageContent()
-                            else -> ChannelInitials(channel.initials)
+                        val imgPainter = painter
+                        when (imgPainter.state) {
+                            is AsyncImagePainter.State.Success -> {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(CircleShape)
+                                        .background(Color.White)
+                                        .padding(8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    androidx.compose.foundation.Image(
+                                        painter = imgPainter,
+                                        contentDescription = channel.title,
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                            }
+                            else -> {
+                                ChannelFallbackCircle(channel.initials)
+                            }
                         }
                     }
                 } else {
-                    ChannelInitials(channel.initials)
+                    ChannelFallbackCircle(channel.initials)
+                }
+
+                // ── Live indicator dot ─────────────────────────────────────
+                // 9dp red dot (#FF3B30) at top-right corner with 2dp ring in card background (#100C09)
+                if (isLive) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .size(13.dp)
+                            .background(CARD_BG, CircleShape)
+                            .padding(2.dp)
+                            .background(LIVE_RED.copy(alpha = liveAlpha), CircleShape)
+                    )
                 }
             }
 
-            // ── Caption strip ─────────────────────────────────────────────
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f - CHANNEL_THUMB_HEIGHT_FRACTION)
-                    .padding(horizontal = CHANNEL_CARD_INSET, vertical = CHANNEL_CARD_INSET),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    channel.title,
-                    modifier = Modifier.weight(1f),
-                    color = LinkColors.PrimaryText,
-                    fontWeight = FontWeight.Medium,
-                    fontSize = 13.sp,
-                    maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
-                )
-                Spacer(Modifier.width(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Box(Modifier.size(5.dp).background(LIVE_RED, CircleShape))
-                    Text("LIVE", color = LIVE_RED, fontFamily = MonoFont, fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-                }
-            }
+            // ── Channel name ───────────────────────────────────────────────
+            Spacer(Modifier.height(7.dp))
+            Text(
+                text = channel.title,
+                color = TEXT_NAME,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
 
 @Composable
-private fun ChannelInitials(initials: String) {
-    Text(
-        initials,
-        color = LinkColors.CardBg,
-        fontFamily = DisplayFont,
-        fontWeight = FontWeight.Bold,
-        fontSize = 20.sp
-    )
+private fun ChannelFallbackCircle(initials: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(54.dp)
+            .clip(CircleShape)
+            .background(FALLBACK_CIRCLE_BG),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = initials.take(2).uppercase(),
+            color = ORANGE_ACCENT,
+            fontFamily = DisplayFont,
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp,
+            textAlign = TextAlign.Center
+        )
+    }
 }
