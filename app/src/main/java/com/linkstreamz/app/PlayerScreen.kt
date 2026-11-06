@@ -1029,6 +1029,20 @@ private fun RelatedContent(
                     MediaCard(item = movie, onClick = { onTarget(MovieTarget(movie)) }, fullWidth = true)
                 }
             }
+        } else if (target is ChannelTarget) {
+            // ── Channels: 4-column grid with same ChannelCard structure ──
+            val relatedChannels = channels.filter { it.id != target.channel.id }
+                .sortedBy { it.category != target.channel.category }
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 76.dp),
+                contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 64.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                items(relatedChannels, key = { it.id }) { ch ->
+                    ChannelCard(channel = ch, onClick = { onTarget(ChannelTarget(ch)) })
+                }
+            }
         } else {
             LazyColumn(
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 64.dp),
