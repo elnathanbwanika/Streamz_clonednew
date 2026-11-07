@@ -20,8 +20,7 @@ object StreamConfig {
     /** Origin header value sent with every HLS request. */
     const val ORIGIN = "https://wideiptv.top"
 
-    // VPN config is served from the same content server as the rest of the app.
-    // No separate URL is needed — WgManager derives it from CONTENT_BASE_URL automatically.
+    // VPN config is fetched from the public VPN repository (VPN_BASE_URL).
 
     fun playerUrl(channelId: String): String =
         PLAYER_PAGE_TEMPLATE.replace("{CHANNEL}", channelId)

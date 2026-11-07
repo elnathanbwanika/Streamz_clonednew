@@ -5,12 +5,12 @@ package com.linkstreamz.app
 //
 // Manages the per-app WireGuard VPN tunnel.
 //
-// Config source: PRIVATE admin GitHub repo only.
-// Fetches vpn/index.json via the GitHub Contents API, finds the active,
-// non-expired wireguard entry, downloads its .conf, verifies integrity,
-// persists it to app-private storage, then applies it via GoBackend.
+// Config source: PUBLIC VPN repository (tracerdasu/link-streamz-vpn, branch main).
+// Fetches vpn/index.json, finds the active non-expired wireguard entry,
+// downloads its .conf, verifies integrity (SHA-256 or size), persists it
+// to app-private storage, then applies it via GoBackend.
 //
-// The public content repo (CONTENT_BASE_URL) is never consulted for VPN.
+// No credentials or tokens required.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import android.app.Activity
@@ -74,6 +74,11 @@ object WgManager {
         scope.launch(Dispatchers.IO) { refreshConfig(context) }
     }
 
+    fun refresh(context: Context? = null) {
+        val ctx = context ?: appContext ?: return
+        scope.launch(Dispatchers.IO) { refreshConfig(ctx) }
+    }
+
     fun onVpnPermissionResult(resultCode: Int) {
         if (resultCode == Activity.RESULT_OK) {
             val ctx = appContext ?: return
@@ -104,7 +109,6 @@ object WgManager {
                 requestPermissionThenStart(context)
             }
         } catch (e: Exception) {
-            AppLogger.e(TAG, "refresh error: ${e.javaClass.simpleName}: ${e.message}")
             Log.w(TAG, "VPN refresh failed", e)
         }
     }
@@ -132,7 +136,6 @@ object WgManager {
             try {
                 val wgCfg = buildWgConfig(context, configText)
                 if (wgCfg == null) {
-                    AppLogger.e(TAG, "config parse failed — VPN not started")
                     _tunnelState.value = WgTunnelState.ERROR
                     return@launch
                 }
@@ -151,7 +154,6 @@ object WgManager {
                 activeTunnel = tunnel
                 backend.setState(tunnel, Tunnel.State.UP, wgCfg)
             } catch (e: Exception) {
-                AppLogger.e(TAG, "tunnel start failed: ${e.javaClass.simpleName}: ${e.message}")
                 Log.e(TAG, "tunnel start failed", e)
                 _tunnelState.value = WgTunnelState.ERROR
             }
@@ -173,29 +175,31 @@ object WgManager {
     // ── Manifest fetch + validation ───────────────────────────────────────────
 
     /**
-     * Fetches vpn/index.json from the PRIVATE admin repo via GitHub Contents API.
+     * Fetches vpn/index.json from the public VPN repo.
      * Validates active entry, expiry, and file integrity.
      * Returns raw .conf text or null if no valid active config exists.
      */
     private fun fetchAndVerifyConfig(context: Context): String? {
-        // Guard: token placeholder not replaced yet.
-        if (ADMIN_GITHUB_TOKEN == "REPLACE_WITH_GITHUB_PAT") {
-            AppLogger.e(TAG, "ADMIN_GITHUB_TOKEN not set — VPN disabled")
+        // ── 1. Fetch vpn/index.json with cache-busting query parameter ────────
+        val manifestUrl = "$VPN_MANIFEST_URL?t=${System.currentTimeMillis()}"
+        val (manifestCode, manifestBody) = httpGetText(manifestUrl)
+
+        if (manifestCode != 200 || manifestBody == null) {
+            AppLogger.d(TAG, "manifest HTTP $manifestCode active=null")
             return null
         }
 
-        // ── 1. Fetch vpn/index.json ────────────────────────────────────────────
-        val manifestUrl = "$GITHUB_API_BASE/repos/$ADMIN_REPO_OWNER/$ADMIN_REPO_NAME/contents/vpn/index.json"
-        val manifestBody = githubGetText(manifestUrl, label = "manifest") ?: return null
-
         // ── 2. Parse ───────────────────────────────────────────────────────────
-        val root = try { JSONObject(manifestBody) } catch (e: Exception) {
-            AppLogger.e(TAG, "manifest JSON error: ${e.message}"); return null
+        val root = try { JSONObject(manifestBody) } catch (_: Exception) {
+            AppLogger.d(TAG, "manifest HTTP $manifestCode active=null")
+            return null
         }
         val activeId = root.optString("active", "")
             .takeIf { it.isNotBlank() && it != "null" }
+
+        AppLogger.d(TAG, "manifest HTTP $manifestCode active=${activeId ?: "null"}")
+
         if (activeId == null) {
-            AppLogger.d(TAG, "manifest active=null — no VPN")
             return null
         }
 
@@ -212,20 +216,19 @@ object WgManager {
             }
         }
         if (entry == null) {
-            AppLogger.d(TAG, "manifest active=$activeId not found or wrong type — no VPN")
             return null
         }
 
-        // ── 4. Expiry check ────────────────────────────────────────────────────
+        // ── 4. Expiry check (allow 10 minutes of clock skew) ───────────────────
         val expStr = entry.optString("exp", "").trim()
         if (expStr.isNotBlank() && expStr != "null") {
             val expEpochMs = try {
                 Instant.parse(expStr).toEpochMilli()
-            } catch (e: Exception) {
-                AppLogger.e(TAG, "file $activeId bad exp '$expStr': ${e.message}"); return null
+            } catch (_: Exception) {
+                null
             }
-            if (System.currentTimeMillis() > expEpochMs + EXP_SKEW_MS) {
-                AppLogger.d(TAG, "file $activeId expired — no VPN")
+            if (expEpochMs == null || System.currentTimeMillis() > expEpochMs + EXP_SKEW_MS) {
+                AppLogger.d(TAG, "file expired")
                 return null
             }
         }
@@ -235,71 +238,70 @@ object WgManager {
         val expectedSize = entry.optLong("size", -1L)
 
         if (filePath.isBlank()) {
-            AppLogger.e(TAG, "file $activeId missing path"); return null
+            return null
         }
 
-        // ── 5. Download config bytes ───────────────────────────────────────────
-        val fileUrl = "$GITHUB_API_BASE/repos/$ADMIN_REPO_OWNER/$ADMIN_REPO_NAME/contents/$filePath"
-        val fileBytes = githubGetBytes(fileUrl, label = "file $activeId") ?: return null
-
-        // ── 6. Integrity check ─────────────────────────────────────────────────
-        if (expectedSha.isNotBlank() && expectedSha != "null") {
-            val actual = sha256Hex(fileBytes)
-            if (!actual.equals(expectedSha, ignoreCase = true)) {
-                AppLogger.e(TAG, "hash mismatch for $activeId — keeping previous config")
-                return loadStoredConfig(context)   // fall back to last good config
-            }
-        } else if (expectedSize >= 0 && fileBytes.size.toLong() != expectedSize) {
-            AppLogger.e(TAG, "size mismatch for $activeId (got ${fileBytes.size}, want $expectedSize) — keeping previous")
+        // ── 5. Download config bytes with cache-busting query parameter ───────
+        val configUrl = "$VPN_BASE_URL/${filePath.trimStart('/')}?t=${System.currentTimeMillis()}"
+        val fileBytes = httpGetBytes(configUrl)
+        if (fileBytes == null) {
+            // Treat temporary network issue as normal retry later: keep previous good config
             return loadStoredConfig(context)
         }
 
-        // ── 7. Validate it's a real WireGuard config ───────────────────────────
+        // ── 6. Integrity check (SHA-256 or size) ───────────────────────────────
+        val isHashValid = if (expectedSha.isNotBlank() && expectedSha != "null") {
+            val actual = sha256Hex(fileBytes)
+            actual.equals(expectedSha, ignoreCase = true)
+        } else if (expectedSize >= 0) {
+            fileBytes.size.toLong() == expectedSize
+        } else {
+            true
+        }
+
+        if (!isHashValid) {
+            AppLogger.d(TAG, "hash mismatch")
+            return loadStoredConfig(context)
+        }
+
+        // ── 7. Validate WireGuard config format ────────────────────────────────
         val confText = fileBytes.toString(Charsets.UTF_8)
         if (!confText.contains("[Interface]", ignoreCase = true)) {
-            AppLogger.e(TAG, "file $activeId not a valid WireGuard conf — keeping previous")
+            AppLogger.d(TAG, "hash mismatch")
             return loadStoredConfig(context)
         }
 
         // ── 8. Persist and return ──────────────────────────────────────────────
         saveStoredConfig(context, fileBytes)
-        AppLogger.d(TAG, "config applied (id=$activeId)")
+        AppLogger.d(TAG, "config applied")
         return confText
     }
 
-    // ── GitHub Contents API ───────────────────────────────────────────────────
+    // ── HTTP helpers ──────────────────────────────────────────────────────────
 
-    /** Fetches a URL with GitHub raw-file headers, returns body as String or null. */
-    private fun githubGetText(url: String, label: String): String? {
+    /** Fetches a URL, returns Pair of HTTP status code and body string or null. */
+    private fun httpGetText(url: String): Pair<Int, String?> {
         return try {
-            http.newCall(githubRequest(url)).execute().use { resp ->
-                AppLogger.d(TAG, "$label HTTP ${resp.code}")
-                if (resp.code == 200) resp.body?.string() else null
+            val req = Request.Builder().url(url).build()
+            http.newCall(req).execute().use { resp ->
+                Pair(resp.code, if (resp.code == 200) resp.body?.string() else null)
             }
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "$label fetch error: ${e.message}"); null
+        } catch (_: Exception) {
+            Pair(0, null)
         }
     }
 
-    /** Fetches a URL with GitHub raw-file headers, returns raw bytes or null. */
-    private fun githubGetBytes(url: String, label: String): ByteArray? {
+    /** Fetches a URL, returns raw bytes or null on failure. */
+    private fun httpGetBytes(url: String): ByteArray? {
         return try {
-            http.newCall(githubRequest(url)).execute().use { resp ->
-                AppLogger.d(TAG, "$label HTTP ${resp.code}")
+            val req = Request.Builder().url(url).build()
+            http.newCall(req).execute().use { resp ->
                 if (resp.code == 200) resp.body?.bytes() else null
             }
-        } catch (e: Exception) {
-            AppLogger.e(TAG, "$label fetch error: ${e.message}"); null
+        } catch (_: Exception) {
+            null
         }
     }
-
-    private fun githubRequest(url: String): Request =
-        Request.Builder()
-            .url(url)
-            .header("Authorization", "Bearer $ADMIN_GITHUB_TOKEN")
-            .header("Accept", "application/vnd.github.v3.raw")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .build()
 
     // ── App-private storage ───────────────────────────────────────────────────
 
@@ -330,7 +332,7 @@ object WgManager {
     private fun buildWgConfig(context: Context, configText: String): com.wireguard.config.Config? {
         return try {
             val parsed = WgConfig.parse(configText)
-                ?: run { AppLogger.e(TAG, "WgConfig.parse returned null"); return null }
+                ?: return null
 
             val ifaceBuilder = com.wireguard.config.Interface.Builder()
             ifaceBuilder.parsePrivateKey(parsed.iface.privateKey)
@@ -352,7 +354,6 @@ object WgManager {
                 .addPeer(peerBuilder.build())
                 .build()
         } catch (e: Exception) {
-            AppLogger.e(TAG, "config build error: ${e.message}")
             Log.e(TAG, "config build error", e)
             null
         }
