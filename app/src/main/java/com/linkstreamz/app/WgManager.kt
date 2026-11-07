@@ -10,12 +10,24 @@ package com.linkstreamz.app
 // downloads its .conf, verifies integrity (SHA-256 or size), persists it
 // to app-private storage, then applies it via GoBackend.
 //
-// No credentials or tokens required.
+// Critical rules:
+//   1. NEVER disconnect an already connected external VPN. If the device
+//      already has an active VPN (TRANSPORT_VPN / tun interface), the app
+//      preserves it, skips starting its own tunnel, and routes traffic through
+//      the existing external VPN.
+//   2. If the internal tunnel is running and an external VPN connects, the
+//      internal tunnel yields immediately to avoid any conflict.
+//   3. When active, tunnel is strictly scoped to this app (includeApplication).
+//   4. No credentials or tokens required.
 // ─────────────────────────────────────────────────────────────────────────────
 
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.util.Log
 import com.wireguard.android.backend.GoBackend
@@ -23,6 +35,7 @@ import com.wireguard.android.backend.Tunnel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -66,11 +79,13 @@ object WgManager {
     @Volatile private var appContext: Context?        = null
     @Volatile private var goBackend: GoBackend?       = null
     @Volatile private var activeTunnel: Tunnel?       = null
+    @Volatile private var isCallbackRegistered        = false
 
     // ── Public API ────────────────────────────────────────────────────────────
 
     fun init(context: Context) {
         appContext = context.applicationContext
+        registerNetworkCallback(context.applicationContext)
         scope.launch(Dispatchers.IO) { refreshConfig(context) }
     }
 
@@ -82,6 +97,10 @@ object WgManager {
     fun onVpnPermissionResult(resultCode: Int) {
         if (resultCode == Activity.RESULT_OK) {
             val ctx = appContext ?: return
+            if (isExternalVpnActive(ctx)) {
+                AppLogger.d(TAG, "external VPN connected — preserving external connection")
+                return
+            }
             val cfg = pendingConfigText ?: return
             AppLogger.d(TAG, "VPN permission granted — starting tunnel")
             startTunnel(ctx, cfg)
@@ -94,16 +113,121 @@ object WgManager {
         scope.launch(Dispatchers.IO) { tearDownTunnel() }
     }
 
+    // ── External VPN Detection ────────────────────────────────────────────────
+
+    /**
+     * Returns true if the device is currently connected to an external VPN.
+     * When true, this app MUST NOT start its own tunnel to avoid disconnecting
+     * or interrupting the user's existing VPN connection.
+     */
+    fun isExternalVpnActive(context: Context): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+        val isOurRunning = (activeTunnel != null && _tunnelState.value == WgTunnelState.CONNECTED)
+
+        // 1. Check all networks for TRANSPORT_VPN
+        try {
+            val networks = cm.allNetworks
+            for (network in networks) {
+                val caps = cm.getNetworkCapabilities(network) ?: continue
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
+                    if (!isOurRunning) return true
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 2. Check active default network
+        try {
+            val activeNet = cm.activeNetwork
+            if (activeNet != null) {
+                val caps = cm.getNetworkCapabilities(activeNet)
+                if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) {
+                    if (!isOurRunning) return true
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 3. Check network interfaces for active tun/ppp/vpn
+        try {
+            val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
+            if (interfaces != null) {
+                for (iface in interfaces) {
+                    if (iface.isUp && !iface.isLoopback) {
+                        val name = iface.name.lowercase()
+                        if (name.startsWith("tun") || name.startsWith("ppp") || name.startsWith("p2p") || name.contains("vpn")) {
+                            if (!isOurRunning) return true
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+
+        return false
+    }
+
+    private fun registerNetworkCallback(context: Context) {
+        if (isCallbackRegistered) return
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+
+        val cb = object : ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                val isOurRunning = (activeTunnel != null && _tunnelState.value == WgTunnelState.CONNECTED)
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) && !isOurRunning) {
+                    // An external VPN has connected — immediately tear down our internal tunnel
+                    scope.launch(Dispatchers.IO) {
+                        if (activeTunnel != null) {
+                            AppLogger.d(TAG, "external VPN connected — tearing down internal tunnel")
+                            tearDownTunnel()
+                        }
+                    }
+                }
+            }
+
+            override fun onLost(network: Network) {
+                // If a network was lost, check if external VPN was disconnected, and restore internal tunnel if needed
+                scope.launch(Dispatchers.IO) {
+                    delay(1000)
+                    if (!isExternalVpnActive(context) && activeTunnel == null && pendingConfigText != null) {
+                        refreshConfig(context)
+                    }
+                }
+            }
+        }
+
+        try {
+            val req = NetworkRequest.Builder().build()
+            cm.registerNetworkCallback(req, cb)
+            isCallbackRegistered = true
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to register network callback", e)
+        }
+    }
+
     // ── Refresh ───────────────────────────────────────────────────────────────
 
     private fun refreshConfig(context: Context) {
         try {
+            // Guard: Never start internal VPN if external VPN is already active
+            if (isExternalVpnActive(context)) {
+                AppLogger.d(TAG, "external VPN connected — preserving external connection")
+                if (activeTunnel != null) {
+                    tearDownTunnel()
+                }
+                return
+            }
+
             val configText = fetchAndVerifyConfig(context.applicationContext)
             if (configText == null) {
                 deleteStoredConfig(context.applicationContext)
                 tearDownTunnel()
                 return
             }
+
+            // Re-check right before starting to avoid race conditions
+            if (isExternalVpnActive(context)) {
+                AppLogger.d(TAG, "external VPN connected — preserving external connection")
+                return
+            }
+
             pendingConfigText = configText
             android.os.Handler(android.os.Looper.getMainLooper()).post {
                 requestPermissionThenStart(context)
@@ -116,6 +240,11 @@ object WgManager {
     // ── Permission + start ────────────────────────────────────────────────────
 
     private fun requestPermissionThenStart(context: Context) {
+        if (isExternalVpnActive(context)) {
+            AppLogger.d(TAG, "external VPN connected — preserving external connection")
+            return
+        }
+
         val permIntent = VpnService.prepare(context)
         if (permIntent == null) {
             val cfg = pendingConfigText ?: return
@@ -132,6 +261,11 @@ object WgManager {
 
     private fun startTunnel(context: Context, configText: String) {
         scope.launch(Dispatchers.IO) {
+            if (isExternalVpnActive(context)) {
+                AppLogger.d(TAG, "external VPN connected — preserving external connection")
+                return@launch
+            }
+
             _tunnelState.value = WgTunnelState.CONNECTING
             try {
                 val wgCfg = buildWgConfig(context, configText)
