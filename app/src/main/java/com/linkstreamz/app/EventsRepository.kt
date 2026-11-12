@@ -127,9 +127,8 @@ sealed class FeedState {
 class EventsRepository(private val preview: Boolean = false) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    // FEED: OkHttp client — no proxy set, uses system default network routing.
-    // This correctly respects device-level VPNs (TUN interface).
-    private val httpClient: OkHttpClient = OkHttpClient.Builder()
+    // FEED: shared tunnel-aware client (direct while the tunnel is down).
+    private val httpClient: OkHttpClient = HttpClients.newBuilder()
         .connectTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build()

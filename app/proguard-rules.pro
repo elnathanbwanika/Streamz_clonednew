@@ -32,3 +32,18 @@
 # ── Media3 / ExoPlayer ────────────────────────────────────────────────────────
 # Media3 ships with its own consumer ProGuard rules via AAR; no manual rules needed.
 -dontwarn androidx.media3.**
+
+# ── gomobile userspace WireGuard (linktunnel.aar) ─────────────────────────────
+-keep class linktunnel.** { *; }
+-keep class go.** { *; }
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+-dontwarn linktunnel.**
+-dontwarn go.**
+
+# ── NewPipeExtractor / Rhino optional classes (not used on Android) ───────────
+-dontwarn java.beans.**
+-dontwarn javax.script.**
+-dontwarn org.slf4j.impl.**
+-dontwarn org.mozilla.javascript.**

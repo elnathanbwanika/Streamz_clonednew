@@ -4,6 +4,8 @@
 *.apk
 *.aab
 *.aar
+# Shipped prebuilt userspace WireGuard library (reproducible via scripts/build-tunnel-aar.sh)
+!app/libs/linktunnel.aar
 
 # Gradle
 .gradle/

@@ -155,6 +155,8 @@ class PlayerEngine(
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 AppLogger.d("Engine", "IsPlaying: $isPlaying")
+                // Defer tunnel config swaps while a stream is actively playing.
+                WgManager.setPlaybackActive(isPlaying)
             }
         })
     }
@@ -415,6 +417,7 @@ class PlayerEngine(
      *   • audio-only — player released; no extra resources.
      */
     fun release() { AppLogger.d("Engine", "release() called")
+        WgManager.setPlaybackActive(false)
         stopProxy()
         player.release()
         scope.cancel()

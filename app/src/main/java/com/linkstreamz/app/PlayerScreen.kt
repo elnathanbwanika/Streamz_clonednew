@@ -54,8 +54,7 @@ import java.util.concurrent.TimeUnit
 
 // ── Shared OkHttp client (one per process, connection pooling) ─────────────────
 private val sharedOkHttpClient: OkHttpClient by lazy {
-    OkHttpClient.Builder()
-        .connectionPool(ConnectionPool(10, 5, TimeUnit.MINUTES))
+    HttpClients.newBuilder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .followRedirects(true)

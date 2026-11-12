@@ -3,7 +3,6 @@ package com.linkstreamz.app
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -34,7 +33,8 @@ import android.widget.FrameLayout
 import android.view.ViewGroup
 import java.io.PrintWriter
 import java.io.StringWriter
-import okhttp3.OkHttpClient
+import coil.Coil
+import coil.ImageLoader
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -50,10 +50,9 @@ class MainActivity : ComponentActivity() {
         }
         window.addContentView(webHost, ViewGroup.LayoutParams(1, 1))
         TokenEngine.minter.attach(webHost)
-        // YT-EXTRACT: Initialize NewPipeExtractor with a plain OkHttp downloader.
-        // No proxy set — uses system default routing (respects device-level VPNs).
+        // YT-EXTRACT: Initialize NewPipeExtractor with the shared tunnel-aware client.
         try {
-            val okClient = OkHttpClient.Builder()
+            val okClient = HttpClients.newBuilder()
                 .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
                 .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
@@ -63,8 +62,18 @@ class MainActivity : ComponentActivity() {
             AppLogger.e("MainActivity", "Failed to init NewPipe", e)
         }
 
-        // VPN: Fetch WireGuard config from server and start per-app tunnel if active.
-        // Falls back to normal routing (and respects external device VPNs) if no config.
+        // Route Coil image requests through the same tunnel-aware client.
+        try {
+            Coil.setImageLoader(
+                ImageLoader.Builder(this)
+                    .okHttpClient(HttpClients.newBuilder().build())
+                    .build()
+            )
+        } catch (e: Exception) {
+            AppLogger.e("MainActivity", "Failed to init image loader", e)
+        }
+
+        // VPN: in-process userspace tunnel; fails open and never blocks playback.
         WgManager.init(this)
         
         val prefs = getSharedPreferences("crash_prefs", Context.MODE_PRIVATE)
@@ -256,12 +265,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // VPN: Receives the result of the system VPN permission dialog
-    @Suppress("OVERRIDE_DEPRECATION")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == WgManager.VPN_PERMISSION_REQUEST_CODE) {
-            WgManager.onVpnPermissionResult(resultCode)
-        }
+    override fun onStart() {
+        super.onStart()
+        // Foreground refresh: pick up manifest/config changes promptly.
+        WgManager.refresh(this)
     }
 }

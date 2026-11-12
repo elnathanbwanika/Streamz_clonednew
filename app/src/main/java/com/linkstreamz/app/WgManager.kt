@@ -3,50 +3,43 @@ package com.linkstreamz.app
 // ─────────────────────────────────────────────────────────────────────────────
 // WgManager.kt
 //
-// Manages the per-app WireGuard VPN tunnel.
+// Lifecycle for the in-process userspace WireGuard tunnel.
 //
 // Config source: PUBLIC VPN repository (tracerdasu/link-streamz-vpn, branch main).
 // Fetches vpn/index.json, finds the active non-expired wireguard entry,
 // downloads its .conf, verifies integrity (SHA-256 or size), persists it
-// to app-private storage, then applies it via GoBackend.
+// to app-private storage, then hands it to TunnelManager (wireguard-go +
+// netstack). No system VPN service / TUN device / permission dialog is involved.
 //
-// Critical rules:
-//   1. NEVER disconnect an already connected external VPN. If the device
-//      already has an active VPN (TRANSPORT_VPN / tun interface), the app
-//      preserves it, skips starting its own tunnel, and routes traffic through
-//      the existing external VPN.
-//   2. If the internal tunnel is running and an external VPN connects, the
-//      internal tunnel yields immediately to avoid any conflict.
-//   3. When active, tunnel is strictly scoped to this app (includeApplication).
-//   4. No credentials or tokens required.
+// Rules:
+//   - Start when a valid active config exists.
+//   - Restart when the active id or sha256 changes.
+//   - Defer swaps while playback is active (except expiry/deactivation, which
+//     stop immediately).
+//   - Stop when the active config is null or expired.
+//   - Fail-open: a broken tunnel never blocks the player.
+//   - Config fetching always uses a direct client, never the tunnel.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import android.app.Activity
 import android.content.Context
-import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
-import android.net.VpnService
-import android.util.Log
-import com.wireguard.android.backend.GoBackend
-import com.wireguard.android.backend.Tunnel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.File
 import java.security.MessageDigest
 import java.time.Instant
 import java.util.concurrent.TimeUnit
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
 
 /** Tunnel connection states. */
 enum class WgTunnelState { STOPPED, CONNECTING, CONNECTED, ERROR }
@@ -55,254 +48,190 @@ object WgManager {
 
     private const val TAG = "WgManager"
 
-    const val VPN_PERMISSION_REQUEST_CODE = 0xA55
-
     /** Allow 10 minutes of clock skew when checking expiry. */
     private const val EXP_SKEW_MS = 10 * 60 * 1000L
 
     /** App-private storage location for the verified config. */
     private const val CONFIG_SUBDIR = "vpn"
     private const val CONFIG_FNAME  = "active.conf"
+    private const val WORK_NAME     = "vpn-config-refresh"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-    // Plain OkHttp — requests MUST go over the normal network, not the tunnel.
-    private val http = OkHttpClient.Builder()
-        .connectTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .readTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-        .build()
 
     private val _tunnelState = MutableStateFlow(WgTunnelState.STOPPED)
     val tunnelState: StateFlow<WgTunnelState> = _tunnelState.asStateFlow()
 
-    @Volatile private var pendingConfigText: String? = null
-    @Volatile private var appContext: Context?        = null
-    @Volatile private var goBackend: GoBackend?       = null
-    @Volatile private var activeTunnel: Tunnel?       = null
-    @Volatile private var isCallbackRegistered        = false
+    private data class VerifiedConfig(val id: String, val sha256: String, val text: String) {
+        val key: String get() = "$id:$sha256"
+    }
+
+    private sealed class FetchResult {
+        data class Ok(val config: VerifiedConfig) : FetchResult()
+        /** Manifest says there is no usable active config (or it expired). */
+        object NoActive : FetchResult()
+        /** Network/parse problem: keep the last good config and retry later. */
+        object Transient : FetchResult()
+    }
+
+    @Volatile private var appContext: Context? = null
+    @Volatile private var applied: VerifiedConfig? = null
+    @Volatile private var pending: VerifiedConfig? = null
+    @Volatile private var playbackActive: Boolean = false
+    @Volatile private var callbackRegistered: Boolean = false
+    @Volatile private var lastNetwork: Network? = null
 
     // ── Public API ────────────────────────────────────────────────────────────
 
     fun init(context: Context) {
-        appContext = context.applicationContext
-        registerNetworkCallback(context.applicationContext)
-        scope.launch(Dispatchers.IO) { refreshConfig(context) }
+        val app = context.applicationContext
+        appContext = app
+        registerNetworkCallback(app)
+        schedulePeriodicRefresh(app)
+        scope.launch(Dispatchers.IO) { refreshConfig(app) }
     }
 
     fun refresh(context: Context? = null) {
         val ctx = context ?: appContext ?: return
-        scope.launch(Dispatchers.IO) { refreshConfig(ctx) }
+        scope.launch(Dispatchers.IO) { refreshConfig(ctx.applicationContext) }
     }
 
-    fun onVpnPermissionResult(resultCode: Int) {
-        if (resultCode == Activity.RESULT_OK) {
-            val ctx = appContext ?: return
-            if (isExternalVpnActive(ctx)) {
-                AppLogger.d(TAG, "external VPN connected — preserving external connection")
-                return
-            }
-            val cfg = pendingConfigText ?: return
-            AppLogger.d(TAG, "VPN permission granted — starting tunnel")
-            startTunnel(ctx, cfg)
-        } else {
-            AppLogger.d(TAG, "VPN permission denied")
-        }
+    /** Called by the player so config swaps can be deferred while streaming. */
+    fun setPlaybackActive(active: Boolean) {
+        playbackActive = active
+        if (active) return
+        val queued = pending ?: return
+        pending = null
+        scope.launch(Dispatchers.IO) { applyConfig(queued) }
     }
 
     fun stop() {
         scope.launch(Dispatchers.IO) { tearDownTunnel() }
     }
 
-    // ── External VPN Detection ────────────────────────────────────────────────
-
     /**
-     * Returns true if the device is currently connected to an external VPN.
-     * When true, this app MUST NOT start its own tunnel to avoid disconnecting
-     * or interrupting the user's existing VPN connection.
+     * Synchronous fetch+persist used by the periodic worker. Does not start the
+     * tunnel: the worker may run with no foreground process. Returns true when
+     * a valid active config is available or already stored.
      */
-    fun isExternalVpnActive(context: Context): Boolean {
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
-        val isOurRunning = (activeTunnel != null && _tunnelState.value == WgTunnelState.CONNECTED)
-
-        // 1. Check all networks for TRANSPORT_VPN
-        try {
-            val networks = cm.allNetworks
-            for (network in networks) {
-                val caps = cm.getNetworkCapabilities(network) ?: continue
-                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
-                    if (!isOurRunning) return true
+    fun refreshBlocking(context: Context): Boolean {
+        val app = context.applicationContext
+        return try {
+            when (fetchAndVerifyConfig(app)) {
+                is FetchResult.Ok -> true
+                is FetchResult.NoActive -> {
+                    deleteStoredConfig(app)
+                    true
                 }
+                is FetchResult.Transient -> false
             }
-        } catch (_: Exception) {}
-
-        // 2. Check active default network
-        try {
-            val activeNet = cm.activeNetwork
-            if (activeNet != null) {
-                val caps = cm.getNetworkCapabilities(activeNet)
-                if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) {
-                    if (!isOurRunning) return true
-                }
-            }
-        } catch (_: Exception) {}
-
-        // 3. Check network interfaces for active tun/ppp/vpn
-        try {
-            val interfaces = java.net.NetworkInterface.getNetworkInterfaces()
-            if (interfaces != null) {
-                for (iface in interfaces) {
-                    if (iface.isUp && !iface.isLoopback) {
-                        val name = iface.name.lowercase()
-                        if (name.startsWith("tun") || name.startsWith("ppp") || name.startsWith("p2p") || name.contains("vpn")) {
-                            if (!isOurRunning) return true
-                        }
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-
-        return false
+        } catch (e: Exception) {
+            logd("refresh failed")
+            false
+        }
     }
 
-    private fun registerNetworkCallback(context: Context) {
-        if (isCallbackRegistered) return
-        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
+    // ── Network changes (reconnect) ───────────────────────────────────────────
 
+    private fun registerNetworkCallback(context: Context) {
+        if (callbackRegistered) return
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
         val cb = object : ConnectivityManager.NetworkCallback() {
-            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                val isOurRunning = (activeTunnel != null && _tunnelState.value == WgTunnelState.CONNECTED)
-                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN) && !isOurRunning) {
-                    // An external VPN has connected — immediately tear down our internal tunnel
-                    scope.launch(Dispatchers.IO) {
-                        if (activeTunnel != null) {
-                            AppLogger.d(TAG, "external VPN connected — tearing down internal tunnel")
-                            tearDownTunnel()
-                        }
-                    }
+            override fun onAvailable(network: Network) {
+                val previous = lastNetwork
+                lastNetwork = network
+                if (previous != null && previous != network) {
+                    scope.launch(Dispatchers.IO) { refreshConfig(context, forceRestart = true) }
                 }
             }
 
             override fun onLost(network: Network) {
-                // If a network was lost, check if external VPN was disconnected, and restore internal tunnel if needed
-                scope.launch(Dispatchers.IO) {
-                    delay(1000)
-                    if (!isExternalVpnActive(context) && activeTunnel == null && pendingConfigText != null) {
-                        refreshConfig(context)
-                    }
-                }
+                if (lastNetwork == network) lastNetwork = null
             }
         }
-
         try {
-            val req = NetworkRequest.Builder().build()
-            cm.registerNetworkCallback(req, cb)
-            isCallbackRegistered = true
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to register network callback", e)
+            cm.registerDefaultNetworkCallback(cb)
+            callbackRegistered = true
+        } catch (_: Exception) {
         }
     }
 
-    // ── Refresh ───────────────────────────────────────────────────────────────
+    // ── Refresh / apply ───────────────────────────────────────────────────────
 
-    private fun refreshConfig(context: Context) {
+    private fun refreshConfig(context: Context, forceRestart: Boolean = false) {
         try {
-            // Guard: Never start internal VPN if external VPN is already active
-            if (isExternalVpnActive(context)) {
-                AppLogger.d(TAG, "external VPN connected — preserving external connection")
-                if (activeTunnel != null) {
+            val result = fetchAndVerifyConfig(context)
+            val verified = when (result) {
+                is FetchResult.Ok -> result.config
+                is FetchResult.NoActive -> {
+                    // Deactivated or expired: stop immediately, even while streaming.
+                    applied = null
+                    pending = null
+                    deleteStoredConfig(context)
                     tearDownTunnel()
+                    return
                 }
+                is FetchResult.Transient -> {
+                    logd("config fetch failed (keeping last good)")
+                    // Keep a running tunnel as-is; if none is running, fall back
+                    // to the last good config on disk.
+                    if (applied != null) return
+                    storedVerified(context) ?: return
+                }
+            }
+
+            val appliedKey = applied?.key
+            if (!forceRestart && verified.key == appliedKey && TunnelManager.isUp()) {
+                pending = null
                 return
             }
 
-            val configText = fetchAndVerifyConfig(context.applicationContext)
-            if (configText == null) {
-                deleteStoredConfig(context.applicationContext)
-                tearDownTunnel()
+            if (playbackActive && applied != null && verified.key != appliedKey) {
+                pending = verified
+                logd("config swap deferred (playback)")
                 return
             }
 
-            // Re-check right before starting to avoid race conditions
-            if (isExternalVpnActive(context)) {
-                AppLogger.d(TAG, "external VPN connected — preserving external connection")
-                return
-            }
-
-            pendingConfigText = configText
-            android.os.Handler(android.os.Looper.getMainLooper()).post {
-                requestPermissionThenStart(context)
-            }
+            applyConfig(verified)
         } catch (e: Exception) {
-            Log.w(TAG, "VPN refresh failed", e)
+            logd("refresh failed")
         }
     }
 
-    // ── Permission + start ────────────────────────────────────────────────────
-
-    private fun requestPermissionThenStart(context: Context) {
-        if (isExternalVpnActive(context)) {
-            AppLogger.d(TAG, "external VPN connected — preserving external connection")
+    private fun applyConfig(verified: VerifiedConfig) {
+        _tunnelState.value = WgTunnelState.CONNECTING
+        val cfg = WgConfig.parse(verified.text)
+        if (cfg == null) {
+            applied = null
+            tearDownTunnel()
             return
         }
-
-        val permIntent = VpnService.prepare(context)
-        if (permIntent == null) {
-            val cfg = pendingConfigText ?: return
-            startTunnel(context.applicationContext, cfg)
+        val ok = TunnelManager.start(cfg)
+        if (ok) {
+            applied = verified
+            pending = null
+            _tunnelState.value = WgTunnelState.CONNECTED
+            logd("config applied")
         } else {
-            if (context is Activity) {
-                context.startActivityForResult(permIntent, VPN_PERMISSION_REQUEST_CODE)
-            } else {
-                permIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(permIntent)
-            }
-        }
-    }
-
-    private fun startTunnel(context: Context, configText: String) {
-        scope.launch(Dispatchers.IO) {
-            if (isExternalVpnActive(context)) {
-                AppLogger.d(TAG, "external VPN connected — preserving external connection")
-                return@launch
-            }
-
-            _tunnelState.value = WgTunnelState.CONNECTING
-            try {
-                val wgCfg = buildWgConfig(context, configText)
-                if (wgCfg == null) {
-                    _tunnelState.value = WgTunnelState.ERROR
-                    return@launch
-                }
-                val backend = GoBackend(context.applicationContext)
-                goBackend = backend
-                val tunnel = object : Tunnel {
-                    override fun getName() = "streamz"
-                    override fun onStateChange(newState: Tunnel.State) {
-                        _tunnelState.value = when (newState) {
-                            Tunnel.State.UP   -> { AppLogger.d(TAG, "tunnel UP"); WgTunnelState.CONNECTED }
-                            Tunnel.State.DOWN -> { AppLogger.d(TAG, "tunnel DOWN"); WgTunnelState.STOPPED }
-                            else              -> WgTunnelState.CONNECTING
-                        }
-                    }
-                }
-                activeTunnel = tunnel
-                backend.setState(tunnel, Tunnel.State.UP, wgCfg)
-            } catch (e: Exception) {
-                Log.e(TAG, "tunnel start failed", e)
-                _tunnelState.value = WgTunnelState.ERROR
-            }
+            applied = null
+            _tunnelState.value = WgTunnelState.ERROR
+            logd("fail-open")
         }
     }
 
     private fun tearDownTunnel() {
+        TunnelManager.stop()
+        _tunnelState.value = WgTunnelState.STOPPED
+    }
+
+    private fun schedulePeriodicRefresh(context: Context) {
         try {
-            val t = activeTunnel; val b = goBackend
-            if (t != null && b != null) b.setState(t, Tunnel.State.DOWN, null)
-        } catch (e: Exception) {
-            Log.w(TAG, "teardown: ${e.message}")
-        } finally {
-            activeTunnel = null; goBackend = null
-            _tunnelState.value = WgTunnelState.STOPPED
+            val request = PeriodicWorkRequestBuilder<TunnelConfigWorker>(15, TimeUnit.MINUTES).build()
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                WORK_NAME,
+                ExistingPeriodicWorkPolicy.KEEP,
+                request,
+            )
+        } catch (_: Exception) {
         }
     }
 
@@ -311,30 +240,30 @@ object WgManager {
     /**
      * Fetches vpn/index.json from the public VPN repo.
      * Validates active entry, expiry, and file integrity.
-     * Returns raw .conf text or null if no valid active config exists.
+     * Returns a verified config or null if no valid active config exists.
      */
-    private fun fetchAndVerifyConfig(context: Context): String? {
+    private fun fetchAndVerifyConfig(context: Context): FetchResult {
         // ── 1. Fetch vpn/index.json with cache-busting query parameter ────────
         val manifestUrl = "$VPN_MANIFEST_URL?t=${System.currentTimeMillis()}"
         val (manifestCode, manifestBody) = httpGetText(manifestUrl)
 
         if (manifestCode != 200 || manifestBody == null) {
-            AppLogger.d(TAG, "manifest HTTP $manifestCode active=null")
-            return null
+            logd("manifest HTTP $manifestCode (transient)")
+            return FetchResult.Transient
         }
 
         // ── 2. Parse ───────────────────────────────────────────────────────────
         val root = try { JSONObject(manifestBody) } catch (_: Exception) {
-            AppLogger.d(TAG, "manifest HTTP $manifestCode active=null")
-            return null
+            logd("manifest parse failed (transient)")
+            return FetchResult.Transient
         }
         val activeId = root.optString("active", "")
             .takeIf { it.isNotBlank() && it != "null" }
 
-        AppLogger.d(TAG, "manifest HTTP $manifestCode active=${activeId ?: "null"}")
+        logd("manifest HTTP $manifestCode active=${activeId ?: "null"}")
 
         if (activeId == null) {
-            return null
+            return FetchResult.NoActive
         }
 
         // ── 3. Find matching entry ─────────────────────────────────────────────
@@ -350,7 +279,7 @@ object WgManager {
             }
         }
         if (entry == null) {
-            return null
+            return FetchResult.NoActive
         }
 
         // ── 4. Expiry check (allow 10 minutes of clock skew) ───────────────────
@@ -362,8 +291,8 @@ object WgManager {
                 null
             }
             if (expEpochMs == null || System.currentTimeMillis() > expEpochMs + EXP_SKEW_MS) {
-                AppLogger.d(TAG, "file expired")
-                return null
+                logd("file expired")
+                return FetchResult.NoActive
             }
         }
 
@@ -372,15 +301,16 @@ object WgManager {
         val expectedSize = entry.optLong("size", -1L)
 
         if (filePath.isBlank()) {
-            return null
+            return FetchResult.NoActive
         }
 
         // ── 5. Download config bytes with cache-busting query parameter ───────
         val configUrl = "$VPN_BASE_URL/${filePath.trimStart('/')}?t=${System.currentTimeMillis()}"
         val fileBytes = httpGetBytes(configUrl)
         if (fileBytes == null) {
-            // Treat temporary network issue as normal retry later: keep previous good config
-            return loadStoredConfig(context)
+            // Temporary network issue: keep previous good config.
+            return storedVerified(context)?.let { FetchResult.Ok(it) }
+                ?: FetchResult.Transient
         }
 
         // ── 6. Integrity check (SHA-256 or size) ───────────────────────────────
@@ -394,30 +324,37 @@ object WgManager {
         }
 
         if (!isHashValid) {
-            AppLogger.d(TAG, "hash mismatch")
-            return loadStoredConfig(context)
+            logd("hash mismatch")
+            return storedVerified(context)?.let { FetchResult.Ok(it) }
+                ?: FetchResult.Transient
         }
 
         // ── 7. Validate WireGuard config format ────────────────────────────────
         val confText = fileBytes.toString(Charsets.UTF_8)
         if (!confText.contains("[Interface]", ignoreCase = true)) {
-            AppLogger.d(TAG, "hash mismatch")
-            return loadStoredConfig(context)
+            logd("hash mismatch")
+            return storedVerified(context)?.let { FetchResult.Ok(it) }
+                ?: FetchResult.Transient
         }
 
         // ── 8. Persist and return ──────────────────────────────────────────────
         saveStoredConfig(context, fileBytes)
-        AppLogger.d(TAG, "config applied")
-        return confText
+        return FetchResult.Ok(VerifiedConfig(activeId, expectedSha, confText))
     }
 
-    // ── HTTP helpers ──────────────────────────────────────────────────────────
+    private fun storedVerified(context: Context): VerifiedConfig? {
+        val text = loadStoredConfig(context) ?: return null
+        val sha = sha256Hex(text.toByteArray(Charsets.UTF_8))
+        return VerifiedConfig("stored", sha, text)
+    }
+
+    // ── HTTP helpers (always direct) ──────────────────────────────────────────
 
     /** Fetches a URL, returns Pair of HTTP status code and body string or null. */
     private fun httpGetText(url: String): Pair<Int, String?> {
         return try {
             val req = Request.Builder().url(url).build()
-            http.newCall(req).execute().use { resp ->
+            HttpClients.direct.newCall(req).execute().use { resp ->
                 Pair(resp.code, if (resp.code == 200) resp.body?.string() else null)
             }
         } catch (_: Exception) {
@@ -429,7 +366,7 @@ object WgManager {
     private fun httpGetBytes(url: String): ByteArray? {
         return try {
             val req = Request.Builder().url(url).build()
-            http.newCall(req).execute().use { resp ->
+            HttpClients.direct.newCall(req).execute().use { resp ->
                 if (resp.code == 200) resp.body?.bytes() else null
             }
         } catch (_: Exception) {
@@ -461,35 +398,7 @@ object WgManager {
         MessageDigest.getInstance("SHA-256").digest(bytes)
             .joinToString("") { "%02x".format(it) }
 
-    // ── WireGuard config builder ──────────────────────────────────────────────
-
-    private fun buildWgConfig(context: Context, configText: String): com.wireguard.config.Config? {
-        return try {
-            val parsed = WgConfig.parse(configText)
-                ?: return null
-
-            val ifaceBuilder = com.wireguard.config.Interface.Builder()
-            ifaceBuilder.parsePrivateKey(parsed.iface.privateKey)
-            for (addr in parsed.iface.addresses) ifaceBuilder.parseAddresses(addr)
-            for (d in parsed.iface.dns)           ifaceBuilder.parseDnsServers(d)
-            if (parsed.iface.mtu > 0) ifaceBuilder.parseMtu(parsed.iface.mtu.toString())
-            ifaceBuilder.includeApplication(context.packageName)
-
-            val peerBuilder = com.wireguard.config.Peer.Builder()
-            peerBuilder.parsePublicKey(parsed.peer.publicKey)
-            parsed.peer.presharedKey?.let { peerBuilder.parsePreSharedKey(it) }
-            peerBuilder.parseEndpoint(parsed.peer.endpoint)
-            for (ip in parsed.peer.allowedIps) peerBuilder.parseAllowedIPs(ip)
-            if (parsed.peer.persistentKeepalive > 0)
-                peerBuilder.parsePersistentKeepalive(parsed.peer.persistentKeepalive.toString())
-
-            com.wireguard.config.Config.Builder()
-                .setInterface(ifaceBuilder.build())
-                .addPeer(peerBuilder.build())
-                .build()
-        } catch (e: Exception) {
-            Log.e(TAG, "config build error", e)
-            null
-        }
+    private fun logd(msg: String) {
+        if (BuildConfig.DEBUG) AppLogger.d(TAG, msg)
     }
 }

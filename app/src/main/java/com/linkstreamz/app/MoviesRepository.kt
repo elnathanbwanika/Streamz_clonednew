@@ -45,7 +45,7 @@ sealed class ChannelFeedState {
 
 class MoviesRepository {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
-    private val httpClient = OkHttpClient.Builder()
+    private val httpClient = HttpClients.newBuilder()
         .connectTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build()
@@ -175,7 +175,7 @@ class MoviesRepository {
 
 class ChannelsRepository {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
-    private val httpClient = OkHttpClient.Builder()
+    private val httpClient = HttpClients.newBuilder()
         .connectTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(FETCH_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build()

@@ -129,9 +129,10 @@ dependencies {
     implementation("androidx.webkit:webkit:1.11.0")
     implementation("androidx.media3:media3-datasource:1.5.1")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
-    // WireGuard per-app VPN — official WireGuard Android tunnel library
-    // Contains wireguard-go native backend for arm64-v8a, armeabi-v7a, x86_64, x86
-    implementation("com.wireguard.android:tunnel:1.0.20230706")
+    // Userspace WireGuard (wireguard-go + netstack) built with gomobile.
+    // Runs entirely in-process — no system VPN service, no TUN, no key icon.
+    // Rebuild: ./scripts/build-tunnel-aar.sh
+    implementation(files("libs/linktunnel.aar"))
     
 
 

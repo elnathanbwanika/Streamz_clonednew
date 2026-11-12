@@ -66,7 +66,7 @@ class TokenDataSourceFactory(
     private val profile: BrowserProfile,
 ) : DataSource.Factory {
 
-    private val client: OkHttpClient = OkHttpClient.Builder()
+    private val client: OkHttpClient = HttpClients.newBuilder()
         .cookieJar(WebCookieJar(cookies))
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
