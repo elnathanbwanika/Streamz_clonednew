@@ -106,6 +106,9 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-text")
     implementation("androidx.compose.ui:ui-tooling-preview")
+    // Preview.kt / SettingsScreen.kt use the @Preview annotation, which lives in ui-tooling.
+    // Debug-only so the release APK stays lean (release uses R8 minification).
+    debugImplementation("androidx.compose.ui:ui-tooling")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")

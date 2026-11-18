@@ -10,8 +10,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
+      # Preinstalled SDK on the ubuntu-latest runner. android-actions/setup-android
+      # is NOT used: it tries to install the legacy "tools" package and fails with
+      # "Failed to find package 'tools'".
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
     steps:
       - uses: actions/checkout@v4
         with:
