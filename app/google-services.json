@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "360220660493",
+    "project_id": "link-streamz",
+    "storage_bucket": "link-streamz.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:360220660493:android:37b7173234b982ab7fd644",
+        "android_client_info": {
+          "package_name": "com.linkstreamz.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCD-sB9PuLHMxgINW60lDScGMgUjgZGYwA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      },
+      "configuration_version": "1"
+    }
+  ]
+}

@@ -24,6 +24,11 @@ fun LinkStreamzHomePreview() {
             moviesRepo = remember { MoviesRepository() },
             channelsRepo = remember { ChannelsRepository() },
             settings = SettingsUiState(),
+            section = MainSection.HOME,
+            onSectionChange = {},
+            onOpenLimited = {},
+            focusLimited = false,
+            onFocusConsumed = {},
             onSettings = {},
             onPlayer = {},
         )

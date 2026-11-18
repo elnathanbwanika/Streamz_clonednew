@@ -989,6 +989,7 @@ fun PlayerOverlay(
     playerBrightness: Float,
     onPlayerBrightnessChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    onBackgroundTap: () -> Unit = onInteraction,
 ) {
     // Keep overlay showing while any menu is open, but never while locked
     val forceVisible = state.openMenu != OpenMenu.None && !state.isLocked
@@ -1009,9 +1010,9 @@ fun PlayerOverlay(
         exit = fadeOut(tween(220)),
         modifier = modifier.fillMaxSize(),
     ) {
-        // Intercept taps on the translucent scrim to close open menus.
-        // Use pointerInput-level consumption so the tap that dismisses a menu
-        // does NOT fall through to the play/pause button beneath.
+        // Intercept taps on the translucent scrim to close open menus or hide controls.
+        // Use pointerInput-level consumption so the tap that dismisses a menu does
+        // NOT fall through to the play/pause button beneath.
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1025,7 +1026,7 @@ fun PlayerOverlay(
                         // not restart the hide timer; that restarts after the next
                         // real user interaction.
                     } else {
-                        onInteraction()
+                        onBackgroundTap()
                     }
                 },
         ) {

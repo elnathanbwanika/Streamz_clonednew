@@ -56,11 +56,13 @@ fun PlayerVideoContent(
     onFullscreenToggle: () -> Unit,
     onFloatWindow: () -> Unit,
     onInteraction: () -> Unit,
+    onHideControls: () -> Unit,
     onPlayerBrightnessChange: (Float) -> Unit,
     onRetry: () -> Unit,
     onSwitchServer: () -> Unit,
     hasMultipleServers: Boolean,
     isFullscreen: Boolean = false,
+    tvBadge: TvBadgePlacement? = null,
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
@@ -141,6 +143,12 @@ fun PlayerVideoContent(
             )
         }
 
+        // 1.6. Channel badge, above the video and below the controls
+        TvBadgeOverlay(
+            placement = tvBadge,
+            modifier = Modifier.matchParentSize(),
+        )
+
         // 1.7. Loading / buffering / syncing overlay
         AnimatedVisibility(
             visible = isExtracting || isBuffering || (isSyncing && !playing),
@@ -196,6 +204,7 @@ fun PlayerVideoContent(
             playerBrightness = playerBrightness,
             onPlayerBrightnessChange = onPlayerBrightnessChange,
             modifier = Modifier.matchParentSize(),
+            onBackgroundTap = onHideControls,
         )
 
         // Seek-feedback bubble

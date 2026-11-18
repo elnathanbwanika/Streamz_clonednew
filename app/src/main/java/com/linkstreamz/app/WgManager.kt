@@ -23,10 +23,14 @@ package com.linkstreamz.app
 
 import android.content.Context
 import android.net.ConnectivityManager
+import android.net.LinkProperties
 import android.net.Network
+import android.net.NetworkCapabilities
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,6 +54,9 @@ object WgManager {
 
     /** Allow 10 minutes of clock skew when checking expiry. */
     private const val EXP_SKEW_MS = 10 * 60 * 1000L
+
+    /** Network callbacks arrive in bursts; rebuild the device once per burst. */
+    private const val NETWORK_DEBOUNCE_MS = 500L
 
     /** App-private storage location for the verified config. */
     private const val CONFIG_SUBDIR = "vpn"
@@ -79,15 +86,42 @@ object WgManager {
     @Volatile private var playbackActive: Boolean = false
     @Volatile private var callbackRegistered: Boolean = false
     @Volatile private var lastNetwork: Network? = null
+    @Volatile private var networkChangeJob: Job? = null
+    @Volatile private var lastNetworkSignature: String? = null
+    @Volatile private var phaseObserved: Boolean = false
 
     // ── Public API ────────────────────────────────────────────────────────────
 
     fun init(context: Context) {
         val app = context.applicationContext
         appContext = app
+        observeTunnelPhase()
         registerNetworkCallback(app)
         schedulePeriodicRefresh(app)
-        scope.launch(Dispatchers.IO) { refreshConfig(app) }
+        scope.launch(Dispatchers.IO) {
+            // Cold start: let Android publish the default network (including an
+            // external VPN) before deciding whether an in-app config is active.
+            NetworkBootstrap.awaitDefaultNetwork()
+            refreshConfig(app)
+        }
+    }
+
+    /** True when an in-app WireGuard config is currently applied. */
+    fun isConfigured(): Boolean = applied != null
+
+    /** Publishes the real connection phase (handshake/probe gated) to the UI. */
+    private fun observeTunnelPhase() {
+        if (phaseObserved) return
+        phaseObserved = true
+        scope.launch {
+            TunnelManager.phase.collect { phase ->
+                _tunnelState.value = when (phase) {
+                    TunnelPhase.UP -> WgTunnelState.CONNECTED
+                    TunnelPhase.CONNECTING -> WgTunnelState.CONNECTING
+                    TunnelPhase.DOWN -> if (applied == null) WgTunnelState.STOPPED else WgTunnelState.ERROR
+                }
+            }
+        }
     }
 
     fun refresh(context: Context? = null) {
@@ -137,15 +171,21 @@ object WgManager {
         val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return
         val cb = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                val previous = lastNetwork
                 lastNetwork = network
-                if (previous != null && previous != network) {
-                    scope.launch(Dispatchers.IO) { refreshConfig(context, forceRestart = true) }
-                }
+                scheduleNetworkChange(context)
             }
 
             override fun onLost(network: Network) {
                 if (lastNetwork == network) lastNetwork = null
+                scheduleNetworkChange(context)
+            }
+
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                scheduleNetworkChange(context)
+            }
+
+            override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) {
+                scheduleNetworkChange(context)
             }
         }
         try {
@@ -153,6 +193,77 @@ object WgManager {
             callbackRegistered = true
         } catch (_: Exception) {
         }
+    }
+
+    /**
+     * Network callbacks arrive in bursts (VPN enable/disable, MTU changes).
+     * Debounce them so the device is rebuilt at most once per burst.
+     */
+    private fun scheduleNetworkChange(context: Context) {
+        networkChangeJob?.cancel()
+        networkChangeJob = scope.launch(Dispatchers.IO) {
+            delay(NETWORK_DEBOUNCE_MS)
+            applyNetworkChange(context.applicationContext)
+        }
+    }
+
+    private fun applyNetworkChange(context: Context) {
+        if (TunnelManager.isUp().not() && applied == null) return
+        val config = applied?.let { WgConfig.parse(it.text) } ?: return
+        val external = isExternalVpnActive(context)
+        val linkMtu = activeLinkMtu(context)
+        val mtu = TunnelMtu.choose(config.iface.mtu, linkMtu, external)
+        val signature = networkSignature(context, external, linkMtu, mtu)
+        if (signature == lastNetworkSignature && TunnelManager.isUp()) {
+            // Same path: re-probe happens in the tunnel health loop.
+            return
+        }
+        lastNetworkSignature = signature
+
+        if (BuildConfig.DEBUG) {
+            AppLogger.d(
+                TAG,
+                "network vpn=$external transports=${activeTransports(context)} " +
+                    "linkMtu=${linkMtu ?: "?"} chosenMtu=$mtu",
+            )
+        }
+        TunnelManager.onNetworkChanged(mtu, external)
+    }
+
+    private fun networkSignature(
+        context: Context,
+        externalVpn: Boolean,
+        linkMtu: Int?,
+        mtu: Int,
+    ): String {
+        val network = (context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager)
+            ?.activeNetwork?.toString() ?: "none"
+        return "$network:${activeTransports(context)}:$externalVpn:$linkMtu:$mtu"
+    }
+
+    private fun isExternalVpnActive(context: Context): Boolean {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return false
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        return caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)
+    }
+
+    private fun activeLinkMtu(context: Context): Int? {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return null
+        val network = cm.activeNetwork ?: return null
+        return cm.getLinkProperties(network)?.mtu?.takeIf { it > 0 }
+    }
+
+    private fun activeTransports(context: Context): String {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager ?: return "?"
+        val network = cm.activeNetwork ?: return "none"
+        val caps = cm.getNetworkCapabilities(network) ?: return "?"
+        return buildList {
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) add("wifi")
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) add("cell")
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) add("ethernet")
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) add("vpn")
+        }.joinToString(",").ifBlank { "other" }
     }
 
     // ── Refresh / apply ───────────────────────────────────────────────────────
@@ -180,7 +291,9 @@ object WgManager {
             }
 
             val appliedKey = applied?.key
-            if (!forceRestart && verified.key == appliedKey && TunnelManager.isUp()) {
+            if (!forceRestart && verified.key == appliedKey &&
+                TunnelManager.phase.value != TunnelPhase.DOWN
+            ) {
                 pending = null
                 return
             }
@@ -205,12 +318,26 @@ object WgManager {
             tearDownTunnel()
             return
         }
-        val ok = TunnelManager.start(cfg)
+
+        val ctx = appContext
+        val external = ctx?.let { isExternalVpnActive(it) } ?: false
+        val linkMtu = ctx?.let { activeLinkMtu(it) }
+        val mtu = TunnelMtu.choose(cfg.iface.mtu, linkMtu, external)
+        if (ctx != null) {
+            lastNetworkSignature = networkSignature(ctx, external, linkMtu, mtu)
+            logd(
+                "vpn=$external transports=${activeTransports(ctx)} " +
+                    "linkMtu=${linkMtu ?: "?"} chosenMtu=$mtu",
+            )
+        }
+
+        val ok = TunnelManager.start(cfg, mtu, external)
         if (ok) {
             applied = verified
             pending = null
-            _tunnelState.value = WgTunnelState.CONNECTED
-            logd("config applied")
+            // CONNECTED is published by observeTunnelPhase() only after the
+            // handshake + probe gate passes.
+            logd("config applied (connecting)")
         } else {
             applied = null
             _tunnelState.value = WgTunnelState.ERROR
@@ -219,6 +346,9 @@ object WgManager {
     }
 
     private fun tearDownTunnel() {
+        applied = null
+        pending = null
+        lastNetworkSignature = null
         TunnelManager.stop()
         _tunnelState.value = WgTunnelState.STOPPED
     }

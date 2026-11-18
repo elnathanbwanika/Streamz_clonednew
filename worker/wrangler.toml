@@ -1,0 +1,6 @@
+name = "link-streamz-push"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+[vars]
+FIREBASE_PROJECT_ID = "link-streamz"

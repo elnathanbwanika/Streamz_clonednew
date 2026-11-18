@@ -16,12 +16,14 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/netip"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -99,6 +101,193 @@ func ProxyPassword() string {
 		return ""
 	}
 	return current.pass
+}
+
+type statusInfo struct {
+	Up            bool   `json:"up"`
+	HandshakeSec  int64  `json:"handshakeSec"`
+	HandshakeNsec int64  `json:"handshakeNsec"`
+	TxBytes       int64  `json:"txBytes"`
+	RxBytes       int64  `json:"rxBytes"`
+	Endpoint      string `json:"endpoint"`
+	ListenPort    int64  `json:"listenPort"`
+}
+
+// Status returns a JSON snapshot of the running device's first peer.
+// It never contains keys or the config. When down it returns {"up":false}.
+func Status() string {
+	mu.Lock()
+	t := current
+	if t == nil {
+		mu.Unlock()
+		b, _ := json.Marshal(statusInfo{})
+		return string(b)
+	}
+	raw, err := t.dev.IpcGet()
+	mu.Unlock()
+
+	out := statusInfo{Up: true}
+	if err != nil {
+		b, _ := json.Marshal(out)
+		return string(b)
+	}
+	parseStatus(raw, &out)
+	b, _ := json.Marshal(out)
+	return string(b)
+}
+
+func parseStatus(raw string, out *statusInfo) {
+	seenPeer := false
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			continue
+		}
+		key := line[:eq]
+		value := line[eq+1:]
+		switch key {
+		case "listen_port":
+			if n, err := strconv.ParseInt(value, 10, 64); err == nil {
+				out.ListenPort = n
+			}
+		case "public_key":
+			// IpcGet emits the interface keys first; only inspect the first peer.
+			if seenPeer {
+				return
+			}
+			seenPeer = true
+		case "endpoint":
+			if seenPeer && out.Endpoint == "" {
+				out.Endpoint = value
+			}
+		case "last_handshake_time_sec":
+			if seenPeer {
+				if n, err := strconv.ParseInt(value, 10, 64); err == nil {
+					out.HandshakeSec = n
+				}
+			}
+		case "last_handshake_time_nsec":
+			if seenPeer {
+				if n, err := strconv.ParseInt(value, 10, 64); err == nil {
+					out.HandshakeNsec = n
+				}
+			}
+		case "tx_bytes":
+			if seenPeer {
+				if n, err := strconv.ParseInt(value, 10, 64); err == nil {
+					out.TxBytes = n
+				}
+			}
+		case "rx_bytes":
+			if seenPeer {
+				if n, err := strconv.ParseInt(value, 10, 64); err == nil {
+					out.RxBytes = n
+				}
+			}
+		}
+	}
+}
+
+// Rebind asks wireguard-go to re-open its UDP sockets on the current network.
+// The caller should also restart the device when the endpoint IP or MTU
+// changed, since those are applied at Start time.
+func Rebind() error {
+	mu.Lock()
+	defer mu.Unlock()
+	if current == nil {
+		return errors.New("not running")
+	}
+	return current.dev.BindUpdate()
+}
+
+func (t *tunnel) httpClient(timeout time.Duration) *http.Client {
+	tr := &http.Transport{
+		Proxy: nil,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return t.net.DialContext(ctx, "tcp", addr)
+		},
+		ForceAttemptHTTP2:  false,
+		DisableKeepAlives:  true,
+		DisableCompression: true,
+	}
+	return &http.Client{Transport: tr, Timeout: timeout}
+}
+
+// Probe performs a GET through the netstack and returns the round-trip latency
+// in milliseconds, or -1 on any failure. A successful probe implies a working
+// WireGuard handshake and an in-tunnel DNS/TCP/TLS path.
+func Probe(url string, timeoutMs int) int {
+	mu.Lock()
+	t := current
+	mu.Unlock()
+	if t == nil {
+		return -1
+	}
+	if timeoutMs <= 0 {
+		timeoutMs = 5000
+	}
+	timeout := time.Duration(timeoutMs) * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return -1
+	}
+	req.Header.Set("User-Agent", "linkstreamz-probe")
+
+	start := time.Now()
+	resp, err := t.httpClient(timeout).Do(req)
+	if err != nil {
+		return -1
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+		return -1
+	}
+	return int(time.Since(start) / time.Millisecond)
+}
+
+// HTTPGet returns the response body (up to 64 KiB) fetched through the tunnel,
+// or an empty string on failure. Used only for egress diagnostics.
+func HTTPGet(url string, timeoutMs int) string {
+	mu.Lock()
+	t := current
+	mu.Unlock()
+	if t == nil {
+		return ""
+	}
+	if timeoutMs <= 0 {
+		timeoutMs = 5000
+	}
+	timeout := time.Duration(timeoutMs) * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("User-Agent", "linkstreamz-probe")
+
+	resp, err := t.httpClient(timeout).Do(req)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return ""
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(body))
 }
 
 // Start creates the userspace WireGuard device and the loopback proxy.

@@ -37,6 +37,7 @@ import kotlinx.serialization.json.booleanOrNull
 import okhttp3.OkHttpClient
 import java.time.Instant
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Data models — unchanged from before except Team gains a teamCode field
@@ -55,10 +56,19 @@ data class StreamServer(
     val videoUrl: String? = null,
     // Explicit audio source. Non-null in split mode and audio-only mode.
     val audioUrl: String? = null,
-    // When true, TokenDataSourceFactory mints a fresh browser token before every request.
-    // Set for channels that use the wideiptv/bluetier token protection system.
-    val useTokenAuth: Boolean = false,
+    // When false, the player hides the item-level TV badge for this server only.
+    // Missing, null or non-boolean values keep the badge visible.
+    val showTvBadge: Boolean = true,
+    // Marks the preferred source. Downloads try a recommended direct-file
+    // server before falling back to the first direct-file server.
+    val recommended: Boolean = false,
 )
+
+internal fun parseServerTvBadge(element: JsonElement?): Boolean {
+    val primitive = element as? JsonPrimitive ?: return true
+    if (primitive.isString) return true
+    return primitive.booleanOrNull != false
+}
 
 /**
  * Returns the playback mode for a normalised [StreamServer].
@@ -87,6 +97,7 @@ data class Event(
     val home: Team,
     val away: Team,
     val servers: List<StreamServer>,
+    val tvBadge: TvBadge? = null,
 )
 
 data class Highlight(
@@ -99,6 +110,7 @@ data class Highlight(
     val home: Team?,
     val away: Team?,
     val servers: List<StreamServer>,
+    val tvBadge: TvBadge? = null,
 )
 
 // FEED: Feed now also carries the reference lists parsed from content.json.
@@ -135,6 +147,7 @@ class EventsRepository(private val preview: Boolean = false) {
 
     private val _state = MutableStateFlow<FeedState>(FeedState.Loading)
     val state: StateFlow<FeedState> = _state.asStateFlow()
+    private val tunnelWaitDone = AtomicBoolean(false)
 
     // FEED: Starts the background polling loop. Called once from MainActivity.
     fun start(scope: CoroutineScope) {
@@ -151,6 +164,9 @@ class EventsRepository(private val preview: Boolean = false) {
     // Never throws. Always resolves to Loading → Ready or Loading → Error.
     // If silent=true and a previous Ready state exists, failure keeps the old data.
     suspend fun load(silent: Boolean = false) {
+        if (tunnelWaitDone.compareAndSet(false, true)) {
+            TunnelManager.awaitUp(TUNNEL_WAIT_MS)
+        }
         if (!silent) _state.value = FeedState.Loading
         try {
             // FEED: Single GET to content.json — the only remote call in the app.
@@ -182,6 +198,7 @@ class EventsRepository(private val preview: Boolean = false) {
 
         val response = httpClient.newCall(request).execute()
         response.use { resp ->
+            ServerClock.updateFromDateHeader(resp.header("Date"))
             // FEED: Non-2xx → treat as network/server error; do not attempt to parse body.
             if (!resp.isSuccessful) {
                 throw IllegalStateException("HTTP ${resp.code}")
@@ -203,6 +220,8 @@ class EventsRepository(private val preview: Boolean = false) {
 
     // FEED: Parses all six sections from the root JSON object in one pass.
     private fun parseFeed(root: JsonObject): Feed {
+        AppUpdateStore.ingest(root["appUpdate"])
+
         // FEED: Build team code-map from teams[] so home/away codes resolve to full Team objects.
         val teamMap: Map<String, Team> = parseTeams(root)
 
@@ -281,6 +300,7 @@ class EventsRepository(private val preview: Boolean = false) {
             home = resolveTeam(obj.pick("home", "homeTeam", "team1"), teamMap),
             away = resolveTeam(obj.pick("away", "awayTeam", "team2"), teamMap),
             servers = streams(obj),
+            tvBadge = TvBadgeParser.parse(obj["tvBadge"]),
         )
     }
 
@@ -315,6 +335,7 @@ class EventsRepository(private val preview: Boolean = false) {
             home = home,
             away = away,
             servers = streams(obj),
+            tvBadge = TvBadgeParser.parse(obj["tvBadge"]),
         )
     }
 
@@ -429,15 +450,7 @@ class EventsRepository(private val preview: Boolean = false) {
         val name = server?.pick("name", "label", "title", "server")?.stringValue()
             ?: "Server ${index + 1}"
         val quality = server?.pick("quality", "q", "resolution")?.stringValue()
-
-        // ── Token auth: explicit JSON field wins; fall back to hostname heuristic ──
-        // Admin panel can set `"useTokenAuth": true` or `"token_auth": true` explicitly.
-        // If not set, we auto-detect based on whether the CDN hostname is known to be
-        // token-protected (e.g. bluetier.top, wideiptv.top).
-        val useTokenAuthRaw = server?.pick("useTokenAuth", "token_auth", "tokenAuth")
-        val useTokenAuth: Boolean = useTokenAuthRaw?.stringValue()?.toBooleanStrictOrNull()
-            ?: (useTokenAuthRaw as? JsonPrimitive)?.booleanOrNull
-            ?: StreamConfig.requiresTokenAuth(rawVideoUrl)
+        val showTvBadge = parseServerTvBadge(server?.pick("tvBadge"))
 
         // ── Apply normalization rules ─────────────────────────────────────────
         return when {
@@ -450,7 +463,7 @@ class EventsRepository(private val preview: Boolean = false) {
                 headers = headers,
                 useProxy = useProxy,
                 delaySeconds = delaySeconds,
-                useTokenAuth = useTokenAuth,
+                showTvBadge = showTvBadge,
             )
             rawVideoUrl != null -> StreamServer(
                 name = name,
@@ -461,7 +474,7 @@ class EventsRepository(private val preview: Boolean = false) {
                 headers = headers,
                 useProxy = useProxy,
                 delaySeconds = delaySeconds,
-                useTokenAuth = useTokenAuth,
+                showTvBadge = showTvBadge,
             )
             rawAudioUrl != null -> StreamServer(
                 name = name,
@@ -472,6 +485,7 @@ class EventsRepository(private val preview: Boolean = false) {
                 headers = headers,
                 useProxy = useProxy,
                 delaySeconds = delaySeconds,
+                showTvBadge = showTvBadge,
             )
             else -> null
         }

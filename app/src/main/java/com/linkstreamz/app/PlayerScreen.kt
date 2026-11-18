@@ -3,7 +3,12 @@ package com.linkstreamz.app
 import android.app.Activity
 import android.content.Context
 import android.content.pm.ActivityInfo
+import android.content.pm.PackageManager
+import android.Manifest
+import android.os.Build
 import android.os.PowerManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.view.View
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
@@ -48,20 +53,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.C
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
-import okhttp3.ConnectionPool
-import okhttp3.OkHttpClient
-import java.util.concurrent.TimeUnit
-
-// ── Shared OkHttp client (one per process, connection pooling) ─────────────────
-private val sharedOkHttpClient: OkHttpClient by lazy {
-    HttpClients.newBuilder()
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .followRedirects(true)
-        .retryOnConnectionFailure(true)
-        .build()
-}
-
 // ── Sort servers for automatic fallback ───────────────────────────────────────
 // index 0 is already marked "recommended" in the UI; keep that order.
 // Within the remaining servers preserve original order.
@@ -111,9 +102,8 @@ data class ChannelTarget(
 ) : PlayerTarget {
     override val servers: List<StreamServer> = listOf(
         StreamServer(
-            name        = "Auto",
-            url         = channel.videoUrl,
-            useTokenAuth = StreamConfig.requiresTokenAuth(channel.videoUrl),
+            name = "Auto",
+            url  = channel.videoUrl,
         )
     )
     override val title: String = channel.title
@@ -143,6 +133,34 @@ data class EpisodeTarget(
     override fun withServer(server: StreamServer) = copy(selectedServer = server)
 }
 
+data class DownloadedTarget(
+    val localUri: String,
+    override val title: String,
+    override val subtitle: String,
+    val tvBadge: TvBadge? = null,
+    override val selectedServer: StreamServer? = StreamServer("On device", url = localUri),
+) : PlayerTarget {
+    override val servers: List<StreamServer> = listOf(StreamServer("On device", url = localUri))
+    override fun withServer(server: StreamServer) = copy(selectedServer = server)
+}
+
+private val PlayerTarget.playerTvBadge: TvBadgePlacement?
+    get() = when (this) {
+        is EventTarget -> event.tvBadge?.player
+        is HighlightTarget -> highlight.tvBadge?.player
+        is ChannelTarget -> channel.tvBadge?.player
+        is MovieTarget -> movie.tvBadge?.player
+        is EpisodeTarget -> episode.tvBadge?.player ?: series.tvBadge?.player
+        is CustomTarget -> null
+        is DownloadedTarget -> tvBadge?.player
+    }
+
+private sealed interface PendingDownload {
+    data class SingleMovie(val movie: Movie) : PendingDownload
+    data class SingleEpisode(val target: EpisodeTarget) : PendingDownload
+    data class WholeSeason(val target: EpisodeTarget) : PendingDownload
+}
+
 // Auto-hide delay for overlay controls (in milliseconds)
 private const val CONTROLS_HIDE_DELAY_MS = 3_000L
 
@@ -155,12 +173,126 @@ fun PlayerScreen(
     channelsRepo: ChannelsRepository? = null,
     onBack: () -> Unit,
     onTarget: (PlayerTarget) -> Unit = {},
+    onOpenDownloads: () -> Unit = {},
     previewMode: Boolean = false,
 ) {
     val context = LocalContext.current
     val activity = context.findActivity()
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+
+    val episodeDownloadTarget = target as? EpisodeTarget
+    val movieDownloadTarget = target as? MovieTarget
+    val downloads by DownloadManager.items.collectAsState()
+    val currentDownload = remember(downloads, target) {
+        when {
+            movieDownloadTarget != null ->
+                downloads.firstOrNull { it.movieId == movieDownloadTarget.movie.id }
+            episodeDownloadTarget != null ->
+                downloads.firstOrNull {
+                    it.movieId == "ep-${episodeDownloadTarget.series.id}-" +
+                        "${episodeDownloadTarget.season.number}-${episodeDownloadTarget.episode.n}"
+                }
+            else -> null
+        }
+    }
+    var pendingDownload by remember { mutableStateOf<PendingDownload?>(null) }
+    var mobileConfirmDownload by remember { mutableStateOf<PendingDownload?>(null) }
+    var showDownloadRationale by remember { mutableStateOf(false) }
+
+    fun enqueueDownload(request: PendingDownload) {
+        when (request) {
+            is PendingDownload.SingleMovie -> when (val result = DownloadManager.downloadMovie(context, request.movie)) {
+                is EnqueueResult.Started -> Toast.makeText(context, "Download started", Toast.LENGTH_SHORT).show()
+                is EnqueueResult.AlreadyExists -> Toast.makeText(context, "Already in Downloads", Toast.LENGTH_SHORT).show()
+                is EnqueueResult.Rejected -> Toast.makeText(context, result.reason, Toast.LENGTH_LONG).show()
+            }
+            is PendingDownload.SingleEpisode -> when (val result = DownloadManager.downloadEpisode(
+                context,
+                request.target.series,
+                request.target.season,
+                request.target.episode,
+            )) {
+                is EnqueueResult.Started -> Toast.makeText(context, "Download started", Toast.LENGTH_SHORT).show()
+                is EnqueueResult.AlreadyExists -> Toast.makeText(context, "Already in Downloads", Toast.LENGTH_SHORT).show()
+                is EnqueueResult.Rejected -> Toast.makeText(context, result.reason, Toast.LENGTH_LONG).show()
+            }
+            is PendingDownload.WholeSeason -> {
+                val result = DownloadManager.downloadSeason(context, request.target.series, request.target.season)
+                val message = when {
+                    result.started > 0 -> "Added ${result.started} episode${if (result.started == 1) "" else "s"} to Downloads"
+                    result.alreadyExists > 0 -> "Episodes already in Downloads"
+                    else -> "No episodes available to download"
+                }
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    val downloadPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val request = pendingDownload
+        pendingDownload = null
+        val storageDenied = Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
+            grants[Manifest.permission.WRITE_EXTERNAL_STORAGE] == false
+        if (storageDenied) {
+            Toast.makeText(context, "Storage permission is needed to save downloads", Toast.LENGTH_LONG).show()
+        } else if (request != null) {
+            enqueueDownload(request)
+        }
+    }
+
+    fun requestDownloadPermissions(request: PendingDownload) {
+        val missing = buildList {
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
+                context.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+            ) add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (missing.isEmpty()) {
+            enqueueDownload(request)
+        } else {
+            pendingDownload = request
+            showDownloadRationale = true
+        }
+    }
+
+    fun requestDownload(request: PendingDownload) {
+        if (DownloadConditions.hasLowStorage(context)) {
+            Toast.makeText(context, DownloadConditions.LOW_STORAGE_MESSAGE, Toast.LENGTH_LONG).show()
+            return
+        }
+        if (DownloadConditions.isMetered(context)) {
+            mobileConfirmDownload = request
+        } else {
+            requestDownloadPermissions(request)
+        }
+    }
+
+    // Time-limited movies: block playback outside the availability window and
+    // stop playback when the window closes while watching.
+    val timeLimited = (target as? MovieTarget)?.movie?.timeLimited
+    var timeLimitedState by remember(timeLimited) {
+        mutableStateOf(timeLimited?.state(ServerClock.now()))
+    }
+    LaunchedEffect(timeLimited) {
+        while (timeLimited != null) {
+            timeLimitedState = timeLimited.state(ServerClock.now())
+            delay(1_000L)
+        }
+    }
+    if (timeLimited != null && timeLimitedState != TimeLimitedState.LIVE) {
+        TimeLimitedBlockScreen(
+            title = target.title,
+            state = timeLimitedState ?: TimeLimitedState.ENDED,
+            timeLimited = timeLimited,
+            onBack = onBack,
+        )
+        return
+    }
 
     val server = target.selectedServer ?: target.servers.firstOrNull()
     var currentServer by remember(target, server) { mutableStateOf(server) }
@@ -192,11 +324,14 @@ fun PlayerScreen(
     // ── Playback resume (movies only) ─────────────────────────────────────────
     // Load once from SharedPreferences when this movie target is first composed.
     val movieId = (target as? MovieTarget)?.movie?.id
-    val resumePositionMs: Long = remember(movieId) {
-        if (movieId != null) PlaybackResume.get(context, movieId) else 0L
-    }
+    val currentMovieId by rememberUpdatedState(movieId)
+    val bypassTunnel = ContentRouting.bypassTunnel(target)
+    val itemTvBadge = remember(target) { target.playerTvBadge }
+    val playerTvBadge = if (currentServer?.showTvBadge == false) null else itemTvBadge
+    var resumePositionMs by remember { mutableLongStateOf(0L) }
     // True once we've applied the saved seek — prevents seeking again on reconnect/retry.
-    var hasAppliedResume by remember(movieId) { mutableStateOf(false) }
+    var hasAppliedResume by remember { mutableStateOf(false) }
+    var loadedMovieId by remember { mutableStateOf<String?>(null) }
     // Throttle counter so we save position only every ~2 s (8 × 250 ms) not every tick.
     var resumeSaveTick by remember { mutableIntStateOf(0) }
     // Player-local brightness: 100f = no overlay (neutral); lower = darker, higher = brighter (white wash).
@@ -208,12 +343,9 @@ fun PlayerScreen(
     var lastInteractionMs by remember { mutableStateOf(System.currentTimeMillis()) }
 
     // ── PlayerEngine (owns ExoPlayer + HLS proxy) ────────────────────────────
-    val baseClient = sharedOkHttpClient
-
     val engine = remember {
         PlayerEngine(
             context = context,
-            baseClient = baseClient,
             globalDelaySeconds = settings.streamDelaySeconds,
         ) {
             // onFallback — runs on main thread via engine's scope
@@ -222,6 +354,10 @@ fun PlayerScreen(
 
     // Collect engine syncing state
     val isSyncing by engine.isSyncing.collectAsStateWithLifecycle()
+    val updateRequired by AppUpdateStore.required.collectAsStateWithLifecycle()
+    LaunchedEffect(updateRequired) {
+        if (updateRequired != null) engine.pause()
+    }
 
     // ── Fallback logic ───────────────────────────────────────────────────────
     /** How many times to retry the same server before moving to the next. */
@@ -307,8 +443,30 @@ fun PlayerScreen(
     DisposableEffect(engine) {
         engine.player.addListener(engineFallbackListener)
         onDispose {
+            if (currentMovieId != null && loadedMovieId == currentMovieId) {
+                PlaybackResume.save(
+                    context,
+                    currentMovieId!!,
+                    engine.player.currentPosition.coerceAtLeast(0L),
+                    engine.player.duration,
+                )
+            }
             engine.player.removeListener(engineFallbackListener)
             engine.release()
+        }
+    }
+
+    DisposableEffect(movieId) {
+        val id = movieId
+        onDispose {
+            if (id != null && loadedMovieId == id) {
+                PlaybackResume.save(
+                    context,
+                    id,
+                    engine.player.currentPosition.coerceAtLeast(0L),
+                    engine.player.duration,
+                )
+            }
         }
     }
 
@@ -321,11 +479,19 @@ fun PlayerScreen(
     val activityLifecycleOwner = remember(activity) {
         activity as? androidx.lifecycle.LifecycleOwner
     }
-    DisposableEffect(activityLifecycleOwner) {
+    DisposableEffect(activityLifecycleOwner, bypassTunnel) {
         val owner = activityLifecycleOwner ?: return@DisposableEffect onDispose {}
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_STOP -> {
+                    if (currentMovieId != null && loadedMovieId == currentMovieId) {
+                        PlaybackResume.save(
+                            context,
+                            currentMovieId!!,
+                            engine.player.currentPosition.coerceAtLeast(0L),
+                            engine.player.duration,
+                        )
+                    }
                     if (!FloatingOverlayManager.isFloating.value) {
                         resumeOnForeground = engine.player.playWhenReady
                         engine.pause()
@@ -338,7 +504,7 @@ fun PlayerScreen(
                             state == androidx.media3.common.Player.STATE_ENDED) {
                             // Player died while backgrounded — reload the current server
                             AppLogger.d("Engine", "ON_START: player in IDLE/ENDED, reloading")
-                            currentServer?.let { engine.loadStream(it, userPickedManually, true) }
+                            currentServer?.let { engine.loadStream(it, userPickedManually, true, bypassTunnel) }
                         } else {
                             engine.resume()
                         }
@@ -394,6 +560,19 @@ fun PlayerScreen(
         allServersFailed = false
         val isCustom = target is CustomTarget
 
+        val movie = (target as? MovieTarget)?.movie
+        if (movie != null) {
+            if (loadedMovieId != movie.id) {
+                loadedMovieId = movie.id
+                hasAppliedResume = false
+                resumePositionMs = PlaybackResume.get(context, movie.id)
+            }
+        } else {
+            loadedMovieId = null
+            hasAppliedResume = false
+            resumePositionMs = 0L
+        }
+
         // YT-EXTRACT: Detect YouTube URLs at load time — branch to async extraction
         val streamUrl = stream.url
         if (streamUrl != null && YouTubeUrl.isYouTubeUrl(streamUrl)) {
@@ -410,7 +589,7 @@ fun PlayerScreen(
             ytExtractId = null
             ytExtractStream = null
             isExtracting = false
-            engine.loadStream(stream, isCustom, settings.autoplay)
+            engine.loadStream(stream, isCustom, settings.autoplay, bypassTunnel)
             engine.player.volume = if (muted) 0f else 1f
         }
     }
@@ -431,13 +610,14 @@ fun PlayerScreen(
                 }
                 // ── Resume: seek to saved position on first STATE_READY ────────
                 if (playbackState == androidx.media3.common.Player.STATE_READY &&
-                    !hasAppliedResume && resumePositionMs > 0L && movieId != null) {
+                    currentMovieId != null && loadedMovieId == currentMovieId &&
+                    !hasAppliedResume) {
                     hasAppliedResume = true
-                    engine.player.seekTo(resumePositionMs)
+                    if (resumePositionMs > 0L) engine.player.seekTo(resumePositionMs)
                 }
                 // ── Resume: clear saved position when movie finishes ───────────
-                if (playbackState == androidx.media3.common.Player.STATE_ENDED && movieId != null) {
-                    PlaybackResume.markFinished(context, movieId)
+                if (playbackState == androidx.media3.common.Player.STATE_ENDED && currentMovieId != null) {
+                    PlaybackResume.markFinished(context, currentMovieId!!)
                 }
             }
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -451,14 +631,14 @@ fun PlayerScreen(
     }
 
     // ── Effects ──────────────────────────────────────────────────────────────
-    LaunchedEffect(currentServer, previewMode) {
+    LaunchedEffect(currentServer, previewMode, bypassTunnel) {
         if (!previewMode) loadStream(currentServer)
     }
 
     // YT-EXTRACT: Async extraction — runs when ytExtractId changes (set by loadStream).
     // This LaunchedEffect is inside the composable scope so scope/launch are available.
     // Cancels automatically if ytExtractId changes (user switches video) or composable leaves.
-    LaunchedEffect(ytExtractId) {
+    LaunchedEffect(ytExtractId, bypassTunnel) {
         val videoId = ytExtractId ?: return@LaunchedEffect
         val stream = ytExtractStream ?: return@LaunchedEffect
         val isCustom = target is CustomTarget
@@ -477,13 +657,13 @@ fun PlayerScreen(
             is YtResult.Muxed -> {
                 // YT-EXTRACT: muxed — single URL carries video+audio, maps to server.url
                 val ephemeral = stream.copy(url = result.url, videoUrl = null, audioUrl = null)
-                engine.loadStream(ephemeral, isCustom, settings.autoplay)
+                engine.loadStream(ephemeral, isCustom, settings.autoplay, bypassTunnel)
                 engine.player.volume = if (muted) 0f else 1f
             }
             is YtResult.Split -> {
                 // YT-EXTRACT: split — separate video+audio URLs, maps to server.videoUrl+audioUrl
                 val ephemeral = stream.copy(url = null, videoUrl = result.videoUrl, audioUrl = result.audioUrl)
-                engine.loadStream(ephemeral, isCustom, settings.autoplay)
+                engine.loadStream(ephemeral, isCustom, settings.autoplay, bypassTunnel)
                 engine.player.volume = if (muted) 0f else 1f
             }
             is YtResult.Failure -> {
@@ -507,7 +687,7 @@ fun PlayerScreen(
     }
 
     // ── Same-server retry (triggered by triggerFallback when retries remain) ─
-    LaunchedEffect(retryTrigger) {
+    LaunchedEffect(retryTrigger, bypassTunnel) {
         if (retryTrigger == 0) return@LaunchedEffect // skip initial composition
         delay(2_000L) // brief pause lets transient network errors clear
         loadStream(currentServer)
@@ -518,12 +698,12 @@ fun PlayerScreen(
             position = engine.player.currentPosition.coerceAtLeast(0L)
             duration = engine.player.duration
             engine.checkStall()
-            // ── Resume: persist position every ~2 s while a movie is playing ──
-            if (movieId != null && engine.player.isPlaying) {
+            // ── Resume: persist position every ~2 s while a movie is open ──
+            if (currentMovieId != null && loadedMovieId == currentMovieId && hasAppliedResume) {
                 resumeSaveTick++
                 if (resumeSaveTick >= 8) {
                     resumeSaveTick = 0
-                    PlaybackResume.save(context, movieId, position, duration)
+                    PlaybackResume.save(context, currentMovieId!!, position, duration)
                 }
             }
             delay(250)
@@ -599,7 +779,42 @@ fun PlayerScreen(
                         )
                     }
             ) {
-                PlayerBar(target = target, onBack = onBack)
+                PlayerBar(
+                    target = target,
+                    onBack = onBack,
+                    download = currentDownload,
+                    onDownload = when {
+                        movieDownloadTarget != null &&
+                            DownloadSupport.canDownload(movieDownloadTarget.movie) ->
+                            ({ requestDownload(PendingDownload.SingleMovie(movieDownloadTarget.movie)) })
+                        episodeDownloadTarget != null &&
+                            DownloadSupport.canDownloadEpisode(episodeDownloadTarget.series, episodeDownloadTarget.episode) ->
+                            ({ requestDownload(PendingDownload.SingleEpisode(episodeDownloadTarget)) })
+                        else -> null
+                    },
+                    onPlayDownloaded = currentDownload?.fileUri
+                        ?.takeIf { it.isNotBlank() && currentDownload.status == DownloadStatus.COMPLETED }
+                        ?.let { uri ->
+                            {
+                                onTarget(
+                                    DownloadedTarget(
+                                        localUri = uri,
+                                        title = target.title,
+                                        subtitle = target.subtitle,
+                                        tvBadge = currentDownload.tvBadge,
+                                    )
+                                )
+                            }
+                        },
+                    onOpenDownloads = onOpenDownloads,
+                    onDownloadSeason = if (episodeDownloadTarget != null &&
+                        episodeDownloadTarget.season.episodes.any {
+                            DownloadSupport.canDownloadEpisode(episodeDownloadTarget.series, it)
+                        }
+                    ) {
+                        ({ requestDownload(PendingDownload.WholeSeason(episodeDownloadTarget)) })
+                    } else null,
+                )
 
                 // Portrait frame: 8dp outer, 1.5dp orange border, 3dp dark gap, 3.5dp inner
                 val outerShape = RoundedCornerShape(LinkDimens.PlayerOuterRadius)
@@ -610,7 +825,7 @@ fun PlayerScreen(
                         .padding(horizontal = 12.dp)
                         .aspectRatio(16f / 9f)
                         .clip(outerShape)
-                        .border(LinkDimens.PlayerBorderWidth, LinkColors.OrangePrimary, outerShape)
+                        .border(LinkDimens.PlayerBorderWidth, LinkColors.LineAlpha, outerShape)
                         .background(LinkDimens.PlayerGapColor)
                         .padding(LinkDimens.PlayerGap),
                 ) {
@@ -696,6 +911,7 @@ fun PlayerScreen(
                                 )
                             },
                             onInteraction = ::touchControls,
+                            onHideControls = { controlsVisible = false },
                             onPlayerBrightnessChange = { v -> playerBrightness = v },
                             onRetry = {
                                 error = null
@@ -708,6 +924,7 @@ fun PlayerScreen(
                             onSwitchServer = { serverMenu = true },
                             hasMultipleServers = target.servers.size > 1,
                             isFullscreen = false,
+                            tvBadge = playerTvBadge,
                         )
                     }
                 }
@@ -800,6 +1017,7 @@ fun PlayerScreen(
                         )
                     },
                     onInteraction = ::touchControls,
+                    onHideControls = { controlsVisible = false },
                     onPlayerBrightnessChange = { v -> playerBrightness = v },
                     onRetry = {
                         error = null
@@ -812,9 +1030,68 @@ fun PlayerScreen(
                     onSwitchServer = { serverMenu = true },
                     hasMultipleServers = target.servers.size > 1,
                     isFullscreen = true,
+                    tvBadge = playerTvBadge,
                 )
             }
         }
+    }
+
+    mobileConfirmDownload?.let { request ->
+        AlertDialog(
+            onDismissRequest = { mobileConfirmDownload = null },
+            containerColor = LinkColors.CardBg,
+            title = { Text("Download over mobile data?", color = LinkColors.PrimaryText) },
+            text = { Text(DownloadConditions.MOBILE_DATA_MESSAGE, color = LinkColors.MutedText) },
+            confirmButton = {
+                TextButton(onClick = {
+                    mobileConfirmDownload = null
+                    requestDownloadPermissions(request)
+                }) { Text("Download", color = LinkColors.OrangePrimary) }
+            },
+            dismissButton = {
+                TextButton(onClick = { mobileConfirmDownload = null }) {
+                    Text("Cancel", color = LinkColors.MutedText)
+                }
+            },
+        )
+    }
+
+    if (showDownloadRationale) {
+        AlertDialog(
+            onDismissRequest = { showDownloadRationale = false; pendingDownload = null },
+            containerColor = LinkColors.CardBg,
+            title = { Text("Allow download permissions", color = LinkColors.PrimaryText) },
+            text = {
+                Text(
+                    "Notifications show download progress. On Android 9 and older, storage access saves the file to your Downloads folder.",
+                    color = LinkColors.MutedText,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDownloadRationale = false
+                    val missing = buildList {
+                        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
+                            context.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+                        ) add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                        ) add(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    if (missing.isEmpty()) {
+                        pendingDownload?.let { enqueueDownload(it) }
+                        pendingDownload = null
+                    } else {
+                        downloadPermissionLauncher.launch(missing.toTypedArray())
+                    }
+                }) { Text("Continue", color = LinkColors.OrangePrimary) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDownloadRationale = false; pendingDownload = null }) {
+                    Text("Not now", color = LinkColors.MutedText)
+                }
+            },
+        )
     }
 
     // Main server-chooser modal (from error overlay / home screen)
@@ -836,6 +1113,11 @@ fun PlayerScreen(
 private fun PlayerBar(
     target: PlayerTarget,
     onBack: () -> Unit,
+    download: DownloadItem? = null,
+    onDownload: (() -> Unit)? = null,
+    onPlayDownloaded: (() -> Unit)? = null,
+    onOpenDownloads: (() -> Unit)? = null,
+    onDownloadSeason: (() -> Unit)? = null,
 ) {
     Row(Modifier.fillMaxWidth().padding(14.dp, 14.dp, 16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         IconButton(onClick = onBack, modifier = Modifier.size(38.dp).background(LinkColors.CardBg, RoundedCornerShape(12.dp)).border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.35f), RoundedCornerShape(12.dp))) {
@@ -845,6 +1127,52 @@ private fun PlayerBar(
             Text(target.title.uppercase(), color = LinkColors.PrimaryText, fontFamily = DisplayFont, fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(target.subtitle.uppercase(), color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 11.sp, letterSpacing = .5.sp, modifier = Modifier.padding(top = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
+        when {
+            download?.status == DownloadStatus.COMPLETED && onPlayDownloaded != null ->
+                PlayerBarAction(Icons.Default.PlayCircle, "Play downloaded", onPlayDownloaded)
+            download != null && download.isActive -> {
+                Box(
+                    Modifier.size(38.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(LinkColors.CardBg)
+                        .clickable { onOpenDownloads?.invoke() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(
+                        progress = { download.progress },
+                        modifier = Modifier.size(20.dp),
+                        color = LinkColors.OrangePrimary,
+                        trackColor = LinkColors.OrangePrimary.copy(alpha = 0.18f),
+                        strokeWidth = 2.dp,
+                    )
+                }
+            }
+            download != null &&
+                (download.status == DownloadStatus.PAUSED || download.status == DownloadStatus.FAILED) &&
+                onDownload != null ->
+                PlayerBarAction(Icons.Default.Refresh, "Resume download", onDownload)
+            onDownload != null ->
+                PlayerBarAction(Icons.Default.Download, "Download", onDownload)
+        }
+        if (onDownloadSeason != null) {
+            PlayerBarAction(Icons.Default.DownloadForOffline, "Download season", onDownloadSeason)
+        }
+    }
+}
+
+@Composable
+private fun PlayerBarAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    onClick: () -> Unit,
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier.size(38.dp)
+            .background(LinkColors.CardBg, RoundedCornerShape(12.dp))
+            .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+    ) {
+        Icon(icon, description, tint = LinkColors.OrangePrimary, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -892,6 +1220,11 @@ private fun RelatedContent(
     val movies = moviesRepo?.movies ?: emptyList()
     val series = moviesRepo?.series ?: emptyList()
     val channels = channelsRepo?.channels ?: emptyList()
+    val relatedImageLoader = if (ContentRouting.bypassTunnel(target)) {
+        AppImages.direct(LocalContext.current)
+    } else {
+        null
+    }
 
     Column(Modifier.fillMaxSize()) {
         if (target is EpisodeTarget) {
@@ -932,6 +1265,7 @@ private fun RelatedContent(
             is MovieTarget -> "More Movies"
             is EpisodeTarget -> "More Series"
             is CustomTarget -> "Related"
+            is DownloadedTarget -> "On this device"
         }
 
         Text(
@@ -1010,6 +1344,7 @@ private fun RelatedContent(
                 }
             }
             is CustomTarget -> emptyList()
+            is DownloadedTarget -> emptyList()
         }
 
         if (cards.isEmpty()) {
@@ -1056,7 +1391,8 @@ private fun RelatedContent(
                             team = Team(name = card.name, crestClass = "", initials = card.initials ?: "", logo = card.imageUrl),
                             statusText = card.statusText,
                             isLive = card.isLive,
-                            onClick = card.onClick
+                            onClick = card.onClick,
+                            imageLoader = relatedImageLoader,
                         )
                     }
                 }
@@ -1105,6 +1441,44 @@ private fun exitFullscreen(activity: Activity?) {
         activity.window.attributes = activity.window.attributes.also { attrs ->
             attrs.layoutInDisplayCutoutMode =
                 android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+        }
+    }
+}
+
+@Composable
+private fun TimeLimitedBlockScreen(
+    title: String,
+    state: TimeLimitedState,
+    timeLimited: TimeLimited,
+    onBack: () -> Unit,
+) {
+    Box(
+        Modifier.fillMaxSize().background(LinkColors.ScreenBg).padding(24.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.Lock, null, tint = LinkColors.OrangePrimary, modifier = Modifier.size(42.dp))
+            Spacer(Modifier.height(16.dp))
+            Text(title, color = LinkColors.PrimaryText, fontFamily = DisplayFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            Spacer(Modifier.height(10.dp))
+            val message = when (state) {
+                TimeLimitedState.UPCOMING -> "Not started yet. Available in ${timeLimitedStartCountdown(timeLimited)}."
+                TimeLimitedState.LIVE -> "Available now."
+                TimeLimitedState.ENDED -> "This movie's availability window has ended."
+            }
+            Text(message, color = LinkColors.MutedText, fontFamily = BodyFont, fontSize = 13.sp)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Available ${formatEatDateTime(timeLimited.startAtMs)} EAT for ${formatDuration(timeLimited.durationHours)}",
+                color = LinkColors.MutedText,
+                fontFamily = MonoFont,
+                fontSize = 11.sp,
+            )
+            Spacer(Modifier.height(22.dp))
+            Button(
+                onClick = onBack,
+                colors = ButtonDefaults.buttonColors(containerColor = LinkColors.OrangePrimary),
+            ) { Text("Go back", color = Color.Black, fontWeight = FontWeight.SemiBold) }
         }
     }
 }

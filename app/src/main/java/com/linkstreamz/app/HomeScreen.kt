@@ -1,6 +1,16 @@
 package com.linkstreamz.app
 
+import androidx.compose.foundation.layout.BoxWithConstraints
+
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+
 import android.widget.Toast
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.material3.ButtonDefaults
@@ -8,6 +18,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.foundation.background
@@ -25,6 +36,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -46,6 +58,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
@@ -59,6 +72,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -71,11 +85,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.runtime.mutableLongStateOf
-
-private enum class HomeFilter(val label: String) {
-    ALL("All"), LIVE("Live"), UPCOMING("Upcoming"), FINISHED("Finished"), HIGHLIGHTS("Highlights"), MOVIES("Movies"), CHANNELS("Channels")
-}
 
 @Composable
 fun HomeScreen(
@@ -83,29 +94,90 @@ fun HomeScreen(
     moviesRepo: MoviesRepository,
     channelsRepo: ChannelsRepository,
     settings: SettingsUiState,
+    section: MainSection,
+    onSectionChange: (MainSection) -> Unit,
+    onOpenLimited: () -> Unit,
+    focusLimited: Boolean,
+    onFocusConsumed: () -> Unit,
     onSettings: () -> Unit,
+    onDownloads: () -> Unit = {},
     onPlayer: (PlayerTarget) -> Unit,
 ) {
     val state by repository.state.collectAsState()
     val mediaState  by moviesRepo.state.collectAsState()
     val channelState by channelsRepo.state.collectAsState()
+    val downloads by DownloadManager.items.collectAsState()
 
     // Derive live lists; empty until fetched from server
     val movies   = (mediaState  as? MediaFeedState.Ready)?.movies   ?: emptyList()
     val series   = (mediaState  as? MediaFeedState.Ready)?.series   ?: emptyList()
     val channels = (channelState as? ChannelFeedState.Ready)?.channels ?: emptyList()
+    val events   = (state as? FeedState.Ready)?.feed?.events ?: emptyList()
 
     val context = LocalContext.current
-    val listState = rememberLazyListState()
-    var filter by remember { mutableStateOf(HomeFilter.ALL) }
-    var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+    var nowMs by remember { mutableStateOf(ServerClock.now()) }
+    var sportsTab by rememberSaveable { mutableStateOf(SportsTab.LIVE) }
     var dialogTarget by remember { mutableStateOf<PlayerTarget?>(null) }
+    var pendingDownload by remember { mutableStateOf<Movie?>(null) }
+    var mobileConfirmDownload by remember { mutableStateOf<Movie?>(null) }
+    var showDownloadRationale by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    fun enqueueDownload(movie: Movie) {
+        when (val result = DownloadManager.downloadMovie(context, movie)) {
+            is EnqueueResult.Started -> Toast.makeText(context, "Download started", Toast.LENGTH_SHORT).show()
+            is EnqueueResult.AlreadyExists -> Toast.makeText(context, "Already in Downloads", Toast.LENGTH_SHORT).show()
+            is EnqueueResult.Rejected -> Toast.makeText(context, result.reason, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    val downloadPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        val movie = pendingDownload
+        pendingDownload = null
+        val storageDenied = Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
+            grants[Manifest.permission.WRITE_EXTERNAL_STORAGE] == false
+        if (storageDenied) {
+            Toast.makeText(context, "Storage permission is needed to save downloads", Toast.LENGTH_LONG).show()
+        } else if (movie != null) {
+            enqueueDownload(movie)
+        }
+    }
+
+    fun requestDownloadPermissions(movie: Movie) {
+        val missing = buildList {
+            if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
+                context.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+            ) add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (missing.isEmpty()) {
+            enqueueDownload(movie)
+        } else {
+            pendingDownload = movie
+            showDownloadRationale = true
+        }
+    }
+
+    fun requestDownload(movie: Movie) {
+        if (DownloadConditions.hasLowStorage(context)) {
+            Toast.makeText(context, DownloadConditions.LOW_STORAGE_MESSAGE, Toast.LENGTH_LONG).show()
+            return
+        }
+        if (DownloadConditions.isMetered(context)) {
+            mobileConfirmDownload = movie
+        } else {
+            requestDownloadPermissions(movie)
+        }
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
             delay(TICKER_MS)
-            nowMs = System.currentTimeMillis()
+            nowMs = ServerClock.now()
         }
     }
 
@@ -131,110 +203,98 @@ fun HomeScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
+    var minDelayPassed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        delay(3000L)
+        minDelayPassed = true
+    }
 
-    val feed = (state as? FeedState.Ready)?.feed
-    val counts = remember(feed, nowMs, movies, series, channels) {
-        val events = feed?.events.orEmpty()
-        mapOf(
-            HomeFilter.ALL to events.size,
-            HomeFilter.LIVE to events.count { effectiveStatus(it.startMs, it.status, nowMs) == "live" },
-            HomeFilter.UPCOMING to events.count { effectiveStatus(it.startMs, it.status, nowMs) == "upcoming" },
-            HomeFilter.FINISHED to events.count { effectiveStatus(it.startMs, it.status, nowMs) == "finished" },
-            HomeFilter.HIGHLIGHTS to (feed?.highlights?.size ?: 0),
-            HomeFilter.MOVIES to (movies.size + series.size),
-            HomeFilter.CHANNELS to channels.size,
-        )
+    var errorSinceMs by remember { mutableLongStateOf(0L) }
+    var showError by remember { mutableStateOf(false) }
+    LaunchedEffect(state) {
+        if (state is FeedState.Error) {
+            if (errorSinceMs == 0L) errorSinceMs = System.currentTimeMillis()
+            val elapsed = System.currentTimeMillis() - errorSinceMs
+            if (elapsed < 3000L) {
+                delay(3000L - elapsed)
+            }
+            if (state is FeedState.Error) showError = true
+        } else {
+            errorSinceMs = 0L
+            showError = false
+        }
+    }
+
+    BackHandler(enabled = section != MainSection.HOME) {
+        onSectionChange(MainSection.HOME)
+    }
+
+    val playChannel: (Channel) -> Unit = { onPlayer(ChannelTarget(it)) }
+    val playSeriesOrMovie: (Any) -> Unit = { item ->
+        if (item is Movie) onPlayer(MovieTarget(item))
+        if (item is Series && item.seasons.isNotEmpty() && item.seasons.first().episodes.isNotEmpty()) {
+            val season = item.seasons.first()
+            val ep = season.episodes.first()
+            onPlayer(EpisodeTarget(item, season, ep))
+        }
     }
 
     Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
         Column(Modifier.fillMaxSize().appBackground()) {
-            HomeHeader(onSettings)
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(top = 20.dp, bottom = 16.dp),
-            ) {
-                items(HomeFilter.entries) { item ->
-                    FilterChip(item, counts[item] ?: 0, filter == item) { filter = item; }
-                }
-            }
-            // FEED: Always show the loading shimmer for at least 3 seconds on first open.
-            // After 3s: show content if ready, or error if still failing.
-            var minDelayPassed by remember { mutableStateOf(false) }
-            LaunchedEffect(Unit) {
-                delay(3000L)
-                minDelayPassed = true
-            }
+            HomeHeader(onSettings, onDownloads)
+            MainSectionTabs(selected = section, onSelect = onSectionChange)
 
-            // FEED: Grace period — don't flash "Can't reach server" instantly on first load.
-            // Only show ErrorState after the error has persisted for at least 3 seconds.
-            var errorSinceMs by remember { mutableLongStateOf(0L) }
-            var showError by remember { mutableStateOf(false) }
-            LaunchedEffect(state) {
-                if (state is FeedState.Error) {
-                    if (errorSinceMs == 0L) errorSinceMs = System.currentTimeMillis()
-                    val elapsed = System.currentTimeMillis() - errorSinceMs
-                    if (elapsed < 3000L) {
-                        delay(3000L - elapsed)
-                    }
-                    // Only flip to error if we're still in Error state (not recovered)
-                    if (state is FeedState.Error) showError = true
-                } else {
-                    errorSinceMs = 0L
-                    showError = false
-                }
-            }
+            Box(Modifier.weight(1f)) {
+                when (section) {
+                    MainSection.HOME -> HomeSummary(
+                        movies = movies,
+                        channels = channels,
+                        events = events,
+                        downloads = downloads,
+                        nowMs = nowMs,
+                        onOpenLimited = { onSectionChange(MainSection.MOVIES) },
+                        onDownload = ::requestDownload,
+                        onOpenDownloads = onDownloads,
+                        onOpenMovies = { onSectionChange(MainSection.MOVIES) },
+                        onOpenChannels = { onSectionChange(MainSection.CHANNELS) },
+                        onOpenSports = { onSectionChange(MainSection.SPORTS) },
+                        onWatchChannel = playChannel,
+                        onPlayer = onPlayer,
+                        selectTarget = { target -> selectTarget(target, onPlayer, { dialogTarget = it }, context) },
+                    )
 
-            if (filter == HomeFilter.MOVIES) {
-                if (mediaState is MediaFeedState.Loading) {
-                    LoadingList()
-                } else {
-                    MoviesScreen(movies = movies, series = series, onWatch = { item -> 
-                        if (item is Movie) onPlayer(MovieTarget(item))
-                        if (item is Series && item.seasons.isNotEmpty() && item.seasons.first().episodes.isNotEmpty()) {
-                            val season = item.seasons.first()
-                            val ep = season.episodes.first()
-                            onPlayer(EpisodeTarget(item, season, ep))
-                        }
-                    })
-                }
-            } else if (filter == HomeFilter.CHANNELS) {
-                if (channelState is ChannelFeedState.Loading) {
-                    LoadingList()
-                } else {
-                    ChannelsScreen(channels = channels, onWatch = { channel -> onPlayer(ChannelTarget(channel)) })
-                }
-            } else {
-                when (val current = state) {
-                    FeedState.Loading -> LoadingList()
-                    FeedState.Error -> if (minDelayPassed && showError) ErrorState { scope.launch { repository.load() } } else LoadingList()
-                    is FeedState.Ready -> if (!minDelayPassed) LoadingList() else {
-                        val items = when (filter) {
-                            HomeFilter.HIGHLIGHTS -> current.feed.highlights.map { it as Any }
-                            else -> current.feed.events.filter {
-                                filter == HomeFilter.ALL || effectiveStatus(it.startMs, it.status, nowMs) == filter.name.lowercase()
-                            }.map { it as Any }
-                        }
-                        if (items.isEmpty()) {
-                            EmptyState(if (filter == HomeFilter.HIGHLIGHTS) "No highlights yet." else "No events here yet.")
+                    MainSection.SPORTS -> SportsContent(
+                        state = state,
+                        minDelayPassed = minDelayPassed,
+                        showError = showError,
+                        selectedTab = sportsTab,
+                        onSelectTab = { sportsTab = it },
+                        nowMs = nowMs,
+                        onRetry = { scope.launch { repository.load() } },
+                        onEvent = { selectTarget(EventTarget(it), onPlayer, { dialogTarget = it }, context) },
+                        onHighlight = { selectTarget(HighlightTarget(it), onPlayer, { dialogTarget = it }, context) },
+                    )
+
+                    MainSection.MOVIES -> {
+                        if (mediaState is MediaFeedState.Loading && movies.isEmpty()) {
+                            LoadingList()
                         } else {
-                            LazyColumn(
-                                state = listState,
-                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 44.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
-                                modifier = Modifier.fillMaxSize(),
-                            ) {
-                                items(items, key = { item -> if (item is Event) "event-${item.id}" else "highlight-${(item as Highlight).id}" }) { item ->
-                                    when (item) {
-                                        is Event -> EventCard(item, nowMs, {
-                                            selectTarget(EventTarget(item), onPlayer, { dialogTarget = it }, context)
-                                        })
-                                        is Highlight -> HighlightCard(item, {
-                                            selectTarget(HighlightTarget(item), onPlayer, { dialogTarget = it }, context)
-                                        })
-                                    }
-                                }
-                            }
+                            MoviesScreen(
+                                movies = movies,
+                                series = series,
+                                onWatch = playSeriesOrMovie,
+                                onDownload = { movie -> requestDownload(movie) },
+                                focusLimited = focusLimited,
+                                onFocusConsumed = onFocusConsumed,
+                            )
+                        }
+                    }
+
+                    MainSection.CHANNELS -> {
+                        if (channelState is ChannelFeedState.Loading && channels.isEmpty()) {
+                            LoadingList()
+                        } else {
+                            ChannelsScreen(channels = channels, onWatch = playChannel)
                         }
                     }
                 }
@@ -248,6 +308,503 @@ fun HomeScreen(
             onDismiss = { dialogTarget = null },
             onPick = { server -> dialogTarget = null; onPlayer(target.withServer(server)) },
         )
+    }
+
+    mobileConfirmDownload?.let { movie ->
+        AlertDialog(
+            onDismissRequest = { mobileConfirmDownload = null },
+            containerColor = LinkColors.CardBg,
+            title = { Text("Download over mobile data?", color = LinkColors.PrimaryText) },
+            text = { Text(DownloadConditions.MOBILE_DATA_MESSAGE, color = LinkColors.MutedText) },
+            confirmButton = {
+                TextButton(onClick = {
+                    mobileConfirmDownload = null
+                    requestDownloadPermissions(movie)
+                }) { Text("Download", color = LinkColors.OrangePrimary) }
+            },
+            dismissButton = {
+                TextButton(onClick = { mobileConfirmDownload = null }) {
+                    Text("Cancel", color = LinkColors.MutedText)
+                }
+            },
+        )
+    }
+
+    if (showDownloadRationale) {
+        AlertDialog(
+            onDismissRequest = { showDownloadRationale = false; pendingDownload = null },
+            containerColor = LinkColors.CardBg,
+            title = { Text("Allow download permissions", color = LinkColors.PrimaryText) },
+            text = {
+                Text(
+                    "Notifications show download progress. On Android 9 and older, storage access saves the file to your Downloads folder.",
+                    color = LinkColors.MutedText,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDownloadRationale = false
+                    val missing = buildList {
+                        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
+                            context.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+                        ) add(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                        ) add(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    if (missing.isEmpty()) {
+                        pendingDownload?.let { enqueueDownload(it) }
+                        pendingDownload = null
+                    } else {
+                        downloadPermissionLauncher.launch(missing.toTypedArray())
+                    }
+                }) { Text("Continue", color = LinkColors.OrangePrimary) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDownloadRationale = false; pendingDownload = null }) {
+                    Text("Not now", color = LinkColors.MutedText)
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun MainSectionTabs(selected: MainSection, onSelect: (MainSection) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        MainSection.entries.forEach { item ->
+            val isSelected = selected == item
+            Box(
+                Modifier.weight(1f)
+                    .heightIn(min = 48.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (isSelected) LinkColors.OrangePrimary else LinkColors.CardBg.copy(alpha = 0.55f))
+                    .clickable { onSelect(item) }
+                    .padding(horizontal = 4.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    item.label,
+                    color = if (isSelected) Color.Black else LinkColors.MutedText,
+                    fontSize = 12.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeSummary(
+    movies: List<Movie>,
+    channels: List<Channel>,
+    events: List<Event>,
+    downloads: List<DownloadItem>,
+    nowMs: Long,
+    onOpenLimited: () -> Unit,
+    onDownload: (Movie) -> Unit,
+    onOpenDownloads: () -> Unit,
+    onOpenMovies: () -> Unit,
+    onOpenChannels: () -> Unit,
+    onOpenSports: () -> Unit,
+    onWatchChannel: (Channel) -> Unit,
+    onPlayer: (PlayerTarget) -> Unit,
+    selectTarget: (PlayerTarget) -> Unit,
+) {
+    val homeMovies = remember(movies) { movies.filter { it.translated }.ifEmpty { movies } }
+    val newlyAdded = remember(homeMovies) { homeMovies.takeLast(10).reversed() }
+    val trending = remember(homeMovies) { homeMovies.take(10) }
+    val bannerMovie = remember(movies, nowMs) { TimeLimitedBannerSelector.select(movies, nowMs) }
+    val newestLimited = remember(movies, nowMs) { TimeLimitedBannerSelector.newest(movies, nowMs) }
+    val homeSportsEvents = remember(events) {
+        events.sortedByDescending { it.startMs ?: Long.MIN_VALUE }
+    }
+    val recentDownloads = remember(downloads, nowMs) {
+        val weekAgo = nowMs - 7L * 24L * 60L * 60L * 1000L
+        downloads.filter {
+            it.isActive || (it.status == DownloadStatus.COMPLETED && it.updatedAt >= weekAgo)
+        }.take(3)
+    }
+
+    LazyColumn(
+        contentPadding = PaddingValues(bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        bannerMovie?.let { movie ->
+            item(key = "home-limited") {
+                HomeTimeLimitedBanner(
+                    movie = movie,
+                    nowMs = nowMs,
+                    onOpenMovies = onOpenLimited,
+                    onWatch = { selectTarget(MovieTarget(movie)) },
+                    onDownload = { onDownload(movie) },
+                )
+            }
+        }
+
+        if (recentDownloads.isNotEmpty()) {
+            item(key = "home-downloads") {
+                HomeDownloadsSummary(
+                    items = recentDownloads,
+                    onClick = onOpenDownloads,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
+        }
+
+        if (newlyAdded.isNotEmpty()) {
+            item(key = "home-newly") {
+                HomeRailHeader(title = "Newly Added", onViewAll = onOpenMovies)
+                HomeMovieRail(
+                    movies = newlyAdded,
+                    onWatch = { item -> onPlayer(MovieTarget(item)) },
+                )
+            }
+        }
+
+        if (newestLimited.isNotEmpty()) {
+            item(key = "home-limited-rail") {
+                HomeRailHeader(title = "Limited Time", onViewAll = onOpenLimited)
+                HomeMovieRail(
+                    movies = newestLimited,
+                    onWatch = { item -> onPlayer(MovieTarget(item)) },
+                )
+            }
+        }
+
+        if (homeSportsEvents.isNotEmpty()) {
+            item(key = "home-sports-rail") {
+                HomeRailHeader(title = "Sports Events", onViewAll = onOpenSports)
+                HomeSportsRail(
+                    events = homeSportsEvents,
+                    nowMs = nowMs,
+                    onWatch = { event -> selectTarget(EventTarget(event)) },
+                )
+            }
+        }
+
+        if (trending.isNotEmpty()) {
+            item(key = "home-trending") {
+                HomeRailHeader(title = "Trending", onViewAll = onOpenMovies)
+                HomeMovieRail(
+                    movies = trending,
+                    onWatch = { item -> onPlayer(MovieTarget(item)) },
+                )
+            }
+        }
+
+        if (channels.isNotEmpty()) {
+            item(key = "home-channels") {
+                HomeRailHeader(title = "Channels", onViewAll = onOpenChannels)
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    items(channels.take(10), key = { it.id }) { channel ->
+                        Box(Modifier.width(112.dp)) {
+                            ChannelCard(channel = channel, onClick = { onWatchChannel(channel) })
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeRailHeader(title: String, onViewAll: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            title,
+            color = LinkColors.PrimaryText,
+            fontFamily = DisplayFont,
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp,
+        )
+        Box(
+            Modifier.heightIn(min = 48.dp).clickable(onClick = onViewAll).padding(horizontal = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                "View all",
+                color = LinkColors.OrangePrimary,
+                fontFamily = MonoFont,
+                fontSize = 12.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HomeMovieRail(movies: List<Movie>, onWatch: (Movie) -> Unit) {
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        items(movies, key = { it.id }) { movie ->
+            MediaCard(item = movie, onClick = { onWatch(movie) })
+        }
+    }
+}
+
+@Composable
+private fun HomeSportsRail(
+    events: List<Event>,
+    nowMs: Long,
+    onWatch: (Event) -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val pageWidth = (maxWidth - 16.dp - 16.dp - 12.dp).coerceAtLeast(220.dp)
+        val state = rememberLazyListState()
+        LazyRow(
+            state = state,
+            contentPadding = PaddingValues(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            flingBehavior = rememberSnapFlingBehavior(state),
+        ) {
+            items(events, key = { it.id }) { event ->
+                Box(Modifier.width(pageWidth)) {
+                    EventCard(event = event, nowMs = nowMs) { onWatch(event) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeDownloadsSummary(
+    items: List<DownloadItem>,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val active = items.count { it.isActive }
+    val title = if (active > 0) "$active download${if (active == 1) "" else "s"} in progress" else "Recently downloaded"
+    val subtitle = buildString {
+        append(items.first().title)
+        if (items.size > 1) append(" +${items.size - 1} more")
+    }
+    Row(
+        modifier
+            .fillMaxWidth()
+            .heightIn(min = 60.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(LinkColors.CardBg)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Box(
+            Modifier.size(40.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(LinkColors.OrangePrimary.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(Icons.Default.Download, null, tint = LinkColors.OrangePrimary, modifier = Modifier.size(19.dp))
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, color = LinkColors.PrimaryText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        Text("Open", color = LinkColors.OrangePrimary, fontFamily = MonoFont, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun SportsContent(
+    state: FeedState,
+    minDelayPassed: Boolean,
+    showError: Boolean,
+    selectedTab: SportsTab,
+    onSelectTab: (SportsTab) -> Unit,
+    nowMs: Long,
+    onRetry: () -> Unit,
+    onEvent: (Event) -> Unit,
+    onHighlight: (Highlight) -> Unit,
+) {
+    val events = (state as? FeedState.Ready)?.feed?.events.orEmpty()
+    val highlights = (state as? FeedState.Ready)?.feed?.highlights.orEmpty()
+    val counts = remember(events, highlights, nowMs) {
+        mapOf(
+            SportsTab.LIVE to events.count { effectiveStatus(it.startMs, it.status, nowMs) == "live" },
+            SportsTab.UPCOMING to events.count { effectiveStatus(it.startMs, it.status, nowMs) == "upcoming" },
+            SportsTab.FINISHED to events.count { effectiveStatus(it.startMs, it.status, nowMs) == "finished" },
+            SportsTab.HIGHLIGHTS to highlights.size,
+        )
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        SportsSubTabs(selected = selectedTab, counts = counts, onSelect = onSelectTab)
+        Box(Modifier.weight(1f)) {
+            when (state) {
+                FeedState.Loading -> LoadingList()
+                FeedState.Error -> if (minDelayPassed && showError) ErrorState(onRetry) else LoadingList()
+                is FeedState.Ready -> {
+                    if (!minDelayPassed) {
+                        LoadingList()
+                    } else {
+                        val list: List<Any> = when (selectedTab) {
+                            SportsTab.HIGHLIGHTS -> highlights.map { it as Any }
+                            else -> events.filter {
+                                effectiveStatus(it.startMs, it.status, nowMs) == selectedTab.name.lowercase()
+                            }.map { it as Any }
+                        }
+                        if (list.isEmpty()) {
+                            EmptyState(if (selectedTab == SportsTab.HIGHLIGHTS) "No highlights yet." else "No events here yet.")
+                        } else {
+                            LazyColumn(
+                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.fillMaxSize(),
+                            ) {
+                                items(
+                                    list,
+                                    key = { item ->
+                                        if (item is Event) "event-${item.id}" else "highlight-${(item as Highlight).id}"
+                                    },
+                                ) { item ->
+                                    when (item) {
+                                        is Event -> EventCard(item, nowMs) { onEvent(item) }
+                                        is Highlight -> HighlightCard(item) { onHighlight(item) }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SportsSubTabs(
+    selected: SportsTab,
+    counts: Map<SportsTab, Int>,
+    onSelect: (SportsTab) -> Unit,
+) {
+    LazyRow(
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+    ) {
+        items(SportsTab.entries, key = { it.name }) { tab ->
+            val isSelected = selected == tab
+            Column(
+                Modifier.heightIn(min = 48.dp).clickable { onSelect(tab) }.padding(top = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    "${tab.label} ${counts[tab] ?: 0}",
+                    color = if (isSelected) LinkColors.OrangePrimary else LinkColors.MutedText,
+                    fontSize = 13.sp,
+                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 1,
+                )
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    Modifier
+                        .height(2.dp)
+                        .width(if (isSelected) 28.dp else 0.dp)
+                        .background(LinkColors.OrangePrimary, RoundedCornerShape(99.dp))
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeTimeLimitedBanner(
+    movie: Movie,
+    nowMs: Long,
+    onOpenMovies: () -> Unit,
+    onWatch: () -> Unit,
+    onDownload: () -> Unit,
+) {
+    val tl = movie.timeLimited ?: return
+    val state = movie.effectiveTimeLimitedState(nowMs) ?: return
+    Row(
+        Modifier.fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Brush.horizontalGradient(listOf(Color(0xFF1C1008), LinkColors.CardBg)))
+            .clickable(onClick = onOpenMovies)
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.background(LinkColors.OrangePrimary, RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        when (state) {
+                            TimeLimitedState.LIVE -> "LIMITED TIME"
+                            TimeLimitedState.UPCOMING -> "COMING SOON"
+                            TimeLimitedState.ENDED -> "ENDED"
+                        },
+                        color = Color.Black, fontFamily = MonoFont, fontSize = 7.sp, fontWeight = FontWeight.Bold,
+                    )
+                }
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    when (state) {
+                        TimeLimitedState.LIVE -> timeLimitedRemainingText(tl, nowMs)
+                        TimeLimitedState.UPCOMING -> "Starts in ${timeLimitedStartCountdown(tl, nowMs)}"
+                        TimeLimitedState.ENDED -> "Window ended"
+                    },
+                    color = LinkColors.OrangePrimary, fontFamily = MonoFont, fontSize = 9.sp,
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(movie.title, color = LinkColors.PrimaryText, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                "Available ${formatEatDateTime(tl.startAtMs)} EAT for ${formatDuration(tl.durationHours)}",
+                color = LinkColors.MutedText,
+                fontFamily = MonoFont,
+                fontSize = 9.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Button(
+                onClick = onWatch,
+                colors = ButtonDefaults.buttonColors(containerColor = LinkColors.OrangePrimary),
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                Text(
+                    if (state == TimeLimitedState.LIVE) "Watch" else "Details",
+                    color = Color.Black,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            if (DownloadSupport.canDownload(movie, nowMs)) {
+                IconButton(
+                    onClick = onDownload,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(LinkColors.CardBg, RoundedCornerShape(12.dp))
+                ) {
+                    Icon(Icons.Default.Download, "Download", tint = LinkColors.OrangePrimary, modifier = Modifier.size(18.dp))
+                }
+            }
+        }
     }
 }
 
@@ -265,9 +822,9 @@ private fun selectTarget(
 }
 
 @Composable
-private fun HomeHeader(onSettings: () -> Unit) {
+private fun HomeHeader(onSettings: () -> Unit, onDownloads: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 4.dp),
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
@@ -279,7 +836,7 @@ private fun HomeHeader(onSettings: () -> Unit) {
                     ambientColor = LinkColors.OrangePrimary.copy(alpha = 0.35f),
                     spotColor = LinkColors.OrangePrimary.copy(alpha = 0.35f)
                 ).background(
-                    Brush.verticalGradient(listOf(LinkColors.OrangeLight, LinkColors.OrangePrimary)), 
+                    Brush.verticalGradient(listOf(LinkColors.OrangeLight, LinkColors.OrangePrimary)),
                     RoundedCornerShape(13.dp)
                 ),
                 contentAlignment = Alignment.Center,
@@ -291,65 +848,13 @@ private fun HomeHeader(onSettings: () -> Unit) {
                 Text("Your Home For Streams", color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 9.5.sp, modifier = Modifier.padding(top = 5.dp), letterSpacing = .4.sp)
             }
         }
-        IconButton(
-            onClick = onSettings, 
-            modifier = Modifier.size(38.dp)
-                .background(LinkColors.CardBg, RoundedCornerShape(12.dp))
-                .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
-        ) {
-            Icon(Icons.Default.Settings, "Settings", tint = LinkColors.OrangePrimary, modifier = Modifier.size(18.dp))
-        }
-    }
-}
-
-@Composable
-private fun FilterChip(filter: HomeFilter, count: Int, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .shadow(
-                elevation = if (selected) 8.dp else 0.dp,
-                shape = RoundedCornerShape(999.dp),
-                ambientColor = if (selected) LinkColors.OrangePrimary.copy(alpha = 0.35f) else Color.Transparent,
-                spotColor = if (selected) LinkColors.OrangePrimary.copy(alpha = 0.35f) else Color.Transparent
-            )
-            .background(
-                brush = if (selected) Brush.verticalGradient(listOf(LinkColors.OrangeLight, LinkColors.OrangePrimary))
-                        else Brush.verticalGradient(listOf(Color(0xFF0A0A0A), Color(0xFF0A0A0A))),
-                shape = RoundedCornerShape(999.dp)
-            )
-            .border(
-                width = 1.dp,
-                color = if (selected) LinkColors.OrangePrimary else LinkColors.OrangePrimary.copy(alpha = 0.28f),
-                shape = RoundedCornerShape(999.dp)
-            )
-            .clip(RoundedCornerShape(999.dp))
-            .clickable(onClick = onClick)
-    ) {
-        Row(
-            Modifier.padding(horizontal = 15.dp, vertical = 9.dp), 
-            verticalAlignment = Alignment.CenterVertically, 
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            if (filter == HomeFilter.HIGHLIGHTS) {
-                Icon(
-                    Icons.Default.PlayArrow, 
-                    null, 
-                    tint = if (selected) Color.Black else Color(0xFFB39A86), 
-                    modifier = Modifier.size(14.dp)
-                )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onDownloads, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Default.Download, "Downloads", tint = LinkColors.OrangePrimary, modifier = Modifier.size(20.dp))
             }
-            Text(
-                text = filter.label, 
-                color = if (selected) Color.Black else Color(0xFFB39A86), 
-                fontSize = 13.sp, 
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium
-            )
-            Text(
-                text = count.toString(), 
-                color = if (selected) Color.Black.copy(alpha = 0.7f) else Color(0xFF7A6656), 
-                fontFamily = MonoFont, 
-                fontSize = 11.sp
-            )
+            IconButton(onClick = onSettings, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Default.Settings, "Settings", tint = LinkColors.OrangePrimary, modifier = Modifier.size(20.dp))
+            }
         }
     }
 }
@@ -368,7 +873,7 @@ private fun LoadingList() {
     )
 
     LazyColumn(
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 44.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
@@ -399,14 +904,15 @@ private fun ErrorState(onRetry: () -> Unit) {
             Text("Can't reach the server", color = LinkColors.PrimaryText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             Text("Check your connection and try again.", color = LinkColors.MutedText, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
             Button(
-                onClick = onRetry, 
-                modifier = Modifier.padding(top = 18.dp),
+                onClick = onRetry,
+                modifier = Modifier.padding(top = 18.dp).heightIn(min = 48.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = LinkColors.OrangePrimary,
                     contentColor = Color.Black
-                )
-            ) { 
-                Text("Retry") 
+                ),
+                shape = RoundedCornerShape(10.dp),
+            ) {
+                Text("Retry")
             }
         }
     }
@@ -418,4 +924,3 @@ private fun EmptyState(message: String) {
         Text(message, color = LinkColors.MutedText, fontSize = 13.sp)
     }
 }
-

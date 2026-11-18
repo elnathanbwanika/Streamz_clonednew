@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import coil.Coil
 import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
@@ -76,11 +77,12 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
         Box(
             Modifier.fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
-                .background(LinkColors.CardBg, RoundedCornerShape(8.dp))
-                .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.16f), RoundedCornerShape(8.dp))
-                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .height(52.dp)
+                .background(LinkColors.CardBg, RoundedCornerShape(12.dp))
+                .padding(horizontal = 14.dp),
+            contentAlignment = Alignment.CenterStart
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Search, null, tint = LinkColors.MutedText, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
                 Box(Modifier.weight(1f)) {
@@ -99,18 +101,18 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
             Row(
                 Modifier.fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .clip(RoundedCornerShape(8.dp))
+                    .height(40.dp)
+                    .clip(RoundedCornerShape(12.dp))
                     .background(Color(0xFF0A0A0A))
-                    .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.16f), RoundedCornerShape(8.dp))
             ) {
                 listOf(true to "Local", false to "Abroad").forEach { (local, label) ->
                     val selected = localFilter == local
                     Box(
                         Modifier.weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(12.dp))
                             .background(if (selected) LinkColors.OrangePrimary else Color.Transparent)
-                            .clickable { localFilter = local; catFilter = null }
-                            .padding(vertical = 10.dp),
+                            .clickable { localFilter = local; catFilter = null },
                         contentAlignment = Alignment.Center
                     ) {
                         Text(label, color = if (selected) Color.Black else LinkColors.MutedText, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
@@ -125,7 +127,7 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
 
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item { CategoryChip("All", catFilter == null) { catFilter = null } }
                 items(scopedCategories) { cat -> CategoryChip(cat, catFilter == cat) { catFilter = if (catFilter == cat) null else cat } }
@@ -136,9 +138,9 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
         // ── Vertical 4-column Grid ─────────────────────────────────────────
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 76.dp),
-            contentPadding = PaddingValues(start = 12.dp, end = 12.dp, top = 4.dp, bottom = 90.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
             modifier = Modifier.fillMaxSize()
         ) {
             if (isSearch) {
@@ -257,7 +259,6 @@ private fun SectionHeader(title: String, count: Int, modifier: Modifier = Modifi
             modifier = Modifier
                 .clip(RoundedCornerShape(999.dp))
                 .background(PILL_BG)
-                .border(0.5.dp, PILL_BORDER, RoundedCornerShape(999.dp))
                 .padding(horizontal = 8.dp, vertical = 2.dp),
             contentAlignment = Alignment.Center
         ) {
@@ -276,10 +277,11 @@ private fun CategoryChip(label: String, selected: Boolean, onClick: () -> Unit) 
     Box(
         Modifier
             .clip(RoundedCornerShape(999.dp))
+            .height(40.dp)
             .background(if (selected) LinkColors.OrangePrimary else Color(0xFF0A0A0A))
-            .border(1.dp, LinkColors.OrangePrimary.copy(alpha = if (selected) 1f else 0.28f), RoundedCornerShape(999.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 7.dp)
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.Center
     ) {
         Text(label, color = if (selected) Color.Black else LinkColors.MutedText, fontSize = 12.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
     }
@@ -294,12 +296,6 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit) {
         animationSpec = tween(100),
         label = "channel_card_scale"
     )
-    val borderColor by animateColorAsState(
-        targetValue = if (isPressed) CARD_BORDER_PRESS else CARD_BORDER_REST,
-        animationSpec = tween(100),
-        label = "channel_card_border"
-    )
-
     // Soft pulse for live dot: alpha 1.0 to 0.4 and back over 1.6s
     val infiniteTransition = rememberInfiniteTransition(label = "live_pulse")
     val liveAlpha by infiniteTransition.animateFloat(
@@ -317,6 +313,11 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit) {
     val hasLogo = logoUrl.isNotBlank()
 
     val context = LocalContext.current
+    val imageLoader = if (ContentRouting.isLocalChannel(channel)) {
+        AppImages.direct(context)
+    } else {
+        Coil.imageLoader(context)
+    }
 
     val modelData = remember(logoUrl) {
         when {
@@ -345,7 +346,6 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit) {
             .scale(scale)
             .clip(cardShape)
             .background(CARD_BG)
-            .border(1.dp, borderColor, cardShape)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -364,6 +364,7 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit) {
                 SubcomposeAsyncImage(
                     model = imageRequest,
                     contentDescription = channel.title,
+                    imageLoader = imageLoader,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize()
                 ) {
@@ -399,6 +400,11 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit) {
                         .background(LIVE_RED.copy(alpha = liveAlpha), CircleShape)
                 )
             }
+
+            TvBadgeOverlay(
+                placement = channel.tvBadge?.card,
+                modifier = Modifier.matchParentSize(),
+            )
         }
 
         // ── Bottom section (label): directly under thumbnail ───────────────

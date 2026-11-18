@@ -31,23 +31,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
-import coil.request.ImageRequest
 
 @Composable
 fun EventCard(
@@ -112,6 +107,7 @@ fun SingleItemCard(
     statusText: String?,
     isLive: Boolean,
     onClick: () -> Unit,
+    imageLoader: coil.ImageLoader? = null,
 ) {
     CardFrame(onClick = onClick) {
         CardLeague(
@@ -126,7 +122,7 @@ fun SingleItemCard(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            TeamSide(team, right = false, Modifier.weight(1f))
+            TeamSide(team, right = false, Modifier.weight(1f), imageLoader = imageLoader)
             if (statusText != null) {
                 Text(
                     statusText,
@@ -149,7 +145,7 @@ private fun CardFrame(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     
-    val borderAlpha by animateFloatAsState(targetValue = if (isPressed) 0.50f else 0.16f, label = "borderAlpha")
+    val borderAlpha by animateFloatAsState(targetValue = if (isPressed) 0.12f else 0.08f, label = "borderAlpha")
     val scale by animateFloatAsState(targetValue = if (isPressed) 0.99f else 1f, label = "scale")
 
     Column(
@@ -220,15 +216,20 @@ private fun MatchRow(
 }
 
 @Composable
-private fun TeamSide(team: Team?, right: Boolean, modifier: Modifier = Modifier) {
+private fun TeamSide(
+    team: Team?,
+    right: Boolean,
+    modifier: Modifier = Modifier,
+    imageLoader: coil.ImageLoader? = null,
+) {
     Row(
         modifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = if (right) Arrangement.End else Arrangement.Start,
     ) {
         if (!right) {
-            team?.let { Crest(it) }
-            Spacer(Modifier.width(8.dp))
+            team?.let { Crest(it, imageLoader = imageLoader) }
+            Spacer(Modifier.width(12.dp))
         }
         Text(
             team?.name ?: "Highlight",
@@ -240,56 +241,21 @@ private fun TeamSide(team: Team?, right: Boolean, modifier: Modifier = Modifier)
             textAlign = if (right) TextAlign.End else TextAlign.Start,
         )
         if (right) {
-            Spacer(Modifier.width(8.dp))
-            team?.let { Crest(it) }
+            Spacer(Modifier.width(12.dp))
+            team?.let { Crest(it, imageLoader = imageLoader) }
         }
     }
 }
 
 @Composable
-fun Crest(team: Team, size: androidx.compose.ui.unit.Dp = 36.dp) {
-    val background = when (team.crestClass) {
-        "f-ht" -> Brush.verticalGradient(listOf(Color(0xFF00209F), Color(0xFFD21034)))
-        "f-cr" -> Brush.verticalGradient(listOf(Color(0xFF002B7F), Color.White, Color(0xFFCE1126), Color.White, Color(0xFF002B7F)))
-        "f-cw" -> Brush.verticalGradient(listOf(Color(0xFF002B7F), Color(0xFFF9E814), Color(0xFF002B7F)))
-        "f-ni" -> Brush.verticalGradient(listOf(Color(0xFF0067C6), Color.White, Color(0xFF0067C6)))
-        "f-dm" -> Brush.verticalGradient(listOf(Color(0xFF0A6E2A), Color(0xFFF5D600), Color(0xFF111111)))
-        "f-pr" -> Brush.verticalGradient(listOf(Color(0xFFD0202F), Color.White, Color(0xFFD0202F)))
-        "f-in" -> Brush.verticalGradient(listOf(Color(0xFFFF9933), Color.White, Color(0xFF138808)))
-        "f-np" -> Brush.linearGradient(listOf(Color(0xFFDC143C), Color(0xFF003893)))
-        "b1" -> Brush.linearGradient(listOf(Color(0xFFF5C400), Color(0xFF8A6D00)))
-        "b2" -> Brush.linearGradient(listOf(Color(0xFFF78FB3), Color(0xFFC2185B)))
-        "b3" -> Brush.linearGradient(listOf(Color(0xFFE2443A), Color(0xFF7A1010)))
-        else -> Brush.linearGradient(listOf(Color(0xFF5A6CFF), Color(0xFF1A2A86)))
-    }
-
+fun Crest(
+    team: Team,
+    size: androidx.compose.ui.unit.Dp = 44.dp,
+    imageLoader: coil.ImageLoader? = null,
+) {
     val fallbackText = team.initials.take(3).uppercase().takeIf { it.isNotBlank() } ?: "?"
 
-    Box(
-        Modifier
-            .size(size)
-            .shadow(
-                elevation = 3.dp,
-                shape = CircleShape,
-                ambientColor = Color.Black.copy(alpha = 0.6f),
-                spotColor = Color.Black.copy(alpha = 0.6f)
-            )
-            .clip(CircleShape)
-            .background(background)
-            .border(1.5.dp, Color.White.copy(alpha = 0.06f), CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        val textStyle = TextStyle(
-            color = Color.White,
-            fontSize = if (size < 32.dp) 10.5.sp else 11.sp,
-            fontWeight = FontWeight.Bold,
-            shadow = Shadow(
-                color = Color.Black.copy(alpha = 0.7f),
-                offset = Offset(0f, 2f),
-                blurRadius = 4f
-            )
-        )
-
+    Box(Modifier.size(size), contentAlignment = Alignment.Center) {
         if (!team.logo.isNullOrBlank()) {
             val modelData = remember(team.logo) {
                 if (team.logo.startsWith("data:image")) {
@@ -310,30 +276,32 @@ fun Crest(team: Team, size: androidx.compose.ui.unit.Dp = 36.dp) {
                     .crossfade(true)
                     .build(),
                 contentDescription = null,
-                contentScale = ContentScale.Inside,
-                modifier = Modifier.padding(3.dp).matchParentSize()
+                imageLoader = imageLoader ?: coil.Coil.imageLoader(LocalContext.current),
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize(),
             ) {
-                when (val state = painter.state) {
-                    is coil.compose.AsyncImagePainter.State.Loading -> {
-                        Text(fallbackText, style = textStyle)
-                    }
-                    is coil.compose.AsyncImagePainter.State.Error -> {
-                        android.util.Log.e("Crest", "Badge load failed for ${team.initials}: ${state.result.throwable.message}", state.result.throwable)
-                        Text(fallbackText, style = textStyle)
-                    }
-                    is coil.compose.AsyncImagePainter.State.Success -> {
-                        android.util.Log.d("Crest", "Rendering badge for ${team.initials}: ${team.logo}")
-                        SubcomposeAsyncImageContent()
-                    }
-                    else -> {
-                        Text(fallbackText, style = textStyle)
-                    }
+                when (painter.state) {
+                    is coil.compose.AsyncImagePainter.State.Success -> SubcomposeAsyncImageContent()
+                    else -> BadgeFallback(fallbackText, size)
                 }
             }
         } else {
-            android.util.Log.d("Crest", "Falling back to text for ${team.initials}")
-            Text(fallbackText, style = textStyle)
+            BadgeFallback(fallbackText, size)
         }
+    }
+}
+
+@Composable
+private fun BadgeFallback(text: String, size: androidx.compose.ui.unit.Dp) {
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(
+            text,
+            color = LinkColors.MutedText,
+            fontSize = if (size < 32.dp) 9.sp else 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
@@ -498,7 +466,7 @@ fun MiniCard(
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     
-    val borderAlpha by animateFloatAsState(targetValue = if (isPressed) 0.50f else 0.16f, label = "border")
+    val borderAlpha by animateFloatAsState(targetValue = if (isPressed) 0.12f else 0.08f, label = "border")
     val scale by animateFloatAsState(targetValue = if (isPressed) 0.99f else 1f, label = "scale")
 
     Row(
@@ -515,8 +483,8 @@ fun MiniCard(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        home?.let { Crest(it, 30.dp) }
-        away?.let { Crest(it, 30.dp) }
+        home?.let { Crest(it) }
+        away?.let { Crest(it) }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(title, color = LinkColors.PrimaryText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(subtitle, color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)

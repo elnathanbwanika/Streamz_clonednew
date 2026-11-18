@@ -29,7 +29,6 @@ class NoVpnServiceTest {
     private val forbidden = listOf(
         "VpnService",
         "BIND_VPN_SERVICE",
-        "FOREGROUND_SERVICE",
         "GoBackend",
         "wireguard.android",
         "com.wireguard.android",
@@ -61,13 +60,10 @@ class NoVpnServiceTest {
         assertFalse(text.contains("GoBackend"))
         assertFalse(text.contains("wireguard.android"))
 
-        // FOREGROUND_SERVICE may only appear as an explicit manifest-merger removal.
-        text.lines().filter { it.contains("FOREGROUND_SERVICE") }.forEach { line ->
-            assertTrue(
-                "FOREGROUND_SERVICE is not stripped: $line",
-                line.contains("tools:node=\"remove\""),
-            )
-        }
-        assertFalse(text.contains("foregroundServiceType"))
+        // Downloads are allowed to use a dataSync foreground service; VPN-backed
+        // foreground services are still forbidden.
+        assertFalse(text.contains("android:permission=\"android.permission.BIND_VPN_SERVICE\""))
+        assertTrue(text.contains("android:foregroundServiceType=\"dataSync\""))
+        assertFalse(text.contains("android:foregroundServiceType=\"specialUse\""))
     }
 }

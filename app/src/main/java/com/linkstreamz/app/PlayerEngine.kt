@@ -38,60 +38,25 @@ private const val STALL_TICKS_THRESHOLD = 80
 
 class PlayerEngine(
     private val context: Context,
-    private val baseClient: OkHttpClient,
     private val globalDelaySeconds: Int,
-    private val onFallback: () -> Unit
+    private val onFallback: () -> Unit,
 ) {
-    private val client = baseClient.newBuilder().addInterceptor { chain ->
-        val req = chain.request()
-        if (req.url.host.contains("googlevideo.com")) {
-            chain.proceed(req.newBuilder().header("Referer", "https://www.youtube.com/").build())
-        } else {
-            chain.proceed(req)
-        }
-    }.build()
-
     /**
-     * Creates a DataSource.Factory for ExoPlayer with:
-     * - Browser-like User-Agent and Accept headers
-     * - Correct Referer/Origin:
-     *     • googlevideo.com → Referer: https://www.youtube.com/ (required for YT CDN)
-     *     • everything else → Origin + Referer derived from the source host
-     * - OkHttp as the underlying client (so custom proxies are respected)
-     * - Any extra [headers] from the server config merged on top (highest priority)
+     * Creates a DataSource.Factory for ExoPlayer.
+     *
+     * Only headers configured on the server are applied. Origin/Referer are
+     * never synthesised: an IP-bound token usually rejects a request carrying a
+     * different Origin than the one that minted it.
      */
     private fun createDataSourceFactory(
         ctx: Context,
         headers: Map<String, String>,
-        sourceUrl: String
+        httpClient: OkHttpClient,
     ): DefaultDataSource.Factory {
-        val httpFactory = OkHttpDataSource.Factory(baseClient)
-
-        val merged = mutableMapOf(
-            "User-Agent" to "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36",
-            "Accept" to "*/*"
-        )
-        try {
-            val uri = Uri.parse(sourceUrl)
-            val host = uri.host ?: ""
-            when {
-                // YouTube CDN — must use www.youtube.com as Referer, not the CDN host
-                host.contains("googlevideo.com") -> {
-                    merged["Referer"] = "https://www.youtube.com/"
-                }
-                // Standard HTTP/HTTPS source — derive Origin and Referer from host
-                uri.scheme == "http" || uri.scheme == "https" -> {
-                    val origin = "${uri.scheme}://$host"
-                    merged["Origin"] = origin
-                    merged["Referer"] = "$origin/"
-                }
-            }
-        } catch (_: Exception) {}
-
-        // Server-supplied headers always win (e.g. custom Referer from content.json)
-        headers.forEach { (k, v) -> merged[k] = v }
-        httpFactory.setDefaultRequestProperties(merged)
-        AppLogger.d("Engine", "DataSourceFactory headers=${merged.keys} for $sourceUrl")
+        val httpFactory = OkHttpDataSource.Factory(httpClient)
+        val requestHeaders = PlayerRequestHeaders.build(headers)
+        httpFactory.setDefaultRequestProperties(requestHeaders)
+        AppLogger.d("Engine", "DataSourceFactory headers=${requestHeaders.keys}")
         return DefaultDataSource.Factory(ctx, httpFactory)
     }
 
@@ -123,12 +88,9 @@ class PlayerEngine(
                 while (cause != null) {
                     AppLogger.e("Engine", "Cause: ${cause.javaClass.simpleName} - ${cause.message}")
                     if (cause is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
-                        AppLogger.e("Engine", "InvalidResponseCode: ${cause.responseCode} for ${cause.dataSpec.uri}")
-                        cause.headerFields.entries.forEach { entry ->
-                            val k = entry.key ?: "(status-line)"
-                            val v = entry.value
-                            AppLogger.e("Engine", "  Header $k: $v")
-                        }
+                        val host = runCatching { Uri.parse(cause.dataSpec.uri.toString()).host }.getOrNull()
+                        AppLogger.e("Engine", "InvalidResponseCode: ${cause.responseCode} host=$host")
+                        AppLogger.e("Engine", "  Response headers: ${cause.headerFields.keys}")
                     }
                     cause = cause.cause
                 }
@@ -198,14 +160,33 @@ class PlayerEngine(
      * Branches on [serverMode] to select the correct playback pipeline.
      * [isCustom] skips proxy usage (used for the "Play your own link" feature).
      */
-    fun loadStream(server: StreamServer, isCustom: Boolean = false, autoplay: Boolean = true) {
+    fun loadStream(
+        server: StreamServer,
+        isCustom: Boolean = false,
+        autoplay: Boolean = true,
+        bypassTunnel: Boolean = false,
+    ) {
         val key = serverKey(server)
         // If we're already loading this exact server, don't cancel and restart — let it finish.
         if (key != null && key == loadingKey && loadJob?.isActive == true) {
-            AppLogger.d("Engine", "loadStream: already loading key=$key, skipping duplicate")
-            
+            AppLogger.d("Engine", "loadStream: already loading this server, skipping duplicate")
             return
         }
+
+        val testUrl = server.videoUrl ?: server.url ?: server.audioUrl
+        if (testUrl != null && (testUrl.startsWith("http://") || testUrl.startsWith("https://"))) {
+            val active = ActiveStream(
+                label = server.name,
+                url = testUrl,
+                headers = server.headers,
+                bypassTunnel = bypassTunnel,
+            )
+            StreamDiagnostics.set(active)
+            StreamTestRunner.runAutoOnce(context, active)
+        } else {
+            StreamDiagnostics.set(null)
+        }
+
         loadJob?.cancel()
         loadingKey = key
         loadJob = scope.launch {
@@ -215,8 +196,17 @@ class PlayerEngine(
             stallCount = 0
             lastPosition = 0L
 
+            // Cold start: wait briefly for Android's default network before any
+            // client, DNS lookup or data source is created.
+            withContext(Dispatchers.IO) {
+                NetworkBootstrap.prepareForStream(context, bypassTunnel)
+            }
+            val dataClient = HttpClients.streamClient(direct = bypassTunnel)
+            val mediaClient = dataClient
+
             val mode = serverMode(server)
-            AppLogger.d("Engine", "loadStream: mode=$mode key=$key")
+            val host = runCatching { Uri.parse(key ?: "").host }.getOrNull().orEmpty()
+            AppLogger.d("Engine", "loadStream: mode=$mode host=$host")
 
             when (mode) {
                 // ── MODE: muxed ───────────────────────────────────────────────────
@@ -237,9 +227,9 @@ class PlayerEngine(
                         // proxy.start() uses runBlocking internally → must run on IO, not Main
                         val proxy = withContext(Dispatchers.IO) {
                             StreamProxyServer(
-                                client = client,
+                                client = mediaClient,
                                 sourceUrl = muxedUrl,
-                                headers = server.headers,
+                                headers = PlayerRequestHeaders.build(server.headers),
                                 delaySeconds = effectiveDelay
                             ).also { it.start() }
                         }
@@ -256,34 +246,11 @@ class PlayerEngine(
                         muxedUrl
                     }
 
-                    val dataSourceFactory = if (server.useTokenAuth) {
-                        // TOKEN: Always register and mint a fresh token before play.
-                        // register() is idempotent; calling it every time ensures the
-                        // playerUrls map is populated even if the channel was never seen before.
-                        val channelId = Uri.parse(muxedUrl).pathSegments.firstOrNull()
-                        if (channelId != null) {
-                            val repo = TokenEngine.repo
-                            repo.register(channelId, StreamConfig.playerUrl(channelId))
-                            repo.activeChannel = channelId
-                            // Mint on the coroutine (already off main thread via Dispatchers.Main
-                            // but suspendable) so we don't block ExoPlayer's IO thread.
-                            runCatching {
-                                withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                    repo.tokenBlocking(channelId)
-                                }
-                            }.onFailure { AppLogger.e("Engine", "Token mint failed for $channelId", it) }
-                        }
-                        TokenDataSourceFactory(TokenEngine.repo, TokenEngine.cookies, TokenEngine.profile)
-                    } else {
-                        createDataSourceFactory(context, server.headers, muxedUrl)
-                    }
+                    val dataSourceFactory = createDataSourceFactory(context, server.headers, dataClient)
                     val mediaItem = androidx.media3.common.MediaItem.fromUri(playUrl)
                     val sourceFactory = DefaultMediaSourceFactory(context)
                         .setDataSourceFactory(dataSourceFactory)
-                    // Apply TokenErrorPolicy for token-protected channels (403 → remint → retry)
-                    if (server.useTokenAuth) {
-                        sourceFactory.setLoadErrorHandlingPolicy(TokenErrorPolicy(TokenEngine.repo))
-                    }
+                        .setLoadErrorHandlingPolicy(PlayerRetryPolicy())
                     val source = sourceFactory.createMediaSource(mediaItem)
 
                     AppLogger.d("Engine", "Before setMediaSource (muxed): pwr=${player.playWhenReady} state=${player.playbackState}")
@@ -304,10 +271,11 @@ class PlayerEngine(
                     isSyncing.value = false
 
                     fun buildSource(url: String): androidx.media3.exoplayer.source.MediaSource {
-                        val dsf = createDataSourceFactory(context, server.headers, url)
+                        val dsf = createDataSourceFactory(context, server.headers, dataClient)
                         val item = androidx.media3.common.MediaItem.fromUri(url)
                         return DefaultMediaSourceFactory(context)
                             .setDataSourceFactory(dsf)
+                            .setLoadErrorHandlingPolicy(PlayerRetryPolicy())
                             .createMediaSource(item)
                     }
 
@@ -319,7 +287,7 @@ class PlayerEngine(
                     // from audioSource, keeping them sample-synced automatically.
                     val mergedSource = MergingMediaSource(videoSource, audioSource)
 
-                    AppLogger.d("Engine", "Split: videoSrc=$videoSrc audioSrc=$audioSrc")
+                    AppLogger.d("Engine", "Split: loading separate video and audio sources")
                     AppLogger.d("Engine", "Before setMediaSource (split): pwr=${player.playWhenReady} state=${player.playbackState}")
                     player.setMediaSource(mergedSource)
                     
@@ -334,13 +302,14 @@ class PlayerEngine(
                     val audioSrc = server.audioUrl!! // non-null guaranteed by serverMode()
                     isSyncing.value = false
 
-                    val dataSourceFactory = createDataSourceFactory(context, server.headers, audioSrc)
+                    val dataSourceFactory = createDataSourceFactory(context, server.headers, dataClient)
                     val item = androidx.media3.common.MediaItem.fromUri(audioSrc)
                     val source = DefaultMediaSourceFactory(context)
                         .setDataSourceFactory(dataSourceFactory)
+                        .setLoadErrorHandlingPolicy(PlayerRetryPolicy())
                         .createMediaSource(item)
 
-                    AppLogger.d("Engine", "Audio-only: audioSrc=$audioSrc")
+                    AppLogger.d("Engine", "Audio-only: loading audio source")
                     AppLogger.d("Engine", "Before setMediaSource (audio-only): pwr=${player.playWhenReady} state=${player.playbackState}")
                     player.setMediaSource(source)
                     
@@ -416,7 +385,9 @@ class PlayerEngine(
      *   • split      — MergingMediaSource is discarded automatically by player.release().
      *   • audio-only — player released; no extra resources.
      */
-    fun release() { AppLogger.d("Engine", "release() called")
+    fun release() {
+        AppLogger.d("Engine", "release() called")
+        StreamDiagnostics.set(null)
         WgManager.setPlaybackActive(false)
         stopProxy()
         player.release()

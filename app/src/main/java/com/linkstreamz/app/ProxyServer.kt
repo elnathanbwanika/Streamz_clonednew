@@ -126,13 +126,9 @@ class StreamProxyServer(
     
     private fun buildRequest(url: String, range: String?): Request {
         val requestBuilder = Request.Builder().url(url)
-        val requestHeaders = mutableMapOf(
-            "User-Agent" to "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36",
-            "Accept" to "*/*",
-            "Accept-Encoding" to "identity", // prevent gzip so we can stream raw bytes
-        )
-        // Merge server-supplied headers last (highest priority — can override UA, add Referer, etc.)
-        headers.forEach { (k, v) -> requestHeaders[k] = v }
+        val requestHeaders = PlayerRequestHeaders.build(headers).toMutableMap()
+        requestHeaders["Accept"] = "*/*"
+        requestHeaders["Accept-Encoding"] = "identity"
         if (range != null) {
             requestHeaders["Range"] = range
         }
@@ -173,8 +169,7 @@ class StreamProxyServer(
                     override fun onResponse(call: Call, response: Response) {
                         AppLogger.d("Proxy", "Response: ${response.code} from ${request.url}")
                         if (!response.isSuccessful && response.code !in 200..299) {
-                            val bodyPreview = response.peekBody(200).string()
-                            AppLogger.e("Proxy", "Bad response: ${response.code}, body: $bodyPreview")
+                            AppLogger.e("Proxy", "Bad response: ${response.code}")
                         }
                         if (cont.isActive) cont.resume(response)
                     }

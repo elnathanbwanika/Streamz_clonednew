@@ -16,6 +16,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Remote feed state
@@ -82,26 +83,31 @@ class MoviesRepository {
         // Try dedicated movies.json first
         try {
             val req = okhttp3.Request.Builder().url("$CONTENT_BASE_URL/movies.json").get().build()
-            val resp = httpClient.newCall(req).execute()
-            if (resp.isSuccessful) {
-                val body = resp.body?.string() ?: throw IllegalStateException("Empty body")
-                val root = json.parseToJsonElement(body) as? JsonObject
-                    ?: throw IllegalStateException("Not a JSON object")
-                return parseMoviesFromRoot(root)
+            httpClient.newCall(req).execute().use { resp ->
+                ServerClock.updateFromDateHeader(resp.header("Date"))
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: throw IllegalStateException("Empty body")
+                    val root = json.parseToJsonElement(body) as? JsonObject
+                        ?: throw IllegalStateException("Not a JSON object")
+                    return parseMoviesFromRoot(root)
+                }
             }
         } catch (_: Exception) { /* fall through to root content.json */ }
 
         // Fallback: parse movies/series sections from root content.json
         val req = okhttp3.Request.Builder().url(CONTENT_JSON_URL).get().build()
-        val resp = httpClient.newCall(req).execute()
-        if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
-        val body = resp.body?.string() ?: throw IllegalStateException("Empty body")
-        val root = json.parseToJsonElement(body) as? JsonObject
-            ?: throw IllegalStateException("Not a JSON object")
-        return parseMoviesFromRoot(root)
+        return httpClient.newCall(req).execute().use { resp ->
+            ServerClock.updateFromDateHeader(resp.header("Date"))
+            if (!resp.isSuccessful) throw IllegalStateException("HTTP ${resp.code}")
+            val body = resp.body?.string() ?: throw IllegalStateException("Empty body")
+            val root = json.parseToJsonElement(body) as? JsonObject
+                ?: throw IllegalStateException("Not a JSON object")
+            parseMoviesFromRoot(root)
+        }
     }
 
     private fun parseMoviesFromRoot(root: JsonObject): Pair<List<Movie>, List<Series>> {
+        AppUpdateStore.ingest(root["appUpdate"])
         val moviesArray = root["movies"] as? JsonArray ?: JsonArray(emptyList())
         val seriesArray = root["series"] as? JsonArray ?: JsonArray(emptyList())
 
@@ -111,7 +117,9 @@ class MoviesRepository {
     }
 
     private fun parseMovie(obj: JsonObject, index: Int): Movie? {
-        val videoUrl = obj.str("video", "videoUrl", "url", "stream") ?: return null
+        val videoUrl = obj.str("video", "videoUrl", "url", "stream").orEmpty()
+        val timeLimited = TimeLimitedParser.parse(obj["timeLimited"])
+        if (videoUrl.isBlank() && timeLimited == null) return null
         return Movie(
             id    = obj.str("id") ?: "mv-${index + 1}",
             title = obj.str("title", "name") ?: return null,
@@ -122,6 +130,10 @@ class MoviesRepository {
             thumbUrl   = obj.str("thumb", "thumbnail", "poster", "image") ?: "https://picsum.photos/seed/${index}/400/250",
             videoUrl   = videoUrl,
             duration   = obj.str("dur", "duration") ?: "",
+            tvBadge    = TvBadgeParser.parse(obj["tvBadge"]),
+            timeLimited = timeLimited,
+            allowDownload = obj.bool("allowDownload") ?: true,
+            servers = parseServers(obj),
         )
     }
 
@@ -137,6 +149,9 @@ class MoviesRepository {
                     thumbUrl = eObj.str("thumb", "thumbnail", "poster") ?: "https://picsum.photos/seed/${index}_${si}_$ei/200/120",
                     videoUrl = eObj.str("video", "videoUrl", "url", "stream") ?: "",
                     duration = eObj.str("dur", "duration") ?: "",
+                    tvBadge  = TvBadgeParser.parse(eObj["tvBadge"]),
+                    allowDownload = eObj.bool("allowDownload") ?: true,
+                    servers = parseServers(eObj),
                 )
             } ?: emptyList()
             Season(number = sObj.int("number", "season") ?: (si + 1), episodes = eps)
@@ -150,7 +165,34 @@ class MoviesRepository {
             translated = obj.bool("translated") ?: false,
             thumbUrl   = obj.str("thumb", "thumbnail", "poster", "image") ?: "https://picsum.photos/seed/sr${index}/600/340",
             seasons    = seasons,
+            tvBadge    = TvBadgeParser.parse(obj["tvBadge"]),
+            allowDownload = obj.bool("allowDownload") ?: true,
+            servers = parseServers(obj),
         )
+    }
+
+    private fun parseServers(obj: JsonObject): List<StreamServer> {
+        val array = listOf("servers", "streams", "links", "sources")
+            .firstNotNullOfOrNull { obj[it] as? JsonArray }
+            ?: return emptyList()
+        return array.mapIndexedNotNull { index, element ->
+            when (element) {
+                is JsonPrimitive -> element.contentOrNull
+                    ?.takeIf { it.startsWith("http", true) }
+                    ?.let { StreamServer(name = "Server ${index + 1}", url = it, recommended = index == 0) }
+                is JsonObject -> {
+                    val url = element.str("url", "video", "src", "link", "stream", "file")
+                        ?: return@mapIndexedNotNull null
+                    StreamServer(
+                        name = element.str("name", "label", "title", "server") ?: "Server ${index + 1}",
+                        url = url,
+                        quality = element.str("quality", "q", "resolution"),
+                        recommended = element.bool("recommended", "recommend") ?: false,
+                    )
+                }
+                else -> null
+            }
+        }
     }
 
     // ── JSON helpers ─────────────────────────────────────────────────────────
@@ -182,6 +224,7 @@ class ChannelsRepository {
 
     private val _state = MutableStateFlow<ChannelFeedState>(ChannelFeedState.Loading)
     val state: StateFlow<ChannelFeedState> = _state.asStateFlow()
+    private val tunnelWaitDone = AtomicBoolean(false)
 
     // Empty until the first successful fetch from the server
     val channels: List<Channel> get() = (_state.value as? ChannelFeedState.Ready)?.channels ?: emptyList()
@@ -196,6 +239,9 @@ class ChannelsRepository {
     }
 
     suspend fun load(silent: Boolean = false) {
+        if (tunnelWaitDone.compareAndSet(false, true)) {
+            TunnelManager.awaitUp(TUNNEL_WAIT_MS)
+        }
         if (!silent) _state.value = ChannelFeedState.Loading
         try {
             val channels = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { fetchChannels() }
@@ -226,6 +272,7 @@ class ChannelsRepository {
         val body = resp.body?.string() ?: throw IllegalStateException("Empty body")
         val root = json.parseToJsonElement(body) as? JsonObject
             ?: throw IllegalStateException("Not a JSON object")
+        AppUpdateStore.ingest(root["appUpdate"])
         return parseChannelsElement(root["channels"] ?: JsonArray(emptyList()))
     }
 
@@ -248,6 +295,7 @@ class ChannelsRepository {
             color2   = obj.str("c2", "color2", "secondaryColor") ?: "#16213E",
             program  = obj.str("program", "currentShow", "now", "schedule") ?: "Now Live",
             videoUrl = videoUrl,
+            tvBadge  = TvBadgeParser.parse(obj["tvBadge"]),
         )
     }
 

@@ -37,6 +37,15 @@ class TunnelProxySelectorTest {
     }
 
     @Test
+    fun `tunnel not configured or not up never selects a proxy`() {
+        // stateProvider mirrors TunnelManager.currentProxy(): null unless configured and UP.
+        val notConfigured = TunnelProxySelector({ null }, failClosed = false)
+        val notUp = TunnelProxySelector({ null }, failClosed = false)
+        assertEquals(TunnelProxySelector.DIRECT, notConfigured.select(URI("https://example.com")))
+        assertEquals(TunnelProxySelector.DIRECT, notUp.select(URI("https://example.com")))
+    }
+
+    @Test
     fun `uses dead proxy while tunnel down with fail-closed`() {
         val selector = TunnelProxySelector({ null }, failClosed = true)
         val proxies = selector.select(URI("https://example.com"))

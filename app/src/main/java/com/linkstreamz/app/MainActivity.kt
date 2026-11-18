@@ -3,53 +3,83 @@ package com.linkstreamz.app
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import android.widget.FrameLayout
-import android.view.ViewGroup
+import androidx.navigation.navArgument
 import java.io.PrintWriter
 import java.io.StringWriter
 import coil.Coil
 import coil.ImageLoader
 
 class MainActivity : ComponentActivity() {
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNotificationIntent(intent)
+    }
+
+    private fun handleNotificationIntent(intent: Intent?) {
+        intent?.getStringExtra("notification_target")?.let(NotificationRouter::route)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleNotificationIntent(intent)
 
-        // TOKEN: Initialise browser-identity token minting stack (must be before setContent)
-        TokenEngine.init(this)
-        // Attach the hidden 1×1 WebView to the window's decor view so it is part of
-        // the real view hierarchy. A WebView without a window root will not fire
-        // shouldInterceptRequest or execute JavaScript on many Android versions.
-        val webHost = FrameLayout(this).apply {
-            layoutParams = ViewGroup.LayoutParams(1, 1)
-        }
-        window.addContentView(webHost, ViewGroup.LayoutParams(1, 1))
-        TokenEngine.minter.attach(webHost)
         // YT-EXTRACT: Initialize NewPipeExtractor with the shared tunnel-aware client.
         try {
             val okClient = HttpClients.newBuilder()
@@ -75,6 +105,10 @@ class MainActivity : ComponentActivity() {
 
         // VPN: in-process userspace tunnel; fails open and never blocks playback.
         WgManager.init(this)
+
+        // APP-UPDATE: Load the last known update requirement before first composition.
+        AppUpdateStore.init(this, BuildConfig.VERSION_NAME)
+        AppUpdateDownloader.init(this)
         
         val prefs = getSharedPreferences("crash_prefs", Context.MODE_PRIVATE)
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
@@ -87,9 +121,34 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             LinkStreamzTheme {
+                val updateRequirement by AppUpdateStore.required.collectAsStateWithLifecycle()
+                val lifecycleOwner = LocalLifecycleOwner.current
+                var resumeTick by remember { mutableIntStateOf(0) }
+
+                DisposableEffect(lifecycleOwner) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_RESUME) {
+                            AppUpdateStore.refreshRequirement()
+                            resumeTick++
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+                }
+
+                LaunchedEffect(updateRequirement) {
+                    AppUpdateDownloader.onAppStart(this@MainActivity, updateRequirement)
+                }
+
+                fun closeApp() {
+                    finishAffinity()
+                    android.os.Process.killProcess(android.os.Process.myPid())
+                    Runtime.getRuntime().exit(0)
+                }
+
                 var crashLog by remember { mutableStateOf(prefs.getString("crash_log", null)) }
 
-                if (crashLog != null) {
+                if (crashLog != null && updateRequirement == null) {
                     AlertDialog(
                         onDismissRequest = { 
                             prefs.edit().remove("crash_log").apply()
@@ -139,27 +198,185 @@ class MainActivity : ComponentActivity() {
                 val settings by settingsViewModel.uiState.collectAsStateWithLifecycle()
                 
                 var target by remember { mutableStateOf<PlayerTarget?>(null) }
+                var mainSection by rememberSaveable { mutableStateOf(MainSection.HOME) }
+                var focusLimited by remember { mutableStateOf(false) }
+
+                LaunchedEffect(Unit) {
+                    DownloadManager.resumePendingIfNeeded(this@MainActivity)
+                }
+
+                val pendingNotification by NotificationRouter.pendingTarget.collectAsStateWithLifecycle()
+                LaunchedEffect(pendingNotification, navController) {
+                    val destination = pendingNotification ?: return@LaunchedEffect
+                    NotificationRouter.consume()
+                    if (destination == "downloads") {
+                        navController.navigate(AppRoutes.DOWNLOADS) { launchSingleTop = true }
+                    } else {
+                        mainSection = AppRoutes.notificationSection(destination) ?: MainSection.HOME
+                        navController.navigate(AppRoutes.MAIN) {
+                            popUpTo(navController.graph.startDestinationId) { inclusive = false }
+                            launchSingleTop = true
+                        }
+                    }
+                }
+
+                val onboardingPrefs = remember { getSharedPreferences("permissions_onboarding", Context.MODE_PRIVATE) }
+                fun requiredPermissions(): Array<String> = buildList {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        this@MainActivity.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                    ) add(android.Manifest.permission.POST_NOTIFICATIONS)
+                    if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
+                        this@MainActivity.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED
+                    ) add(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                }.toTypedArray()
+                var showOnboarding by remember {
+                    mutableStateOf(
+                        !onboardingPrefs.getBoolean("seen", false) && requiredPermissions().isNotEmpty()
+                    )
+                }
+                val onboardingLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestMultiplePermissions()
+                ) { }
+                if (showOnboarding && updateRequirement == null) {
+                    AlertDialog(
+                        onDismissRequest = {
+                            onboardingPrefs.edit().putBoolean("seen", true).apply()
+                            showOnboarding = false
+                        },
+                        shape = RoundedCornerShape(20.dp),
+                        containerColor = LinkColors.CardBg,
+                        tonalElevation = 0.dp,
+                        iconContentColor = LinkColors.OrangePrimary,
+                        titleContentColor = LinkColors.PrimaryText,
+                        textContentColor = LinkColors.MutedText,
+                        icon = {
+                            Box(
+                                Modifier
+                                    .size(52.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(LinkColors.OrangePrimary.copy(alpha = 0.14f))
+                                    .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.4f), RoundedCornerShape(16.dp)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Default.Notifications,
+                                    contentDescription = null,
+                                    tint = LinkColors.OrangePrimary,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
+                        },
+                        title = {
+                            Text(
+                                "A quick setup",
+                                fontFamily = DisplayFont,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                letterSpacing = 0.4.sp,
+                            )
+                        },
+                        text = {
+                            Column {
+                                Text(
+                                    "Allow notifications so we can alert you about new streams and show download progress. " +
+                                        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P)
+                                            "Storage access lets downloads save to your Downloads folder."
+                                        else "You can change these later in Android settings.",
+                                    fontFamily = BodyFont,
+                                    fontSize = 13.sp,
+                                )
+                                Spacer(Modifier.height(12.dp))
+                                Box(
+                                    Modifier
+                                        .background(LinkColors.OrangePrimary.copy(alpha = 0.08f), RoundedCornerShape(9.dp))
+                                        .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.2f), RoundedCornerShape(9.dp))
+                                        .padding(horizontal = 10.dp, vertical = 7.dp)
+                                ) {
+                                    Text(
+                                        "You're in control — change these anytime in Settings.",
+                                        color = LinkColors.MutedText,
+                                        fontFamily = MonoFont,
+                                        fontSize = 9.5.sp,
+                                    )
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    onboardingPrefs.edit().putBoolean("seen", true).apply()
+                                    showOnboarding = false
+                                    val missing = requiredPermissions()
+                                    if (missing.isNotEmpty()) onboardingLauncher.launch(missing)
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = LinkColors.OrangePrimary,
+                                    contentColor = Color.Black,
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                            ) {
+                                Text("Continue", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = {
+                                onboardingPrefs.edit().putBoolean("seen", true).apply()
+                                showOnboarding = false
+                            }) { Text("Not now", color = LinkColors.MutedText, fontSize = 12.sp) }
+                        },
+                    )
+                }
 
                 LaunchedEffect(repository) { repository.start(this) }
                 LaunchedEffect(moviesRepo)  { moviesRepo.start(this) }
                 LaunchedEffect(channelsRepo) { channelsRepo.start(this) }
 
                 Box(modifier = Modifier.fillMaxSize()) {
-                    NavHost(navController = navController, startDestination = "home") {
-                        composable("home") {
+                    NavHost(navController = navController, startDestination = AppRoutes.MAIN) {
+                        composable(AppRoutes.MAIN) {
                             HomeScreen(
                                 repository = repository,
                                 moviesRepo = moviesRepo,
                                 channelsRepo = channelsRepo,
                                 settings = settings,
-                                onSettings = { navController.navigate("settings") },
+                                section = mainSection,
+                                onSectionChange = { mainSection = it },
+                                onOpenLimited = {
+                                    focusLimited = true
+                                    mainSection = MainSection.MOVIES
+                                },
+                                focusLimited = focusLimited,
+                                onFocusConsumed = { focusLimited = false },
+                                onSettings = { navController.navigate(AppRoutes.SETTINGS) },
+                                onDownloads = { navController.navigate(AppRoutes.DOWNLOADS) { launchSingleTop = true } },
                                 onPlayer = {
                                     target = it
-                                    navController.navigate("player")
+                                    navController.navigate(AppRoutes.PLAYER)
                                 },
                             )
                         }
-                        composable("player") {
+                        composable(AppRoutes.DOWNLOADS) {
+                            DownloadsScreen(
+                                onBack = { navController.popBackStack() },
+                                onPlay = { item ->
+                                    val uri = item.fileUri
+                                    if (uri.isNullOrBlank()) {
+                                        android.widget.Toast.makeText(applicationContext, "File is not available yet", android.widget.Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        target = DownloadedTarget(
+                                            localUri = uri,
+                                            title = item.title,
+                                            subtitle = listOfNotNull(item.seriesTitle, item.episodeTitle)
+                                                .joinToString(" · ")
+                                                .ifBlank { "Downloaded" },
+                                            tvBadge = item.tvBadge,
+                                        )
+                                        navController.navigate(AppRoutes.PLAYER)
+                                    }
+                                },
+                            )
+                        }
+                        composable(AppRoutes.PLAYER) {
                             target?.let {
                                 PlayerScreen(
                                     target = it,
@@ -168,6 +385,9 @@ class MainActivity : ComponentActivity() {
                                     moviesRepo = moviesRepo,
                                     channelsRepo = channelsRepo,
                                     onBack = { navController.popBackStack() },
+                                    onOpenDownloads = {
+                                        navController.navigate(AppRoutes.DOWNLOADS) { launchSingleTop = true }
+                                    },
                                     onTarget = { newTarget ->
                                         if (newTarget.servers.isEmpty()) {
                                             android.widget.Toast.makeText(applicationContext, "No streams available", android.widget.Toast.LENGTH_SHORT).show()
@@ -180,7 +400,7 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         }
-                        composable("settings") {
+                        composable(AppRoutes.SETTINGS) {
                             SettingsScreen(
                                 uiState = settings,
                                 viewModel = settingsViewModel,
@@ -208,56 +428,17 @@ class MainActivity : ComponentActivity() {
                                         StreamServer("Custom", url = url, headers = extraHeaders)
                                     }
                                     target = CustomTarget(server)
-                                    navController.navigate("player")
+                                    navController.navigate(AppRoutes.PLAYER)
                                 },
                             )
                         }
                     }
 
-                    // Floating Logs Button — hidden when player is in fullscreen
-                    var showLogs by remember { mutableStateOf(false) }
-                    val currentLogs by AppLogger.logs.collectAsStateWithLifecycle()
-                    val isPlayerFullscreen by PlayerFullscreenState.isFullscreen
-
-                    if (!isPlayerFullscreen) {
-                        androidx.compose.material3.SmallFloatingActionButton(
-                            onClick = { showLogs = true },
-                            modifier = Modifier
-                                .align(androidx.compose.ui.Alignment.BottomEnd)
-                                .padding(16.dp)
-                        ) {
-                            Text("Logs")
-                        }
-                    }
-
-                    if (showLogs) {
-                        AlertDialog(
-                            onDismissRequest = { showLogs = false },
-                            title = { Text("App Logs") },
-                            text = {
-                                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                                    Text(
-                                        text = currentLogs.joinToString("\n\n"),
-                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                        fontSize = androidx.compose.ui.unit.TextUnit(10f, androidx.compose.ui.unit.TextUnitType.Sp)
-                                    )
-                                }
-                            },
-                            confirmButton = {
-                                TextButton(onClick = {
-                                    val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val clip = ClipData.newPlainText("App Logs", currentLogs.joinToString("\n"))
-                                    clipboard.setPrimaryClip(clip)
-                                    android.widget.Toast.makeText(this@MainActivity, "Copied to clipboard", android.widget.Toast.LENGTH_SHORT).show()
-                                }) {
-                                    Text("Copy Logs")
-                                }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { showLogs = false }) {
-                                    Text("Close")
-                                }
-                            }
+                    updateRequirement?.let { requirement ->
+                        AppUpdateOverlay(
+                            requirement = requirement,
+                            resumeTick = resumeTick,
+                            onCloseApp = { closeApp() },
                         )
                     }
                 }

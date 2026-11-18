@@ -14,6 +14,10 @@ data class Movie(
     val thumbUrl: String,
     val videoUrl: String,
     val duration: String,
+    val tvBadge: TvBadge? = null,
+    val timeLimited: TimeLimited? = null,
+    val allowDownload: Boolean = true,
+    val servers: List<StreamServer> = emptyList(),
 )
 
 data class Episode(
@@ -22,6 +26,9 @@ data class Episode(
     val thumbUrl: String,
     val videoUrl: String,
     val duration: String,
+    val tvBadge: TvBadge? = null,
+    val allowDownload: Boolean = true,
+    val servers: List<StreamServer> = emptyList(),
 )
 
 data class Season(
@@ -38,6 +45,9 @@ data class Series(
     val translated: Boolean,
     val thumbUrl: String,
     val seasons: List<Season>,
+    val tvBadge: TvBadge? = null,
+    val allowDownload: Boolean = true,
+    val servers: List<StreamServer> = emptyList(),
 )
 
 data class Channel(
@@ -51,4 +61,5 @@ data class Channel(
     val color2: String,
     val program: String,
     val videoUrl: String,
+    val tvBadge: TvBadge? = null,
 )

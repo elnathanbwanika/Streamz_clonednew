@@ -232,8 +232,10 @@ fun SettingsScreenContent(
     ) {
         LazyColumn(
             contentPadding        = PaddingValues(
-                horizontal = LinkDimens.ScreenPadH,
-                vertical   = 12.dp,
+                start      = LinkDimens.ScreenPadH,
+                end        = LinkDimens.ScreenPadH,
+                top        = 12.dp,
+                bottom     = 96.dp,
             ),
             verticalArrangement   = Arrangement.spacedBy(10.dp),
         ) {

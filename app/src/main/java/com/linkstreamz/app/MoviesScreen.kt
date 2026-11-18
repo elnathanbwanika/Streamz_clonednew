@@ -8,6 +8,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -18,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,6 +29,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -34,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
+import kotlinx.coroutines.delay
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Main Movies Home (rows + filter)
@@ -52,12 +56,46 @@ data class MoviesFilterState(
 )
 
 @Composable
-fun MoviesScreen(movies: List<Movie>, series: List<Series>, onWatch: (Any) -> Unit) {
+fun MoviesScreen(
+    movies: List<Movie>,
+    series: List<Series>,
+    onWatch: (Any) -> Unit,
+    onDownload: (Movie) -> Unit = {},
+    focusLimited: Boolean = false,
+    onFocusConsumed: () -> Unit = {},
+) {
     var searchQuery by remember { mutableStateOf("") }
     var showSearch by remember { mutableStateOf(false) }
     var showFilter by remember { mutableStateOf(false) }
     var filterState by remember { mutableStateOf(MoviesFilterState()) }
     var viewAllRow by remember { mutableStateOf<String?>(null) }
+    var nowMs by remember { mutableLongStateOf(ServerClock.now()) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1_000L)
+            nowMs = ServerClock.now()
+        }
+    }
+
+    val limitedMovies = remember(movies, nowMs) {
+        movies.filter { it.timeLimited != null && !it.isTimeLimitedEnded(nowMs) }
+            .sortedWith(
+                compareBy<Movie> { it.effectiveTimeLimitedState(nowMs) != TimeLimitedState.LIVE }
+                    .thenBy { it.timeLimited?.endAtMs ?: Long.MAX_VALUE }
+            )
+    }
+
+    val listState = rememberLazyListState()
+    LaunchedEffect(focusLimited, limitedMovies.size, movies.size) {
+        if (focusLimited && limitedMovies.isNotEmpty()) {
+            searchQuery = ""
+            listState.animateScrollToItem(1)
+            onFocusConsumed()
+        } else if (focusLimited && movies.isNotEmpty()) {
+            onFocusConsumed()
+        }
+    }
 
     fun byId(id: String): Any? = movies.find { it.id == id } ?: series.find { it.id == id }
 
@@ -115,22 +153,24 @@ fun MoviesScreen(movies: List<Movie>, series: List<Series>, onWatch: (Any) -> Un
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
-            contentPadding = PaddingValues(bottom = 80.dp),
+            contentPadding = PaddingValues(bottom = 96.dp),
+            state = listState,
             modifier = Modifier.fillMaxSize()
         ) {
             // ── Action row (search + filter)
             item {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     // Search bar
                     Box(
                         Modifier.weight(1f)
-                            .background(LinkColors.CardBg, RoundedCornerShape(8.dp))
-                            .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.16f), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                            .heightIn(min = 48.dp)
+                            .background(LinkColors.CardBg, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.CenterStart
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.Search, null, tint = LinkColors.MutedText, modifier = Modifier.size(16.dp))
@@ -153,13 +193,14 @@ fun MoviesScreen(movies: List<Movie>, series: List<Series>, onWatch: (Any) -> Un
                     }
                     Box(
                         Modifier
+                            .heightIn(min = 48.dp)
                             .background(
                                 if (activeFilters.isNotEmpty()) LinkColors.OrangePrimary else LinkColors.CardBg,
-                                RoundedCornerShape(8.dp)
+                                RoundedCornerShape(12.dp)
                             )
-                            .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
                             .clickable { showFilter = true }
-                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                            .padding(horizontal = 14.dp),
+                        contentAlignment = Alignment.Center
                     ) {
                         Text(
                             if (activeFilters.isNotEmpty()) activeFilters.joinToString(" · ") else "Filter",
@@ -167,6 +208,36 @@ fun MoviesScreen(movies: List<Movie>, series: List<Series>, onWatch: (Any) -> Un
                             fontSize = 13.sp, fontFamily = MonoFont, fontWeight = FontWeight.Medium
                         )
                     }
+                }
+            }
+
+            // ── Time-limited rail (always near the top)
+            if (limitedMovies.isNotEmpty() && searchQuery.length < 2) {
+                item {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Limited Time", color = LinkColors.PrimaryText, fontFamily = DisplayFont, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Box(
+                            Modifier.background(LinkColors.OrangePrimary.copy(alpha = 0.14f), RoundedCornerShape(99.dp))
+                                .padding(horizontal = 7.dp, vertical = 2.dp)
+                        ) {
+                            Text("LEAVING SOON", color = LinkColors.OrangePrimary, fontFamily = MonoFont, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        items(limitedMovies, key = { "limited-${it.id}" }) { movie ->
+                            TimeLimitedCard(
+                                movie = movie,
+                                nowMs = nowMs,
+                                onWatch = { onWatch(movie) },
+                                onDownload = { onDownload(movie) },
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(20.dp))
                 }
             }
 
@@ -229,8 +300,85 @@ fun MoviesScreen(movies: List<Movie>, series: List<Series>, onWatch: (Any) -> Un
 }
 
 @Composable
-private fun MoviesRowHeader(title: String, onViewAll: () -> Unit) {
-    Row(
+private fun TimeLimitedCard(
+    movie: Movie,
+    nowMs: Long,
+    onWatch: () -> Unit,
+    onDownload: () -> Unit,
+) {
+    val tl = movie.timeLimited ?: return
+    val state = movie.effectiveTimeLimitedState(nowMs) ?: return
+    val context = LocalContext.current
+    Column(
+        Modifier.width(178.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(LinkColors.CardBg)
+    ) {
+        Box(Modifier.fillMaxWidth().height(100.dp).background(Color(0xFF16110E))) {
+            AsyncImage(
+                model = movie.thumbUrl,
+                contentDescription = null,
+                imageLoader = AppImages.direct(context),
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            Box(
+                Modifier.align(Alignment.TopStart).padding(7.dp)
+                    .background(LinkColors.OrangePrimary, RoundedCornerShape(4.dp))
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    when (state) {
+                        TimeLimitedState.LIVE -> "LIMITED"
+                        TimeLimitedState.UPCOMING -> "UPCOMING"
+                        TimeLimitedState.ENDED -> "ENDED"
+                    },
+                    color = Color.Black, fontFamily = MonoFont, fontSize = 7.sp, fontWeight = FontWeight.Bold,
+                )
+            }
+        }
+        Column(Modifier.padding(9.dp)) {
+            Text(movie.title, color = LinkColors.PrimaryText, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                when (state) {
+                    TimeLimitedState.LIVE -> timeLimitedRemainingText(tl, nowMs)
+                    TimeLimitedState.UPCOMING -> "Starts in ${timeLimitedStartCountdown(tl, nowMs)}"
+                    TimeLimitedState.ENDED -> "Window ended"
+                },
+                color = LinkColors.OrangePrimary,
+                fontFamily = MonoFont,
+                fontSize = 9.sp,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Button(
+                    onClick = onWatch,
+                    colors = ButtonDefaults.buttonColors(containerColor = LinkColors.OrangePrimary),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.heightIn(min = 40.dp).weight(1f),
+                ) {
+                    Text(if (state == TimeLimitedState.LIVE) "Watch" else "Details", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+                if (DownloadSupport.canDownload(movie, nowMs)) {
+                    Box(
+                        Modifier.size(40.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(LinkColors.CardBg)
+                            .clickable(onClick = onDownload),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(Icons.Default.Download, "Download", tint = LinkColors.OrangePrimary, modifier = Modifier.size(15.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoviesRowHeader(title: String, onViewAll: () -> Unit) {    Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
@@ -259,10 +407,9 @@ fun ViewAllScreen(title: String, items: List<Any>, onBack: () -> Unit, onWatch: 
         ) {
             Box(
                 Modifier
-                    .size(36.dp)
+                    .size(48.dp)
                     .clip(CircleShape)
                     .background(LinkColors.CardBg)
-                    .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.28f), CircleShape)
                     .clickable(onClick = onBack),
                 contentAlignment = Alignment.Center
             ) {
@@ -306,7 +453,8 @@ private fun resolveVjLabel(vj: String?, translated: Boolean): String? {
 
 @Composable
 fun MediaCard(item: Any, onClick: () -> Unit, fullWidth: Boolean = false) {
-    val (id, title, genre, year, thumb, tag, vjLabel) = when (item) {
+    val context = LocalContext.current
+    val (id, title, genre, year, thumb, tag, vjLabel, tvBadge) = when (item) {
         is Movie  -> CardData(
             id      = item.id,
             title   = item.title,
@@ -315,6 +463,7 @@ fun MediaCard(item: Any, onClick: () -> Unit, fullWidth: Boolean = false) {
             thumb   = item.thumbUrl,
             tag     = "MOVIE",
             vjLabel = resolveVjLabel(item.vj, item.translated),
+            tvBadge = item.tvBadge,
         )
         is Series -> CardData(
             id      = item.id,
@@ -324,6 +473,7 @@ fun MediaCard(item: Any, onClick: () -> Unit, fullWidth: Boolean = false) {
             thumb   = item.thumbUrl,
             tag     = "SERIES",
             vjLabel = resolveVjLabel(item.vj, item.translated),
+            tvBadge = item.tvBadge,
         )
         else -> return
     }
@@ -333,7 +483,6 @@ fun MediaCard(item: Any, onClick: () -> Unit, fullWidth: Boolean = false) {
             .then(if (fullWidth) Modifier.fillMaxWidth() else Modifier.width(116.dp))
             .clip(RoundedCornerShape(12.dp))
             .background(LinkColors.CardBg)
-            .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.16f), RoundedCornerShape(12.dp))
             .clickable(onClick = onClick)
     ) {
         // ── Thumbnail: portrait 3:4, full card width ──────────────────────────
@@ -346,6 +495,7 @@ fun MediaCard(item: Any, onClick: () -> Unit, fullWidth: Boolean = false) {
             AsyncImage(
                 model            = thumb,
                 contentDescription = null,
+                imageLoader      = AppImages.direct(context),
                 contentScale     = ContentScale.Crop,
                 modifier         = Modifier.fillMaxSize(),
             )
@@ -378,6 +528,33 @@ fun MediaCard(item: Any, onClick: () -> Unit, fullWidth: Boolean = false) {
                 fontSize = 24.sp,
                 modifier = Modifier.align(Alignment.Center),
             )
+            TvBadgeOverlay(
+                placement = tvBadge?.card,
+                modifier = Modifier.matchParentSize(),
+            )
+            (item as? Movie)?.timeLimited?.let { tl ->
+                val state = tl.state(ServerClock.now())
+                Box(
+                    Modifier.align(Alignment.BottomStart).padding(6.dp)
+                        .background(
+                            if (state == TimeLimitedState.LIVE) LinkColors.OrangePrimary else Color(0xFF0A0A0A).copy(alpha = 0.88f),
+                            RoundedCornerShape(4.dp),
+                        )
+                        .padding(horizontal = 5.dp, vertical = 2.dp),
+                ) {
+                    Text(
+                        when (state) {
+                            TimeLimitedState.LIVE -> timeLimitedRemainingText(tl)
+                            TimeLimitedState.UPCOMING -> "Soon"
+                            TimeLimitedState.ENDED -> "Ended"
+                        },
+                        color = if (state == TimeLimitedState.LIVE) Color.Black else LinkColors.OrangePrimary,
+                        fontFamily = MonoFont,
+                        fontSize = 7.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
         }
 
         // ── Info area: fixed 58dp height so every card in a row is the same ──
@@ -428,6 +605,7 @@ private data class CardData(
     val thumb:   String,
     val tag:     String,
     val vjLabel: String?,   // null = not translated / no VJ
+    val tvBadge: TvBadge?,
 )
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -449,7 +627,7 @@ fun MoviesFilterDialog(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(20.dp))
                 .background(Color(0xFF111111))
-                .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.28f), RoundedCornerShape(20.dp))
+                .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.10f), RoundedCornerShape(20.dp))
                 .padding(20.dp)
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -467,7 +645,6 @@ fun MoviesFilterDialog(
                 Modifier.fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFF0A0A0A))
-                    .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.16f), RoundedCornerShape(8.dp))
             ) {
                 TranslatedFilter.entries.forEach { tab ->
                     val selected = draft.translatedFilter == tab
@@ -492,7 +669,6 @@ fun MoviesFilterDialog(
                 Modifier.fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color(0xFF0A0A0A))
-                    .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.16f), RoundedCornerShape(8.dp))
             ) {
                 MediaContentType.entries.forEach { type ->
                     val selected = draft.contentType == type
@@ -550,7 +726,6 @@ private fun VJChip(label: String, selected: Boolean, onClick: () -> Unit) {
             .shadow(if (selected) 4.dp else 0.dp, RoundedCornerShape(999.dp), ambientColor = LinkColors.OrangePrimary.copy(0.3f))
             .clip(RoundedCornerShape(999.dp))
             .background(if (selected) LinkColors.OrangePrimary else Color(0xFF0A0A0A))
-            .border(1.dp, LinkColors.OrangePrimary.copy(alpha = if (selected) 1f else 0.28f), RoundedCornerShape(999.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 7.dp)
     ) {
