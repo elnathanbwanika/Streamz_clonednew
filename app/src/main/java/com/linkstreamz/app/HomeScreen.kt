@@ -16,6 +16,9 @@ import androidx.compose.foundation.border
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Download
@@ -42,6 +45,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -313,8 +317,8 @@ fun HomeScreen(
     mobileConfirmDownload?.let { movie ->
         AlertDialog(
             onDismissRequest = { mobileConfirmDownload = null },
-            containerColor = LinkColors.CardBg,
-            title = { Text("Download over mobile data?", color = LinkColors.PrimaryText) },
+            containerColor = LsColor.Card,
+            title = { Text("Download over mobile data?", color = LsColor.Text, fontFamily = BodyFont, fontWeight = FontWeight.Bold, fontSize = 18.sp) },
             text = { Text(DownloadConditions.MOBILE_DATA_MESSAGE, color = LinkColors.MutedText) },
             confirmButton = {
                 TextButton(onClick = {
@@ -333,8 +337,8 @@ fun HomeScreen(
     if (showDownloadRationale) {
         AlertDialog(
             onDismissRequest = { showDownloadRationale = false; pendingDownload = null },
-            containerColor = LinkColors.CardBg,
-            title = { Text("Allow download permissions", color = LinkColors.PrimaryText) },
+            containerColor = LsColor.Card,
+            title = { Text("Allow download permissions", color = LsColor.Text, fontFamily = BodyFont, fontWeight = FontWeight.Bold, fontSize = 18.sp) },
             text = {
                 Text(
                     "Notifications show download progress. On Android 9 and older, storage access saves the file to your Downloads folder.",
@@ -380,15 +384,15 @@ private fun MainSectionTabs(selected: MainSection, onSelect: (MainSection) -> Un
             Box(
                 Modifier.weight(1f)
                     .heightIn(min = 48.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(if (isSelected) LinkColors.OrangePrimary else LinkColors.CardBg.copy(alpha = 0.55f))
+                    .clip(LsShape.Pill)
+                    .background(if (isSelected) LsColor.Accent else LsColor.Surface)
                     .clickable { onSelect(item) }
                     .padding(horizontal = 4.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     item.label,
-                    color = if (isSelected) Color.Black else LinkColors.MutedText,
+                    color = if (isSelected) LsColor.OnAccent else LsColor.TextDim,
                     fontSize = 12.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                     maxLines = 1,
@@ -526,7 +530,7 @@ private fun HomeRailHeader(title: String, onViewAll: () -> Unit) {
     ) {
         Text(
             title,
-            color = LinkColors.PrimaryText,
+            color = LsColor.Text,
             fontFamily = DisplayFont,
             fontWeight = FontWeight.Bold,
             fontSize = 16.sp,
@@ -537,7 +541,7 @@ private fun HomeRailHeader(title: String, onViewAll: () -> Unit) {
         ) {
             Text(
                 "View all",
-                color = LinkColors.OrangePrimary,
+                color = LsColor.Accent,
                 fontFamily = MonoFont,
                 fontSize = 12.sp,
             )
@@ -736,17 +740,25 @@ private fun HomeTimeLimitedBanner(
     Row(
         Modifier.fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(Brush.horizontalGradient(listOf(Color(0xFF1C1008), LinkColors.CardBg)))
+            .clip(LsShape.Hero)
+            .background(LsColor.HeroBase)
+            .drawBehind {
+                // Soft large orange circle, top-right, 16 % opacity
+                drawCircle(
+                    color = LsColor.Accent.copy(alpha = 0.16f),
+                    radius = size.width * 0.55f,
+                    center = Offset(size.width, 0f),
+                )
+            }
             .clickable(onClick = onOpenMovies)
-            .padding(horizontal = 14.dp, vertical = 12.dp),
+            .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    Modifier.background(LinkColors.OrangePrimary, RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                    Modifier.background(LinkColors.OrangePrimary, LsShape.Pill)
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
                 ) {
                     Text(
                         when (state) {
@@ -754,7 +766,7 @@ private fun HomeTimeLimitedBanner(
                             TimeLimitedState.UPCOMING -> "COMING SOON"
                             TimeLimitedState.ENDED -> "ENDED"
                         },
-                        color = Color.Black, fontFamily = MonoFont, fontSize = 7.sp, fontWeight = FontWeight.Bold,
+                        color = LsColor.OnAccent, fontFamily = MonoFont, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp,
                     )
                 }
                 Spacer(Modifier.width(8.dp))
@@ -764,33 +776,34 @@ private fun HomeTimeLimitedBanner(
                         TimeLimitedState.UPCOMING -> "Starts in ${timeLimitedStartCountdown(tl, nowMs)}"
                         TimeLimitedState.ENDED -> "Window ended"
                     },
-                    color = LinkColors.OrangePrimary, fontFamily = MonoFont, fontSize = 9.sp,
+                    color = LinkColors.OrangeLight, fontFamily = MonoFont, fontSize = 9.sp, fontWeight = FontWeight.Bold,
                 )
             }
-            Spacer(Modifier.height(6.dp))
-            Text(movie.title, color = LinkColors.PrimaryText, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Spacer(Modifier.height(8.dp))
+            Text(movie.title, color = LsColor.Text, fontWeight = FontWeight.Bold, fontSize = 24.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Text(
                 "Available ${formatEatDateTime(tl.startAtMs)} EAT for ${formatDuration(tl.durationHours)}",
-                color = LinkColors.MutedText,
+                color = LsColor.TextDim,
                 fontFamily = MonoFont,
-                fontSize = 9.sp,
+                fontSize = 10.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 4.dp),
             )
         }
-        Spacer(Modifier.width(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Spacer(Modifier.width(14.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.End) {
             Button(
                 onClick = onWatch,
                 colors = ButtonDefaults.buttonColors(containerColor = LinkColors.OrangePrimary),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.heightIn(min = 48.dp),
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 0.dp),
+                shape = LsShape.Button,
+                modifier = Modifier.height(LsSpace.Button).widthIn(min = 120.dp),
             ) {
                 Text(
                     if (state == TimeLimitedState.LIVE) "Watch" else "Details",
-                    color = Color.Black,
-                    fontSize = 11.sp,
+                    color = LsColor.OnAccent,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                 )
             }
@@ -798,8 +811,9 @@ private fun HomeTimeLimitedBanner(
                 IconButton(
                     onClick = onDownload,
                     modifier = Modifier
-                        .size(48.dp)
-                        .background(LinkColors.CardBg, RoundedCornerShape(12.dp))
+                        .size(LsSpace.Button)
+                        .clip(LsShape.Button)
+                        .background(LsColor.FillSubtle)
                 ) {
                     Icon(Icons.Default.Download, "Download", tint = LinkColors.OrangePrimary, modifier = Modifier.size(18.dp))
                 }
@@ -830,30 +844,30 @@ private fun HomeHeader(onSettings: () -> Unit, onDownloads: () -> Unit) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Box(
-                Modifier.size(38.dp).shadow(
-                    elevation = 8.dp,
-                    shape = RoundedCornerShape(13.dp),
-                    ambientColor = LinkColors.OrangePrimary.copy(alpha = 0.35f),
-                    spotColor = LinkColors.OrangePrimary.copy(alpha = 0.35f)
-                ).background(
-                    Brush.verticalGradient(listOf(LinkColors.OrangeLight, LinkColors.OrangePrimary)),
-                    RoundedCornerShape(13.dp)
-                ),
+                Modifier.size(44.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(LsColor.Accent),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.PlayArrow, null, tint = LsColor.OnAccent, modifier = Modifier.size(24.dp))
             }
             Column {
-                Text("LINK STREAMZ", color = LinkColors.PrimaryText, fontFamily = DisplayFont, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp)
-                Text("Your Home For Streams", color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 9.5.sp, modifier = Modifier.padding(top = 5.dp), letterSpacing = .4.sp)
+                Text("LINK STREAMZ", color = LsColor.Text, fontFamily = DisplayFont, fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.96.sp)
+                Text("Your Home For Streams", color = LsColor.TextDim, fontFamily = MonoFont, fontSize = 10.sp, modifier = Modifier.padding(top = 5.dp), letterSpacing = .4.sp)
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onDownloads, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Default.Download, "Downloads", tint = LinkColors.OrangePrimary, modifier = Modifier.size(20.dp))
+            IconButton(
+                onClick = onDownloads,
+                modifier = Modifier.size(44.dp).clip(CircleShape).background(LsColor.Card),
+            ) {
+                Icon(Icons.Default.Download, "Downloads", tint = LsColor.Accent, modifier = Modifier.size(20.dp))
             }
-            IconButton(onClick = onSettings, modifier = Modifier.size(48.dp)) {
-                Icon(Icons.Default.Settings, "Settings", tint = LinkColors.OrangePrimary, modifier = Modifier.size(20.dp))
+            IconButton(
+                onClick = onSettings,
+                modifier = Modifier.size(44.dp).clip(CircleShape).background(LsColor.Card),
+            ) {
+                Icon(Icons.Default.Settings, "Settings", tint = LsColor.Accent, modifier = Modifier.size(20.dp))
             }
         }
     }

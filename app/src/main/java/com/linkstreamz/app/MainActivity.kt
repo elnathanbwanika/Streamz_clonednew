@@ -154,7 +154,7 @@ class MainActivity : ComponentActivity() {
                             prefs.edit().remove("crash_log").apply()
                             crashLog = null 
                         },
-                        title = { Text("App Crashed Last Time") },
+                        title = { Text("App Crashed Last Time", color = LsColor.Text) },
                         text = { 
                             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                                 Text(crashLog ?: "")
@@ -243,8 +243,8 @@ class MainActivity : ComponentActivity() {
                             onboardingPrefs.edit().putBoolean("seen", true).apply()
                             showOnboarding = false
                         },
-                        shape = RoundedCornerShape(20.dp),
-                        containerColor = LinkColors.CardBg,
+                        shape = LsShape.Dialog,
+                        containerColor = LsColor.Card,
                         tonalElevation = 0.dp,
                         iconContentColor = LinkColors.OrangePrimary,
                         titleContentColor = LinkColors.PrimaryText,

@@ -152,22 +152,14 @@ fun PlayerIconButton(
 
     val fill = when {
         isMenuOpen -> LinkColors.OrangePrimary
-        isPlayPause -> LinkColors.OverlayBtnBg.copy(alpha = 0.70f)
-        isPressed -> LinkColors.OverlayBtnBg.copy(alpha = 0.80f)
-        else -> LinkColors.OverlayBtnBg.copy(alpha = 0.62f)
+        isPlayPause -> Color.Black.copy(alpha = 0.55f)
+        isPressed -> Color.White.copy(alpha = 0.22f)
+        else -> Color.White.copy(alpha = 0.12f)
     }
-    
-    val borderAlpha = when {
-        isMenuOpen -> 0f
-        isPlayPause -> 0.55f
-        isPressed -> 0.70f
-        else -> 0.28f
-    }
-    val borderColor = if (isMenuOpen) Color.Transparent else LinkColors.OrangePrimary.copy(alpha = borderAlpha)
-    
+
     val iconTint = when {
         isMenuOpen -> Color.Black
-        isPlayPause -> LinkColors.OrangePrimary
+        isPlayPause -> Color.White
         else -> tintOverride
     }
 
@@ -184,7 +176,6 @@ fun PlayerIconButton(
             )
             .clip(CircleShape)
             .background(fill)
-            .border(1.dp, borderColor, CircleShape)
             .clickable(
                 interactionSource = interactionSource,
                 indication = androidx.compose.foundation.LocalIndication.current,
@@ -208,9 +199,9 @@ fun PlayerIconButton(
 /** Fully opaque #141414 – matches the Card surface so there is no bleed-through. */
 private val MenuBg = LinkColors.MenuBg
 private val MenuWidth = 190.dp
-private val MenuCorner = 12.dp
-private val MenuBorderColor = LinkColors.OrangePrimary.copy(alpha = 0.30f)
-private val HairlineDivider = LinkColors.OrangePrimary.copy(alpha = 0.16f)
+private val MenuCorner = 16.dp
+private val MenuBorderColor = LsColor.Pressed
+private val HairlineDivider = Color(0x1AFFFFFF)
 /** Vertical gap between the anchor button's bottom and the menu top. */
 private val MenuGapDp = 8.dp
 
@@ -489,9 +480,9 @@ fun PlayerMenuRow(
 // ─────────────────────────────────────────────────────────────────────────────
 
 private val Orange = Color(0xFFFF6600)
-private val PanelBg = Color(0xFF141414)
+private val PanelBg = LsColor.Surface
 private val ItemBg = Orange.copy(alpha = 0.10f)
-private val ItemBorder = Orange.copy(alpha = 0.28f)
+private val ItemBorder = Color(0x1FFFFFFF)
 private val ItemHoverBg = Orange.copy(alpha = 0.20f)
 private val ItemActiveBg = Orange
 private val ItemActiveIcon = Color.Black
@@ -905,26 +896,12 @@ fun PlayerSeekBar(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(8.dp)
-                        .background(Color.Black.copy(alpha = 0.35f), CircleShape)
-                        .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
+                        .background(Color.White.copy(alpha = 0.12f), CircleShape)
                 ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth(fraction)
                             .fillMaxHeight()
-                            .background(
-                                androidx.compose.ui.graphics.Brush.horizontalGradient(
-                                    listOf(LinkColors.OrangePrimary, LinkColors.OrangeLight)
-                                ),
-                                CircleShape
-                            )
-                    )
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .padding(end = 4.dp)
-                            .size(4.dp)
-                            .shadow(2.dp, CircleShape, ambientColor = LinkColors.OrangePrimary, spotColor = LinkColors.OrangePrimary)
                             .background(LinkColors.OrangePrimary, CircleShape)
                     )
                 }

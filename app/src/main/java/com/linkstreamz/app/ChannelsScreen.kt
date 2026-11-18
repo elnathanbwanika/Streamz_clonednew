@@ -43,16 +43,16 @@ import coil.request.ImageRequest
 
 private val CATEGORY_ORDER = listOf("General", "News", "Entertainment", "Music", "Sports", "Kids")
 
-private val CARD_BG            = Color(0xFF1A120C)
+private val CARD_BG            = LsColor.Card
 private val CARD_BORDER_REST   = Color(0xFF3A2617)
 private val CARD_BORDER_PRESS  = Color(0xFFFF6A00)
-private val LIVE_RED           = Color(0xFFFF3B30)
-private val THUMB_BG           = Color(0xFF221610)
-private val ORANGE_ACCENT      = Color(0xFFFF6A00)
-private val TEXT_NAME          = Color(0xFFEFE6DD)
-private val PILL_BG            = Color(0xFF1A120C)
+private val LIVE_RED           = LsColor.Accent
+private val THUMB_BG           = LsColor.AccentDim
+private val ORANGE_ACCENT      = LsColor.Accent
+private val TEXT_NAME          = LsColor.Text
+private val PILL_BG            = LsColor.Card
 private val PILL_BORDER        = Color(0xFF3A2415)
-private val PILL_TEXT          = Color(0xFFC9B8AA)
+private val PILL_TEXT          = LsColor.TextDim
 
 @Composable
 fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
@@ -78,7 +78,7 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
             Modifier.fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .height(52.dp)
-                .background(LinkColors.CardBg, RoundedCornerShape(12.dp))
+                .background(LsColor.Card, LsShape.Button)
                 .padding(horizontal = 14.dp),
             contentAlignment = Alignment.CenterStart
         ) {
@@ -99,23 +99,24 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
         // ── Local / Abroad segmented control & category chips (outside scroll area)
         if (!isSearch) {
             Row(
-                Modifier.fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
-                    .height(40.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFF0A0A0A))
+                Modifier
+                    .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp)
+                    .clip(LsShape.Pill)
+                    .background(LsColor.Surface)
+                    .padding(4.dp)
             ) {
                 listOf(true to "Local", false to "Abroad").forEach { (local, label) ->
                     val selected = localFilter == local
                     Box(
-                        Modifier.weight(1f)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (selected) LinkColors.OrangePrimary else Color.Transparent)
-                            .clickable { localFilter = local; catFilter = null },
+                        Modifier
+                            .height(44.dp)
+                            .clip(LsShape.Pill)
+                            .background(if (selected) LsColor.Accent else Color.Transparent)
+                            .clickable { localFilter = local; catFilter = null }
+                            .padding(horizontal = 18.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(label, color = if (selected) Color.Black else LinkColors.MutedText, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+                        Text(label, color = if (selected) LsColor.OnAccent else LsColor.TextDim, fontSize = 13.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
                     }
                 }
             }
@@ -276,14 +277,14 @@ private fun SectionHeader(title: String, count: Int, modifier: Modifier = Modifi
 private fun CategoryChip(label: String, selected: Boolean, onClick: () -> Unit) {
     Box(
         Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .height(40.dp)
-            .background(if (selected) LinkColors.OrangePrimary else Color(0xFF0A0A0A))
+            .clip(LsShape.Pill)
+            .height(44.dp)
+            .background(if (selected) LsColor.Accent else LsColor.Card)
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp),
+            .padding(horizontal = 16.dp),
         contentAlignment = Alignment.Center
     ) {
-        Text(label, color = if (selected) Color.Black else LinkColors.MutedText, fontSize = 12.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
+        Text(label, color = if (selected) LsColor.OnAccent else LsColor.TextDim, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
     }
 }
 
@@ -338,7 +339,7 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit) {
             .build()
     }
 
-    val cardShape = RoundedCornerShape(14.dp)
+    val cardShape = LsShape.Card
 
     Column(
         modifier = Modifier

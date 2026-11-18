@@ -4,7 +4,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -481,8 +480,8 @@ fun MediaCard(item: Any, onClick: () -> Unit, fullWidth: Boolean = false) {
     Column(
         modifier = Modifier
             .then(if (fullWidth) Modifier.fillMaxWidth() else Modifier.width(116.dp))
-            .clip(RoundedCornerShape(12.dp))
-            .background(LinkColors.CardBg)
+            .clip(LsShape.Poster)
+            .background(LsColor.Card)
             .clickable(onClick = onClick)
     ) {
         // ── Thumbnail: portrait 3:4, full card width ──────────────────────────
@@ -625,13 +624,12 @@ fun MoviesFilterDialog(
         Column(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-                .background(Color(0xFF111111))
-                .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.10f), RoundedCornerShape(20.dp))
+                .clip(LsShape.Dialog)
+                .background(LsColor.Card)
                 .padding(20.dp)
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Filter", color = LinkColors.PrimaryText, fontFamily = BodyFont, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                Text("Filter", color = LsColor.Text, fontFamily = BodyFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
                 IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
                     Icon(Icons.Default.Close, null, tint = LinkColors.MutedText, modifier = Modifier.size(16.dp))
                 }

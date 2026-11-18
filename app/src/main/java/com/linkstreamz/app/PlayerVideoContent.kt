@@ -134,10 +134,11 @@ fun PlayerVideoContent(
                 Modifier.fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            0.00f to Color.Black.copy(alpha = 0.28f),
-                            0.32f to Color.Transparent,
-                            0.55f to Color.Transparent,
-                            1.00f to Color.Black.copy(alpha = 0.55f),
+                            0.00f to Color.Black.copy(alpha = 0.62f),
+                            0.28f to Color.Black.copy(alpha = 0.18f),
+                            0.52f to Color.Transparent,
+                            0.72f to Color.Black.copy(alpha = 0.22f),
+                            1.00f to Color.Black.copy(alpha = 0.78f),
                         )
                     )
             )
@@ -250,8 +251,22 @@ fun PlayerVideoContent(
                     textAlign = TextAlign.Center,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onRetry) { Text("Try again") }
-                    if (hasMultipleServers) Button(onClick = onSwitchServer) { Text("Switch server") }
+                    Button(
+                        onClick = onRetry,
+                        shape = LsShape.Button,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = LsColor.Accent,
+                            contentColor = LsColor.OnAccent,
+                        ),
+                    ) { Text("Try again", fontWeight = FontWeight.Bold) }
+                    if (hasMultipleServers) Button(
+                        onClick = onSwitchServer,
+                        shape = LsShape.Button,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = LsColor.FillSubtle,
+                            contentColor = LsColor.Text,
+                        ),
+                    ) { Text("Switch server", fontWeight = FontWeight.SemiBold) }
                 }
             }
         }

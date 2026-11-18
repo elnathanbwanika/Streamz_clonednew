@@ -91,7 +91,7 @@ fun DownloadsScreen(
     confirmDelete?.let { item ->
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
-            containerColor = LinkColors.CardBg,
+            containerColor = LsColor.Card,
             title = { Text("Remove download?", color = LinkColors.PrimaryText) },
             text = {
                 Text(
@@ -123,8 +123,8 @@ private fun DownloadRow(
 ) {
     Row(
         Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(LinkColors.CardBg)
+            .clip(LsShape.Card)
+            .background(LsColor.Card)
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

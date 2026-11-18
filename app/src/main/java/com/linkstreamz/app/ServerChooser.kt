@@ -8,7 +8,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -52,7 +51,7 @@ fun ServerChooserSheet(target: PlayerTarget, onDismiss: () -> Unit, onPick: (Str
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.70f))
+                .background(Color.Black.copy(alpha = 0.60f))
                 .clickable(
                     onClick = onDismiss,
                     indication = null,
@@ -67,8 +66,7 @@ fun ServerChooserSheet(target: PlayerTarget, onDismiss: () -> Unit, onPick: (Str
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp)
                     .widthIn(max = 300.dp)
-                    .clip(RoundedCornerShape(22.dp))
-                    .border(1.dp, Color(0xFFF97316).copy(alpha = 0.38f), RoundedCornerShape(22.dp))
+                    .clip(LsShape.Dialog)
                     .drawBehind {
                         drawRect(
                             brush = Brush.radialGradient(
@@ -78,7 +76,7 @@ fun ServerChooserSheet(target: PlayerTarget, onDismiss: () -> Unit, onPick: (Str
                             )
                         )
                     }
-                    .background(Color(0xFF0D0D0D))
+                    .background(LsColor.Card)
                     .padding(top = 20.dp, start = 16.dp, end = 16.dp, bottom = 16.dp)
                     .clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {},
             ) {
@@ -123,18 +121,15 @@ private fun ChooserRow(server: StreamServer, index: Int, isSelected: Boolean, on
         1    -> SC_DOT_YELLOW
         else -> SC_DOT_RED
     }
-    val rowFill        = if (isSelected) Color(0xFFF97316).copy(alpha = 0.10f) else Color(0xFF131110)
-    val rowBorderColor = if (isSelected) Color(0xFFF97316)                     else Color(0xFFF97316).copy(alpha = 0.20f)
-    val rowBorderWidth = if (isSelected) 2.dp                                  else 1.dp
+    val rowFill        = if (isSelected) LsColor.AccentDim else LsColor.Surface
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = 48.dp)
             .scale(rowScale)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(rowFill)
-            .border(rowBorderWidth, rowBorderColor, RoundedCornerShape(12.dp))
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
             .padding(vertical = 11.dp, horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,

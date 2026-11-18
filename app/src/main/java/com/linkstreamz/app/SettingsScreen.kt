@@ -98,9 +98,9 @@ object LinkColors {
     val IconTileBg      = Color(0xFFFF6600).copy(alpha = 0.14f)
 
     // Toggle – off state
-    val ToggleOffTrack  = Color(0xFF1A1108)
-    val ToggleOffBorder = Color(0xFFFF6600).copy(alpha = 0.35f)
-    val ToggleOffKnob   = Color(0xFF7A5A40)
+    val ToggleOffTrack  = Color(0xFF2A2A2A)
+    val ToggleOffBorder = Color(0x33FFFFFF)
+    val ToggleOffKnob   = Color(0xFF6E6E6E)
 
     // Toggle – on state
     val ToggleOnKnob    = Color(0xFFFFF6EE)   // bright cream; track = OrangePrimary
@@ -129,11 +129,11 @@ object LinkColors {
 object LinkDimens {
     val ScreenPadH    = 12.dp
     val HeaderRadius  = 14.dp   // gear tile corner radius
-    val CardRadius    = 18.dp   // section card corner radius
+    val CardRadius    = 22.dp   // section card corner radius
     val IconTileSize  = 34.dp
     val IconTileR     = 11.dp   // icon tile corner radius
-    val InputRadius   = 14.dp
-    val BtnRadius     = 14.dp
+    val InputRadius   = 16.dp
+    val BtnRadius     = 16.dp
 
     // ── Inline player frame (Task 2) ──────────────────────────────────────────
     // Outer orange border frame used in portrait/embedded mode only.
@@ -934,8 +934,7 @@ fun BrandSegmentedControl(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(LinkColors.SegmentBg, RoundedCornerShape(14.dp))
-            .border(1.dp, LinkColors.SegmentBorder, RoundedCornerShape(14.dp))
+            .background(LsColor.Surface, RoundedCornerShape(14.dp))
             .clip(RoundedCornerShape(14.dp)),
     ) {
         options.forEachIndexed { index, option ->
@@ -1085,22 +1084,10 @@ fun BrandPrimaryButton(
 ) {
     Box(
         modifier = modifier
-            // Orange tinted elevation shadow
-            .shadow(
-                elevation    = 6.dp,
-                shape        = RoundedCornerShape(LinkDimens.BtnRadius),
-                ambientColor = LinkColors.OrangePrimary.copy(alpha = 0.40f),
-                spotColor    = LinkColors.OrangePrimary.copy(alpha = 0.60f),
-            )
-            // Vertical gradient: OrangeLight (#FF8A33) → OrangePrimary (#FF6600)
-            .background(
-                brush = Brush.verticalGradient(
-                    listOf(LinkColors.OrangeLight, LinkColors.OrangePrimary),
-                ),
-                shape = RoundedCornerShape(LinkDimens.BtnRadius),
-            )
-            .clip(RoundedCornerShape(LinkDimens.BtnRadius))
+            .clip(LsShape.Button)
+            .background(LsColor.Accent)
             .clickable(onClick = onClick)
+            .heightIn(min = LsSpace.Button)
             .padding(vertical = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -1108,14 +1095,14 @@ fun BrandPrimaryButton(
             Icon(
                 imageVector        = icon,
                 contentDescription = null,
-                tint               = Color.Black,
+                tint               = LsColor.OnAccent,
                 modifier           = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(8.dp))
             Text(
                 text       = text,
-                color      = Color.Black,
-                fontSize   = 15.sp,
+                color      = LsColor.OnAccent,
+                fontSize   = 14.sp,
                 fontWeight = FontWeight.Bold,
             )
         }
@@ -1133,20 +1120,16 @@ fun BrandOutlinedButton(
 ) {
     Box(
         modifier = Modifier
-            .defaultMinSize(minWidth = 84.dp)
-            .border(
-                width = 1.dp,
-                color = LinkColors.OrangePrimary.copy(alpha = 0.60f),
-                shape = RoundedCornerShape(LinkDimens.BtnRadius),
-            )
-            .clip(RoundedCornerShape(LinkDimens.BtnRadius))
+            .defaultMinSize(minWidth = 84.dp, minHeight = LsSpace.Touch)
+            .clip(LsShape.Button)
+            .background(LsColor.FillSubtle)
             .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text       = text,
-            color      = LinkColors.OrangePrimary,
+            color      = LsColor.Text,
             fontSize   = 13.5.sp,
             fontWeight = FontWeight.SemiBold,
         )
