@@ -5,6 +5,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.app.PictureInPictureUiState
+import androidx.annotation.RequiresApi
 import android.content.res.Configuration
 import android.graphics.Rect
 import android.os.Build
@@ -81,6 +83,9 @@ class MainActivity : ComponentActivity() {
         videoViewRef = view
     }
 
+    /** Read-only accessor for the PiP diagnostics log. */
+    internal fun videoViewForPip(): android.view.View? = videoViewRef
+
     /** True while this activity is hosted in a PiP window. */
     private val inPipState = mutableStateOf(false)
 
@@ -142,11 +147,15 @@ class MainActivity : ComponentActivity() {
         // Source rect hint: the video view's on-screen bounds, so the system can
         // animate into/out of the PiP window smoothly instead of a hard cut.
         val hint = videoViewRef?.let { view ->
-            if (view.isAttachedToWindow && view.width > 0 && view.height > 0) {
-                val loc = IntArray(2)
-                view.getLocationOnScreen(loc)
-                Rect(loc[0], loc[1], loc[0] + view.width, loc[1] + view.height)
-            } else null
+            if (!view.isAttachedToWindow || view.width <= 0 || view.height <= 0) {
+                null
+            } else {
+                // getGlobalVisibleRect gives the view's visible bounds in window
+                // coordinates — exactly what the system animates from/to. Using
+                // screen coords would be off by the status bar inset.
+                val r = Rect()
+                if (view.getGlobalVisibleRect(r)) r else null
+            }
         }
         return controller.enter(hint)
     }
@@ -176,6 +185,25 @@ class MainActivity : ComponentActivity() {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
         inPipState.value = isInPictureInPictureMode
         pipController?.onPipModeChanged(isInPictureInPictureMode)
+    }
+
+    /**
+     * Android 13+ (API 33): fires when the PiP transition *starts*, before the
+     * window has shrunk. Switching the layout here means the first frame the
+     * system draws in the small window is already video-only — otherwise the
+     * full page (header, title, download button, rounded frame) gets squeezed
+     * into the window for a frame or two and the video is clipped.
+     *
+     * [onPictureInPictureModeChanged] stays the final authority: it sets the
+     * real state and restores the normal UI when leaving PiP.
+     */
+    @RequiresApi(Build.VERSION_CODES.TIRAMISU)
+    override fun onPictureInPictureUiStateChanged(pipState: PictureInPictureUiState) {
+        super.onPictureInPictureUiStateChanged(pipState)
+        if (pipState.isTransitioningToPip) {
+            inPipState.value = true
+            pipController?.onPipModeChanged(true)
+        }
     }
 
     override fun onStop() {

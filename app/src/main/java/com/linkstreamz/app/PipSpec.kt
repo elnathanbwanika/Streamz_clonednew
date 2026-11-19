@@ -58,6 +58,101 @@ object PipAspectRatio {
 enum class PipAction { REWIND_10, PLAY_PAUSE, FORWARD_10 }
 
 /**
+ * What the player screen is allowed to draw.
+ *
+ * The PiP window is the whole activity shrunk to a thumbnail, so anything the
+ * screen composes is visible inside it. This enum is the single source of truth
+ * for "video only" and is unit-tested ([PipLayoutSpecTest]) so a future screen
+ * change cannot silently re-introduce chrome into the floating window.
+ */
+enum class PlayerChrome {
+    /** The video surface itself — the only thing PiP may show. */
+    VIDEO_SURFACE,
+
+    /** Header bar: back arrow, title, download / downloads buttons. */
+    TOP_BAR,
+
+    /** Rounded frame, orange border and gap padding around the video. */
+    VIDEO_FRAME_DECORATION,
+
+    /** App-drawn transport controls (play, rewind, forward, seek bar). */
+    PLAYER_OVERLAY,
+
+    /** Buffering / extracting spinners and the "syncing" caption. */
+    LOADING_OVERLAY,
+
+    /** The "Link Streamz TV" badge overlay. */
+    TV_BADGE,
+
+    /** Dim/brighten scrim from the brightness gesture. */
+    BRIGHTNESS_SCRIM,
+
+    /** Seek feedback bubble text. */
+    SEEK_BUBBLE,
+
+    /** Error card with retry / switch-server buttons. */
+    ERROR_OVERLAY,
+
+    /** "More movies" / related content list below the player. */
+    RELATED_CONTENT,
+}
+
+/**
+ * Layout policy for the player screen.
+ *
+ * Kept framework-free so the PiP guarantee is a plain unit test rather than an
+ * instrumented one: when the window is in PiP, [visibleChrome] must be exactly
+ * the video surface.
+ */
+object PipLayoutSpec {
+
+    /** Everything the normal (non-PiP) player screen draws. */
+    val ALL_CHROME: Set<PlayerChrome> = PlayerChrome.entries.toSet()
+
+    /**
+     * The set of views that may be drawn for the given mode.
+     *
+     * @param isInPip true while the activity is hosted in a PiP window.
+     * @param isFullscreen true when the in-app fullscreen overlay is showing.
+     */
+    fun visibleChrome(isInPip: Boolean, isFullscreen: Boolean): Set<PlayerChrome> =
+        if (isInPip) {
+            // Video only: full-bleed, no header, no frame, no lists, no overlays.
+            setOf(PlayerChrome.VIDEO_SURFACE)
+        } else {
+            // Normal portrait / fullscreen: the video plus the app chrome.
+            ALL_CHROME
+        }
+
+    /** True when [chrome] may be drawn in PiP. Only the video surface may. */
+    fun isAllowedInPip(chrome: PlayerChrome): Boolean =
+        chrome == PlayerChrome.VIDEO_SURFACE
+
+    /**
+     * Everything that must be hidden in PiP — i.e. every non-video view.
+     * Used by the test to assert nothing decorative leaks into the window.
+     */
+    fun chromeHiddenInPip(): Set<PlayerChrome> =
+        ALL_CHROME.filterNot { isAllowedInPip(it) }.toSet()
+
+    /**
+     * The resize mode to use for the video surface.
+     *
+     * PiP sets the window aspect ratio from the real video size, so FIT shows
+     * the complete frame with no cropping and no letterboxing. FILL is only
+     * wanted for the deliberate in-app fullscreen stretch.
+     */
+    fun resizeMode(isInPip: Boolean, isFullscreen: Boolean): PipResizeMode = when {
+        isInPip -> PipResizeMode.FIT
+        isFullscreen -> PipResizeMode.FILL
+        else -> PipResizeMode.FIT
+    }
+}
+
+/** Video scaling modes, mirroring Media3's `AspectRatioFrameLayout`. */
+enum class PipResizeMode { FIT, FILL, ZOOM }
+
+/**
  * Decides the PiP action set from the content type.
  *
  * Live content (events, channels) cannot meaningfully skip back or forward:

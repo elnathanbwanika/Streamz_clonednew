@@ -83,26 +83,31 @@ fun PlayerVideoContent(
                         subtitleView?.visibility = android.view.View.GONE
                         // Hand the view to the host for the PiP source-rect hint.
                         (context.findActivity() as? MainActivity)?.setPipVideoView(this)
-                        // Clip to inner radius so video corners match the frame
-                        clipToOutline = true
-                        outlineProvider = object : android.view.ViewOutlineProvider() {
-                            override fun getOutline(view: android.view.View, outline: android.graphics.Outline) {
-                                val radius = LinkDimens.PlayerInnerRadius.value * view.resources.displayMetrics.density
-                                outline.setRoundRect(0, 0, view.width, view.height, radius)
+                        // Clip to inner radius so video corners match the frame.
+                        // Not in PiP: the window must be a plain, full-bleed video.
+                        if (!isInPip) {
+                            clipToOutline = true
+                            outlineProvider = object : android.view.ViewOutlineProvider() {
+                                override fun getOutline(view: android.view.View, outline: android.graphics.Outline) {
+                                    val radius = LinkDimens.PlayerInnerRadius.value * view.resources.displayMetrics.density
+                                    outline.setRoundRect(0, 0, view.width, view.height, radius)
+                                }
                             }
                         }
                     }
                 },
                 update = { playerView ->
                     playerView.player = exoPlayer
-                    // In fullscreen: stretch to fill edge-to-edge (no black bars).
-                    // In portrait: fit inside the rounded frame.
-                    playerView.resizeMode = if (isFullscreen)
-                        androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
-                    else
-                        androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    // Corner clipping only needed in portrait (fullscreen is flush to screen edges)
-                    playerView.clipToOutline = !isFullscreen
+                    // PiP: the window ratio is set from the real video size, so FIT
+                    // shows the complete frame with no cropping and no letterbox.
+                    // FILL is only for the in-app fullscreen stretch.
+                    playerView.resizeMode = when {
+                        isInPip -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        isFullscreen -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FILL
+                        else -> androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    }
+                    // Corner clipping only for the rounded portrait frame; never in PiP.
+                    playerView.clipToOutline = !isFullscreen && !isInPip
                 },
                 modifier = Modifier.fillMaxSize(),
                 onRelease = { view ->
@@ -232,7 +237,7 @@ fun PlayerVideoContent(
             )
         }
 
-        // Seek-feedback bubble
+        // Seek-feedback bubble — never in PiP (no text over the video).
         var bubbleMessage by remember { mutableStateOf<String?>(null) }
         LaunchedEffect(seekMessage) {
             if (seekMessage != null) {
@@ -241,7 +246,7 @@ fun PlayerVideoContent(
                 bubbleMessage = null
             }
         }
-        bubbleMessage?.let { message ->
+        if (!isInPip) bubbleMessage?.let { message ->
             Box(
                 Modifier
                     .align(Alignment.Center)
@@ -252,8 +257,9 @@ fun PlayerVideoContent(
             }
         }
 
-        // Error overlay
-        if (error != null) {
+        // Error overlay — never in PiP: the window shows the video only, and a
+        // dead stream is handled by the activity (it exits PiP / stops playback).
+        if (error != null && !isInPip) {
             Column(
                 Modifier.matchParentSize().background(Color.Black.copy(alpha = .9f)),
                 horizontalAlignment = Alignment.CenterHorizontally,

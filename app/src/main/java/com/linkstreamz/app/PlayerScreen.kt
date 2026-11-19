@@ -364,7 +364,9 @@ fun PlayerScreen(
     // The activity owns the platform PiP session; the player instance is the
     // same one used on screen, so expanding back never rebuffers.
     val pipHost = activity as? MainActivity
-    val isInPip = pipHost?.isInPipState?.value ?: false
+    // Read inside a snapshot-observed scope: `by` on the State makes Compose
+    // subscribe, so entering/leaving PiP actually recomposes this screen.
+    val isInPip by (pipHost?.isInPipState ?: remember { mutableStateOf(false) })
     DisposableEffect(pipHost, target, playing) {
         pipHost?.attachPip(engine.player)
         pipHost?.setPipLive(PipActions.isLiveTarget(target))
@@ -780,8 +782,54 @@ fun PlayerScreen(
     //
     // We use a Box at the top level so fullscreen can be an absolute overlay that escapes the Column.
     Box(Modifier.fillMaxSize()) {
-        // ── Portrait layout (always rendered; hidden behind fullscreen overlay when isFs) ──
-        if (!isFs) {
+        // ── PiP: video only ───────────────────────────────────────────────────
+        // While the activity is in picture-in-picture the whole window is tiny, so
+        // NOTHING except the video surface may be composed: no header/back/download
+        // bar, no rounded frame or orange border, no padding, no gradients, no
+        // "More movies" list. The window aspect ratio is set from the real video
+        // size and the surface uses FIT, so the complete frame is visible with no
+        // cropping and no letterboxing.
+        if (isInPip) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+            ) {
+                PlayerVideoContent(
+                    exoPlayer = exoPlayer,
+                    isFloating = false,
+                    onHideFloat = {},
+                    playerBrightness = playerBrightness,
+                    controlsVisible = false,
+                    isExtracting = isExtracting,
+                    isBuffering = isBuffering,
+                    isSyncing = isSyncing,
+                    playing = playing,
+                    settings = settings,
+                    seekMessage = null,
+                    error = error,
+                    controlsState = controlsState,
+                    onPlayPause = { engine.player.play() },
+                    onRewind = {},
+                    onForward = {},
+                    onSeek = {},
+                    onServerSelect = {},
+                    onVolumeChange = {},
+                    onFullscreenToggle = {},
+                    onFloatWindow = {},
+                    onInteraction = {},
+                    onHideControls = {},
+                    onPlayerBrightnessChange = {},
+                    onRetry = { error = null },
+                    onSwitchServer = {},
+                    hasMultipleServers = false,
+                    isFullscreen = false,
+                    tvBadge = null,
+                    isInPip = true,
+                    onVideoSizeChanged = { w, h -> pipHost?.setPipVideoSize(w, h) },
+                )
+            }
+        } else if (!isFs) {
             Column(
                 Modifier
                     .fillMaxSize()

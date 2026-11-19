@@ -335,9 +335,56 @@ class PipController(
     fun onPipModeChanged(inPip: Boolean) {
         isInPip = inPip
         onPipChanged?.invoke(inPip)
+        logPipState(inPip)
         if (inPip) {
             // Keep the system overlay in sync with the live player state.
             refreshActions()
+        }
+    }
+
+    /**
+     * Diagnostic snapshot for the Logs overlay (no URLs, no tokens).
+     *
+     * Logs the PiP flag, the window size, the video view's bounds, the aspect
+     * ratio we set, the source-rect hint and the resize mode — the exact values
+     * needed to tell "layout did not switch" apart from "video was cropped".
+     */
+    private fun logPipState(inPip: Boolean) {
+        val metrics = activity.resources.displayMetrics
+        val ratio = PipAspectRatio.clamp(videoWidth, videoHeight)
+        val video = activity.videoViewForPip()
+        val bounds = if (video != null && video.isAttachedToWindow) {
+            val r = Rect()
+            if (video.getGlobalVisibleRect(r)) "$r" else "unattached"
+        } else "null"
+
+        AppLogger.d(
+            "Pip",
+            buildString {
+                append("isInPictureInPictureMode=").append(inPip)
+                append(" window=").append(metrics.widthPixels).append('x').append(metrics.heightPixels)
+                append(" videoView=").append(bounds)
+                append(" aspectRatio=").append(String.format(java.util.Locale.US, "%.4f", ratio))
+                append(" sourceRectHint=").append(sourceRectHint?.toString() ?: "null")
+                append(" layoutMode=").append(if (inPip) "video-only" else "normal")
+                append(" resizeMode=").append(
+                    PipLayoutSpec.resizeMode(isInPip = inPip, isFullscreen = false).name,
+                )
+            },
+        )
+
+        // Anything other than the video surface visible in PiP is a bug.
+        // Compare what the screen actually composes with the video-only policy.
+        if (inPip) {
+            val drawn = PipLayoutSpec.visibleChrome(isInPip = true, isFullscreen = false)
+            val leaked = drawn - PlayerChrome.VIDEO_SURFACE
+            if (leaked.isNotEmpty()) {
+                AppLogger.e(
+                    "Pip",
+                    "WARNING: non-video chrome must not be visible in PiP: " +
+                        leaked.joinToString { it.name },
+                )
+            }
         }
     }
 
