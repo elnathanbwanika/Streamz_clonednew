@@ -3,19 +3,22 @@
 ## Build
 - Native Android app (Kotlin + Compose), module `app/` at repo root (not `android/app/`). No Capacitor/Cordova/RN wrapper.
 - AGP 8.5.2, Gradle wrapper 8.9, Kotlin 2.0.21, compileSdk 36 / targetSdk 34 / minSdk 24, applicationId `com.linkstreamz.app`.
-- Requires JDK 17+ (AGP 8.x). Build command: `./gradlew assembleDebug --no-daemon`.
+- Requires JDK 17+ (AGP 8.x). Release build command: `./gradlew assembleRelease --no-daemon`.
 - JDK 25 is TOO NEW (Gradle 8.9/AGP 8.5.2 fail with `What went wrong: 25.0.4.1`). Use 17 or 21. CI pins 17 via setup-java; local Codespace defaults to 25 → set `JAVA_HOME` to a 17/21 JDK for local builds.
-- APK lands at `app/build/outputs/apk/debug/`.
+- APK lands at `app/build/outputs/apk/release/`.
 
 ## CI (GitHub Actions)
-- Workflow: `.github/workflows/build-apk.yml` (builds debug APK, uploads artifact + failure reports).
+- Workflow: `.github/workflows/build-apk.yml` (builds a **signed release** APK, uploads artifact + failure reports).
+- **Versioning:** `app/version.properties` is the single source of truth. CI increments it (`PATCH` rolls 0..9 then `MINOR+1`; `MINOR` rolls 0..9 then `MAJOR+1`; `BUILD` = Android `versionCode`, always +1), passes the values to Gradle as `-PversionMajor/-PversionMinor/-PversionPatch/-PversionCodeOverride`, then commits the file back with `[skip ci]`. A local build never bumps — it reuses the committed values — so dev builds can't consume a version number and collide with CI.
+- **Release signing secrets** (repo → Settings → Secrets → Actions): `RELEASE_KEYSTORE_BASE64` (the `.jks`, `base64 -w0`), `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS`, `RELEASE_KEY_PASSWORD`. The keystore is decoded to `app/release-key.jks` at build time and is gitignored; it must never be committed. Alias is `release` (PKCS12, `release-key.jks` produced by `keytool -genkeypair`).
 - `gradle.properties` must NOT contain `org.gradle.java.home` (it pointed to a local sdkman path and breaks the runner). Keep `org.gradle.jvmargs=-Xmx3g` to avoid OOM.
 - `android-actions/setup-android@v3` FAILS on the runner (tries to install legacy `tools` package → "Failed to find package 'tools'"). Use the preinstalled SDK: set `ANDROID_HOME=/usr/local/lib/android/sdk` and run `yes | sdkmanager --licenses`.
 
 ## Pitfalls
-- **"There was a problem parsing the package" on install = the APK is not debug-signed.** `buildTypes` only declares `release` (no `debug` block, no `signingConfig`), and the release type has no signing config either. A build that is `minifyEnabled`/not-debuggable ships unsigned and Android refuses it at parse time. The APK that installs must come from `./gradlew assembleDebug` (or `assembleRelease` once a signing config is added) — never from a `release`-flavoured task that is not signed.
+- **"There was a problem parsing the package" on install = the APK is unsigned.** Release builds are signed only when `app/release-key.jks` exists **and** `RELEASE_KEYSTORE_PASSWORD` is set; otherwise Gradle produces an unsigned release APK on purpose rather than failing. If you ever see this on a CI artifact, the keystore secret is missing — the workflow fails early with an explicit error in that case.
 - `local.properties` is gitignored (machine-specific `sdk.dir`); the workflow relies on the runner's preinstalled SDK via `ANDROID_HOME=/usr/local/lib/android/sdk`.
-- `app/build.gradle.kts` auto-increments `app/version.properties` on every `assemble`/`bundle` run; it also reads it at configuration time, so the file must be committed (it is).
+- `app/version.properties` is read at configuration time and written back by CI, so it must stay committed. Don't hand-edit it to "reset" a version — `versionCode` must only ever increase or Play/Android will reject the update.
+- `release` has `isMinifyEnabled = true` (R8). `app/proguard-rules.pro` keeps OkHttp, Ktor, kotlinx.serialization, Media3 and the `linktunnel`/`go` gomobile classes — a release-only crash that doesn't reproduce in debug usually means a missing keep rule there.
 - NewPipeExtractor is pinned to a JitPack commit (`com.github.TeamNewPipe:NewPipeExtractor:94159dc971`); JitPack repo is in `settings.gradle.kts`. First CI run may be slow or 403 if JitPack has not built that commit yet — re-run, then check `https://jitpack.io/com/github/TeamNewPipe/NewPipeExtractor/94159dc971/`.
 - `@Preview` annotations need `androidx.compose.ui:ui-tooling`; it must be `debugImplementation(...)` (was missing, added) or `:app:compileDebugKotlin` fails with unresolved reference.
 - `app/libs/linktunnel.aar` (15 MB, gomobile WireGuard) is committed on purpose and un-ignored in `.gitignore`; it is a `files(...)` dependency, so it must stay in the repo. Rebuild: `scripts/build-tunnel-aar.sh` (needs Go + gomobile + NDK).
@@ -38,5 +41,6 @@
 - No fake loading delays; show `Ready` data immediately.
 
 ## Getting the APK
-- Actions → "Build debug APK" → latest green run → Artifacts → `app-debug-apk` → download on phone → install (allow "install unknown apps" for the browser/Files app).
-- Artifacts are kept 14 days; red runs still upload `build-reports`.
+- Actions → "Build release APK" → latest green run → Artifacts → `app-release-<versionName>` (e.g. `app-release-3.1.6`) → download on phone → install (allow "install unknown apps" for the browser/Files app).
+- Artifacts are kept 30 days; red runs still upload `build-reports`.
+- Every successful run bumps `versionCode` and commits `app/version.properties` back, so installs always go forward. Uninstalling the old build is only needed if you ever switch signing keys — with a stable key, installs upgrade in place.

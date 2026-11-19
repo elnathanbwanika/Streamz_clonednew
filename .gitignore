@@ -32,5 +32,11 @@ captures/
 .DS_Store
 Thumbs.db
 
+# Release keystore — decoded from the RELEASE_KEYSTORE_BASE64 CI secret at build
+# time and never committed. The private key stays in GitHub Secrets only.
+/app/release-key.jks
+*.jks
+*.keystore
+
 # Scratch / temp
 scratch/

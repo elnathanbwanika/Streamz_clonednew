@@ -1,6 +1,5 @@
 import java.util.Properties
 import java.io.FileInputStream
-import java.io.FileOutputStream
 
 plugins {
     id("com.android.application")
@@ -21,36 +20,35 @@ if (versionPropsFile.exists()) {
     versionProps["BUILD"] = "0"
 }
 
-val isBuilding = gradle.startParameter.taskNames.any { it.contains("assemble") || it.contains("bundle") }
-if (isBuilding) {
-    var major = versionProps["MAJOR"].toString().toInt()
-    var minor = versionProps["MINOR"].toString().toInt()
-    var patch = versionProps["PATCH"].toString().toInt()
-    var build = versionProps["BUILD"].toString().toInt()
+// Version source of truth: app/version.properties, committed to git.
+//
+// CI (GitHub Actions) is the ONLY place that increments it: the workflow bumps
+// the file, commits it back, and passes the new values in via -P. That keeps a
+// single monotonic counter across every cloud build, which a local bump could
+// never do (two clones would race to the same number).
+//
+// Locally we must NOT bump, or a dev build would silently consume a version
+// number and the next CI build would collide with it. So a local build reuses
+// the committed values verbatim and only warns.
+val ciMajor = (findProperty("versionMajor") as String?)?.toIntOrNull()
+val ciMinor = (findProperty("versionMinor") as String?)?.toIntOrNull()
+val ciPatch = (findProperty("versionPatch") as String?)?.toIntOrNull()
+val ciCode = (findProperty("versionCodeOverride") as String?)?.toIntOrNull()
 
-    patch++
-    if (patch > 9) {
-        patch = 0
-        minor++
-    }
-    // Note: Assuming major doesn't auto-increment on minor > 9 unless requested, but we can do it:
-    if (minor > 9) {
-        minor = 0
-        major++
-    }
+val isCiVersion = ciMajor != null && ciMinor != null && ciPatch != null && ciCode != null
 
-    build++
-
-    versionProps["MAJOR"] = major.toString()
-    versionProps["MINOR"] = minor.toString()
-    versionProps["PATCH"] = patch.toString()
-    versionProps["BUILD"] = build.toString()
-
-    versionProps.store(FileOutputStream(versionPropsFile), "Auto-incremented per build")
+if (!isCiVersion) {
+    logger.lifecycle(
+        "LinkStreamz: using committed version ${versionProps["MAJOR"]}.${versionProps["MINOR"]}.${versionProps["PATCH"]} " +
+            "(build ${versionProps["BUILD"]}). CI increments this; local builds do not."
+    )
 }
 
-val vName = "${versionProps["MAJOR"]}.${versionProps["MINOR"]}.${versionProps["PATCH"]}"
-val vCode = versionProps["BUILD"].toString().toInt()
+val vMajor = ciMajor ?: versionProps["MAJOR"].toString().toInt()
+val vMinor = ciMinor ?: versionProps["MINOR"].toString().toInt()
+val vPatch = ciPatch ?: versionProps["PATCH"].toString().toInt()
+val vName = "$vMajor.$vMinor.$vPatch"
+val vCode = ciCode ?: versionProps["BUILD"].toString().toInt()
 
 android {
     namespace = "com.linkstreamz.app"
@@ -71,6 +69,27 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+
+            // Release signing. The keystore is NEVER committed: CI decodes the
+            // RELEASE_KEYSTORE_BASE64 secret into app/release-key.jks and
+            // passes the passwords as env vars. Locally, drop the .jks next to
+            // this file and export the same vars (or use ~/.gradle/gradle.properties).
+            //
+            // Without a keystore the release build stays unsigned rather than
+            // failing, so a plain `assembleRelease` on a fresh clone still works.
+            val keystoreFile = file("release-key.jks")
+            val storePass = System.getenv("RELEASE_KEYSTORE_PASSWORD")
+            val keyAlias = System.getenv("RELEASE_KEY_ALIAS")
+            val keyPass = System.getenv("RELEASE_KEY_PASSWORD")
+
+            if (keystoreFile.exists() && !storePass.isNullOrBlank()) {
+                signingConfig = signingConfigs.create("release").apply {
+                    storeFile = keystoreFile
+                    storePassword = storePass
+                    this.keyAlias = keyAlias ?: "release"
+                    this.keyPassword = keyPass ?: storePass
+                }
+            }
         }
     }
 

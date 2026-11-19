@@ -1,10 +1,20 @@
-name: Build debug APK
+name: Build release APK
 
 on:
   push:
     branches: [main, master]
-  pull_request:
   workflow_dispatch:
+
+# Needed so the version-bump step can commit app/version.properties back to the
+# branch. Every cloud build therefore starts from the number the previous one
+# left behind, which is what keeps versionCode strictly increasing.
+permissions:
+  contents: write
+
+# Never let two builds bump the version file at the same time.
+concurrency:
+  group: release-build-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -15,11 +25,14 @@ jobs:
       # "Failed to find package 'tools'".
       ANDROID_HOME: /usr/local/lib/android/sdk
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+      KEYSTORE_PATH: app/release-key.jks
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          # Needed to push the version bump back.
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -39,16 +52,87 @@ jobs:
           ./gradlew --version
           cat gradle/wrapper/gradle-wrapper.properties
 
-      - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace --warning-mode all --no-daemon
+      # ── Version bump ────────────────────────────────────────────────────────
+      # PATCH rolls 0..9, then MINOR +1; MINOR rolls 0..9, then MAJOR +1.
+      # BUILD is the Android versionCode and always increments by 1.
+      - name: Bump version
+        id: version
+        run: |
+          set -euo pipefail
+          FILE=app/version.properties
+          get() { grep -E "^$1=" "$FILE" | head -1 | cut -d= -f2 | tr -d '[:space:]'; }
 
-      - name: Upload APK
+          MAJOR=$(get MAJOR); MINOR=$(get MINOR); PATCH=$(get PATCH); BUILD=$(get BUILD)
+          : "${MAJOR:=1}" "${MINOR:=0}" "${PATCH:=0}" "${BUILD:=0}"
+
+          PATCH=$((PATCH + 1))
+          if [ "$PATCH" -gt 9 ]; then
+            PATCH=0
+            MINOR=$((MINOR + 1))
+          fi
+          if [ "$MINOR" -gt 9 ]; then
+            MINOR=0
+            MAJOR=$((MAJOR + 1))
+          fi
+          BUILD=$((BUILD + 1))
+
+          printf '#Auto-incremented per build\nMAJOR=%s\nMINOR=%s\nPATCH=%s\nBUILD=%s\n' \
+            "$MAJOR" "$MINOR" "$PATCH" "$BUILD" > "$FILE"
+
+          echo "Version: $MAJOR.$MINOR.$PATCH (versionCode $BUILD)"
+          {
+            echo "major=$MAJOR"
+            echo "minor=$MINOR"
+            echo "patch=$PATCH"
+            echo "versionName=$MAJOR.$MINOR.$PATCH"
+            echo "versionCode=$BUILD"
+          } >> "$GITHUB_OUTPUT"
+
+      # ── Signing key ──────────────────────────────────────────────────────────
+      - name: Decode release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "::error::Secret RELEASE_KEYSTORE_BASE64 is not set. A signed release APK cannot be produced."
+            exit 1
+          fi
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+
+      # ── Build ────────────────────────────────────────────────────────────────
+      - name: Build signed release APK
+        env:
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease --no-daemon --stacktrace \
+            -PversionMajor=${{ steps.version.outputs.major }} \
+            -PversionMinor=${{ steps.version.outputs.minor }} \
+            -PversionPatch=${{ steps.version.outputs.patch }} \
+            -PversionCodeOverride=${{ steps.version.outputs.versionCode }}
+
+      - name: Verify APK is signed
+        run: |
+          set -euo pipefail
+          APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+          if [ -z "$APK" ]; then
+            echo "::error::No release APK was produced."
+            exit 1
+          fi
+          echo "APK: $APK"
+          BUILD_TOOLS="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          "$BUILD_TOOLS/apksigner" verify --print-certs "$APK"
+          echo "Signing verified against: $BUILD_TOOLS/apksigner"
+
+      - name: Upload release APK
         uses: actions/upload-artifact@v4
-        if: always()
         with:
-          name: app-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-          retention-days: 14
+          name: app-release-${{ steps.version.outputs.versionName }}
+          path: app/build/outputs/apk/release/*.apk
+          retention-days: 30
 
       - name: Upload build reports (on failure)
         uses: actions/upload-artifact@v4
@@ -59,3 +143,20 @@ jobs:
             **/build/reports/**
             **/*.log
           retention-days: 14
+
+      # ── Commit the bump back ──────────────────────────────────────────────────
+      # Only on a real branch push: a workflow_dispatch on a tag, or a detached
+      # HEAD, has nowhere to push to and would fail the whole run.
+      - name: Commit version bump
+        if: success() && github.ref_type == 'branch'
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add app/version.properties
+          if git diff --staged --quiet; then
+            echo "No version change to commit."
+            exit 0
+          fi
+          git commit -m "chore: bump version to ${{ steps.version.outputs.versionName }} (${{ steps.version.outputs.versionCode }}) [skip ci]"
+          git push origin "HEAD:${{ github.ref_name }}"
