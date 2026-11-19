@@ -352,7 +352,7 @@ class PipController(
     private fun logPipState(inPip: Boolean) {
         val metrics = activity.resources.displayMetrics
         val ratio = PipAspectRatio.clamp(videoWidth, videoHeight)
-        val video = activity.videoViewForPip()
+        val video = (activity as? MainActivity)?.videoViewForPip()
         val bounds = if (video != null && video.isAttachedToWindow) {
             val r = Rect()
             if (video.getGlobalVisibleRect(r)) "$r" else "unattached"
