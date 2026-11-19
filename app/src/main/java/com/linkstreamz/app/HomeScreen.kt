@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -60,9 +61,12 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
@@ -119,13 +123,19 @@ fun HomeScreen(
     val events   = (state as? FeedState.Ready)?.feed?.events ?: emptyList()
 
     val context = LocalContext.current
-    var nowMs by remember { mutableStateOf(ServerClock.now()) }
     var sportsTab by rememberSaveable { mutableStateOf(SportsTab.LIVE) }
     var dialogTarget by remember { mutableStateOf<PlayerTarget?>(null) }
     var pendingDownload by remember { mutableStateOf<Movie?>(null) }
     var mobileConfirmDownload by remember { mutableStateOf<Movie?>(null) }
     var showDownloadRationale by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+
+    // Tabs that have been opened at least once. Once visited they stay composed
+    // (hidden via alpha) so switching back is instant instead of a cold rebuild.
+    val visitedSections = remember { mutableStateListOf(section) }
+    LaunchedEffect(section) {
+        if (!visitedSections.contains(section)) visitedSections.add(section)
+    }
 
     fun enqueueDownload(movie: Movie) {
         when (val result = DownloadManager.downloadMovie(context, movie)) {
@@ -178,13 +188,6 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(TICKER_MS)
-            nowMs = ServerClock.now()
-        }
-    }
-
     // FEED: Reload when the app returns to the foreground. If a previous Ready
     // state exists and the new fetch fails, the repository keeps old data (silent
     // mode) and we show a toast per the spec.
@@ -205,12 +208,6 @@ fun HomeScreen(
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
-
-    var minDelayPassed by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        delay(3000L)
-        minDelayPassed = true
     }
 
     var errorSinceMs by remember { mutableLongStateOf(0L) }
@@ -249,56 +246,45 @@ fun HomeScreen(
             MainSectionTabs(selected = section, onSelect = onSectionChange)
 
             Box(Modifier.weight(1f)) {
-                when (section) {
-                    MainSection.HOME -> HomeSummary(
-                        movies = movies,
-                        channels = channels,
-                        events = events,
-                        downloads = downloads,
-                        nowMs = nowMs,
-                        onOpenLimited = { onSectionChange(MainSection.MOVIES) },
-                        onDownload = ::requestDownload,
-                        onOpenDownloads = onDownloads,
-                        onOpenMovies = { onSectionChange(MainSection.MOVIES) },
-                        onOpenChannels = { onSectionChange(MainSection.CHANNELS) },
-                        onOpenSports = { onSectionChange(MainSection.SPORTS) },
-                        onWatchChannel = playChannel,
-                        onPlayer = onPlayer,
-                        selectTarget = { target -> selectTarget(target, onPlayer, { dialogTarget = it }, context) },
-                    )
-
-                    MainSection.SPORTS -> SportsContent(
-                        state = state,
-                        minDelayPassed = minDelayPassed,
-                        showError = showError,
-                        selectedTab = sportsTab,
-                        onSelectTab = { sportsTab = it },
-                        nowMs = nowMs,
-                        onRetry = { scope.launch { repository.load() } },
-                        onEvent = { selectTarget(EventTarget(it), onPlayer, { dialogTarget = it }, context) },
-                        onHighlight = { selectTarget(HighlightTarget(it), onPlayer, { dialogTarget = it }, context) },
-                    )
-
-                    MainSection.MOVIES -> {
-                        if (mediaState is MediaFeedState.Loading && movies.isEmpty()) {
-                            LoadingList()
-                        } else {
-                            MoviesScreen(
-                                movies = movies,
-                                series = series,
-                                onWatch = playSeriesOrMovie,
-                                onDownload = { movie -> requestDownload(movie) },
-                                focusLimited = focusLimited,
-                                onFocusConsumed = onFocusConsumed,
-                            )
-                        }
-                    }
-
-                    MainSection.CHANNELS -> {
-                        if (channelState is ChannelFeedState.Loading && channels.isEmpty()) {
-                            LoadingList()
-                        } else {
-                            ChannelsScreen(channels = channels, onWatch = playChannel)
+                // Keep every visited tab composed and just toggle visibility.
+                // Swapping the `when` branches used to dispose the outgoing
+                // screen's LazyListState, Coil item composition and scroll
+                // offset, so each tab tap rebuilt its list cold (2-3 s on a
+                // channel grid). `saveableStateHolder` also persists each
+                // screen's rememberSaveable state across the toggle.
+                val keepAlive = rememberSaveableStateHolder()
+                MainSection.entries.forEach { entry ->
+                    if (entry == section || visitedSections.contains(entry)) {
+                        keepAlive.SaveableStateProvider(entry.name) {
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .alpha(if (entry == section) 1f else 0f),
+                            ) {
+                                SectionContent(
+                                    entry = entry,
+                                    movies = movies,
+                                    series = series,
+                                    channels = channels,
+                                    events = events,
+                                    downloads = downloads,
+                                    state = state,
+                                    mediaState = mediaState,
+                                    channelState = channelState,
+                                    sportsTab = sportsTab,
+                                    showError = showError,
+                                    focusLimited = focusLimited,
+                                    onFocusConsumed = onFocusConsumed,
+                                    onSectionChange = onSectionChange,
+                                    onSportsTabChange = { sportsTab = it },
+                                    onRetry = { scope.launch { repository.load() } },
+                                    onDownload = ::requestDownload,
+                                    onOpenDownloads = onDownloads,
+                                    onWatchChannel = playChannel,
+                                    onPlayer = onPlayer,
+                                    onDialogTarget = { dialogTarget = it },
+                                )
+                            }
                         }
                     }
                 }
@@ -374,6 +360,90 @@ fun HomeScreen(
 }
 
 @Composable
+private fun SectionContent(
+    entry: MainSection,
+    movies: List<Movie>,
+    series: List<Series>,
+    channels: List<Channel>,
+    events: List<Event>,
+    downloads: List<DownloadItem>,
+    state: FeedState,
+    mediaState: MediaFeedState,
+    channelState: ChannelFeedState,
+    sportsTab: SportsTab,
+    showError: Boolean,
+    focusLimited: Boolean,
+    onFocusConsumed: () -> Unit,
+    onSectionChange: (MainSection) -> Unit,
+    onSportsTabChange: (SportsTab) -> Unit,
+    onRetry: () -> Unit,
+    onDownload: (Movie) -> Unit,
+    onOpenDownloads: () -> Unit,
+    onWatchChannel: (Channel) -> Unit,
+    onPlayer: (PlayerTarget) -> Unit,
+    onDialogTarget: (PlayerTarget) -> Unit,
+) {
+    val context = LocalContext.current
+    when (entry) {
+        MainSection.HOME -> HomeSummary(
+            movies = movies,
+            channels = channels,
+            events = events,
+            downloads = downloads,
+            onOpenLimited = { onSectionChange(MainSection.MOVIES) },
+            onDownload = onDownload,
+            onOpenDownloads = onOpenDownloads,
+            onOpenMovies = { onSectionChange(MainSection.MOVIES) },
+            onOpenChannels = { onSectionChange(MainSection.CHANNELS) },
+            onOpenSports = { onSectionChange(MainSection.SPORTS) },
+            onWatchChannel = onWatchChannel,
+            onPlayer = onPlayer,
+            selectTarget = { target -> selectTarget(target, onPlayer, onDialogTarget, context) },
+        )
+
+        MainSection.SPORTS -> SportsContent(
+            state = state,
+            minDelayPassed = true,
+            showError = showError,
+            selectedTab = sportsTab,
+            onSelectTab = onSportsTabChange,
+            onRetry = onRetry,
+            onEvent = { selectTarget(EventTarget(it), onPlayer, onDialogTarget, context) },
+            onHighlight = { selectTarget(HighlightTarget(it), onPlayer, onDialogTarget, context) },
+        )
+
+        MainSection.MOVIES -> {
+            if (mediaState is MediaFeedState.Loading && movies.isEmpty()) {
+                LoadingList()
+            } else {
+                MoviesScreen(
+                    movies = movies,
+                    series = series,
+                    onWatch = { item ->
+                        if (item is Movie) onPlayer(MovieTarget(item))
+                        if (item is Series && item.seasons.isNotEmpty() && item.seasons.first().episodes.isNotEmpty()) {
+                            val season = item.seasons.first()
+                            onPlayer(EpisodeTarget(item, season, season.episodes.first()))
+                        }
+                    },
+                    onDownload = onDownload,
+                    focusLimited = focusLimited,
+                    onFocusConsumed = onFocusConsumed,
+                )
+            }
+        }
+
+        MainSection.CHANNELS -> {
+            if (channelState is ChannelFeedState.Loading && channels.isEmpty()) {
+                LoadingList()
+            } else {
+                ChannelsScreen(channels = channels, onWatch = onWatchChannel)
+            }
+        }
+    }
+}
+
+@Composable
 private fun MainSectionTabs(selected: MainSection, onSelect: (MainSection) -> Unit) {
     Row(
         Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
@@ -409,7 +479,6 @@ private fun HomeSummary(
     channels: List<Channel>,
     events: List<Event>,
     downloads: List<DownloadItem>,
-    nowMs: Long,
     onOpenLimited: () -> Unit,
     onDownload: (Movie) -> Unit,
     onOpenDownloads: () -> Unit,
@@ -423,13 +492,16 @@ private fun HomeSummary(
     val homeMovies = remember(movies) { movies.filter { it.translated }.ifEmpty { movies } }
     val newlyAdded = remember(homeMovies) { homeMovies.takeLast(10).reversed() }
     val trending = remember(homeMovies) { homeMovies.take(10) }
-    val bannerMovie = remember(movies, nowMs) { TimeLimitedBannerSelector.select(movies, nowMs) }
-    val newestLimited = remember(movies, nowMs) { TimeLimitedBannerSelector.newest(movies, nowMs) }
+    val bannerMovie = remember(movies) { TimeLimitedBannerSelector.select(movies, ServerClock.now()) }
+    val bannerDownloadSupport = remember(bannerMovie) {
+        bannerMovie?.let { DownloadSupport.canDownload(it, ServerClock.now()) } ?: false
+    }
+    val newestLimited = remember(movies) { TimeLimitedBannerSelector.newest(movies, ServerClock.now()) }
     val homeSportsEvents = remember(events) {
         events.sortedByDescending { it.startMs ?: Long.MIN_VALUE }
     }
-    val recentDownloads = remember(downloads, nowMs) {
-        val weekAgo = nowMs - 7L * 24L * 60L * 60L * 1000L
+    val recentDownloads = remember(downloads) {
+        val weekAgo = ServerClock.now() - 7L * 24L * 60L * 60L * 1000L
         downloads.filter {
             it.isActive || (it.status == DownloadStatus.COMPLETED && it.updatedAt >= weekAgo)
         }.take(3)
@@ -444,7 +516,7 @@ private fun HomeSummary(
             item(key = "home-limited") {
                 HomeTimeLimitedBanner(
                     movie = movie,
-                    nowMs = nowMs,
+                    downloadSupport = bannerDownloadSupport,
                     onOpenMovies = onOpenLimited,
                     onWatch = { selectTarget(MovieTarget(movie)) },
                     onDownload = { onDownload(movie) },
@@ -487,7 +559,6 @@ private fun HomeSummary(
                 HomeRailHeader(title = "Sports Events", onViewAll = onOpenSports)
                 HomeSportsRail(
                     events = homeSportsEvents,
-                    nowMs = nowMs,
                     onWatch = { event -> selectTarget(EventTarget(event)) },
                 )
             }
@@ -564,7 +635,6 @@ private fun HomeMovieRail(movies: List<Movie>, onWatch: (Movie) -> Unit) {
 @Composable
 private fun HomeSportsRail(
     events: List<Event>,
-    nowMs: Long,
     onWatch: (Event) -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxWidth()) {
@@ -578,7 +648,7 @@ private fun HomeSportsRail(
         ) {
             items(events, key = { it.id }) { event ->
                 Box(Modifier.width(pageWidth)) {
-                    EventCard(event = event, nowMs = nowMs) { onWatch(event) }
+                    EventCard(event = event) { onWatch(event) }
                 }
             }
         }
@@ -631,18 +701,25 @@ private fun SportsContent(
     showError: Boolean,
     selectedTab: SportsTab,
     onSelectTab: (SportsTab) -> Unit,
-    nowMs: Long,
     onRetry: () -> Unit,
     onEvent: (Event) -> Unit,
     onHighlight: (Highlight) -> Unit,
 ) {
     val events = (state as? FeedState.Ready)?.feed?.events.orEmpty()
     val highlights = (state as? FeedState.Ready)?.feed?.highlights.orEmpty()
-    val counts = remember(events, highlights, nowMs) {
+    // Counts only need minute-level accuracy; a 10 s tick would rebuild the tab
+    // row (and every card below it) for no visible change.
+    val countsNowMs by produceState(ServerClock.now(), events, highlights) {
+        while (true) {
+            delay(60_000L)
+            value = ServerClock.now()
+        }
+    }
+    val counts = remember(events, highlights, countsNowMs) {
         mapOf(
-            SportsTab.LIVE to events.count { effectiveStatus(it.startMs, it.status, nowMs) == "live" },
-            SportsTab.UPCOMING to events.count { effectiveStatus(it.startMs, it.status, nowMs) == "upcoming" },
-            SportsTab.FINISHED to events.count { effectiveStatus(it.startMs, it.status, nowMs) == "finished" },
+            SportsTab.LIVE to events.count { effectiveStatus(it.startMs, it.status, countsNowMs) == "live" },
+            SportsTab.UPCOMING to events.count { effectiveStatus(it.startMs, it.status, countsNowMs) == "upcoming" },
+            SportsTab.FINISHED to events.count { effectiveStatus(it.startMs, it.status, countsNowMs) == "finished" },
             SportsTab.HIGHLIGHTS to highlights.size,
         )
     }
@@ -660,7 +737,7 @@ private fun SportsContent(
                         val list: List<Any> = when (selectedTab) {
                             SportsTab.HIGHLIGHTS -> highlights.map { it as Any }
                             else -> events.filter {
-                                effectiveStatus(it.startMs, it.status, nowMs) == selectedTab.name.lowercase()
+                                effectiveStatus(it.startMs, it.status, ServerClock.now()) == selectedTab.name.lowercase()
                             }.map { it as Any }
                         }
                         if (list.isEmpty()) {
@@ -678,7 +755,7 @@ private fun SportsContent(
                                     },
                                 ) { item ->
                                     when (item) {
-                                        is Event -> EventCard(item, nowMs) { onEvent(item) }
+                                        is Event -> EventCard(item) { onEvent(item) }
                                         is Highlight -> HighlightCard(item) { onHighlight(item) }
                                     }
                                 }
@@ -730,13 +807,14 @@ private fun SportsSubTabs(
 @Composable
 private fun HomeTimeLimitedBanner(
     movie: Movie,
-    nowMs: Long,
+    downloadSupport: Boolean,
     onOpenMovies: () -> Unit,
     onWatch: () -> Unit,
     onDownload: () -> Unit,
 ) {
     val tl = movie.timeLimited ?: return
-    val state = movie.effectiveTimeLimitedState(nowMs) ?: return
+    val now = ServerClock.now()
+    val state = movie.effectiveTimeLimitedState(now) ?: return
     Row(
         Modifier.fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 8.dp)
@@ -772,8 +850,8 @@ private fun HomeTimeLimitedBanner(
                 Spacer(Modifier.width(8.dp))
                 Text(
                     when (state) {
-                        TimeLimitedState.LIVE -> timeLimitedRemainingText(tl, nowMs)
-                        TimeLimitedState.UPCOMING -> "Starts in ${timeLimitedStartCountdown(tl, nowMs)}"
+                        TimeLimitedState.LIVE -> timeLimitedRemainingText(tl, now)
+                        TimeLimitedState.UPCOMING -> "Starts in ${timeLimitedStartCountdown(tl, now)}"
                         TimeLimitedState.ENDED -> "Window ended"
                     },
                     color = LinkColors.OrangeLight, fontFamily = MonoFont, fontSize = 9.sp, fontWeight = FontWeight.Bold,
@@ -807,7 +885,7 @@ private fun HomeTimeLimitedBanner(
                     fontWeight = FontWeight.Bold,
                 )
             }
-            if (DownloadSupport.canDownload(movie, nowMs)) {
+            if (downloadSupport) {
                 IconButton(
                     onClick = onDownload,
                     modifier = Modifier

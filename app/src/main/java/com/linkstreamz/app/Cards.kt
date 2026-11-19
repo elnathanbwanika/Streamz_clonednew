@@ -47,7 +47,7 @@ import coil.compose.SubcomposeAsyncImageContent
 @Composable
 fun EventCard(
     event: Event,
-    nowMs: Long,
+    nowMs: Long = ServerClock.now(),
     onClick: () -> Unit,
 ) {
     val status = effectiveStatus(event.startMs, event.status, nowMs)

@@ -70,9 +70,12 @@ fun MoviesScreen(
     var viewAllRow by remember { mutableStateOf<String?>(null) }
     var nowMs by remember { mutableLongStateOf(ServerClock.now()) }
 
+    // Recompute the "limited" ordering once a minute, not every second. The
+    // sort key only changes when a window opens/closes, so a 1 s tick rebuilt
+    // the whole grid 60x more often than needed for no visible difference.
     LaunchedEffect(Unit) {
         while (true) {
-            delay(1_000L)
+            delay(60_000L)
             nowMs = ServerClock.now()
         }
     }
@@ -230,7 +233,7 @@ fun MoviesScreen(
                         items(limitedMovies, key = { "limited-${it.id}" }) { movie ->
                             TimeLimitedCard(
                                 movie = movie,
-                                nowMs = nowMs,
+                                nowMs = ServerClock.now(),
                                 onWatch = { onWatch(movie) },
                                 onDownload = { onDownload(movie) },
                             )
@@ -301,7 +304,7 @@ fun MoviesScreen(
 @Composable
 private fun TimeLimitedCard(
     movie: Movie,
-    nowMs: Long,
+    nowMs: Long = ServerClock.now(),
     onWatch: () -> Unit,
     onDownload: () -> Unit,
 ) {

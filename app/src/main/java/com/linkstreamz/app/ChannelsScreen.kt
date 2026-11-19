@@ -136,6 +136,18 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
             Spacer(Modifier.height(4.dp))
         }
 
+        // One pulse clock for the whole grid — read by every ChannelCard.
+        val livePulse = rememberInfiniteTransition(label = "channels_live_pulse")
+        val liveAlpha by livePulse.animateFloat(
+            initialValue = 1f,
+            targetValue = 0.4f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(800, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "channels_live_alpha"
+        )
+
         // ── Vertical 4-column Grid ─────────────────────────────────────────
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 76.dp),
@@ -155,7 +167,7 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
                     )
                 }
                 items(filtered, key = { it.id }) { ch ->
-                    ChannelCard(channel = ch, onClick = { onWatch(ch) })
+                    ChannelCard(channel = ch, liveAlpha = liveAlpha, onClick = { onWatch(ch) })
                 }
             } else if (catFilter != null) {
                 val catItems = allChannels.filter {
@@ -165,7 +177,7 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
                     SectionHeader(title = catFilter!!, count = catItems.size)
                 }
                 items(catItems, key = { it.id }) { ch ->
-                    ChannelCard(channel = ch, onClick = { onWatch(ch) })
+                    ChannelCard(channel = ch, liveAlpha = liveAlpha, onClick = { onWatch(ch) })
                 }
             } else if (localFilter) {
                 // Local rows: General/Entertainment local, Sports, Kids, News local
@@ -175,7 +187,7 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
                         SectionHeader(title = "Local Channels", count = localRow.size)
                     }
                     items(localRow, key = { "local_${it.id}" }) { ch ->
-                        ChannelCard(channel = ch, onClick = { onWatch(ch) })
+                        ChannelCard(channel = ch, liveAlpha = liveAlpha, onClick = { onWatch(ch) })
                     }
                 }
                 val localSports = allChannels.filter { it.category == "Sports" && it.country == "Uganda" }
@@ -184,7 +196,7 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
                         SectionHeader(title = "Sports", count = localSports.size)
                     }
                     items(localSports, key = { "sports_${it.id}" }) { ch ->
-                        ChannelCard(channel = ch, onClick = { onWatch(ch) })
+                        ChannelCard(channel = ch, liveAlpha = liveAlpha, onClick = { onWatch(ch) })
                     }
                 }
                 val localNews = allChannels.filter { it.category == "News" && it.country == "Uganda" }
@@ -193,7 +205,7 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
                         SectionHeader(title = "News", count = localNews.size)
                     }
                     items(localNews, key = { "news_${it.id}" }) { ch ->
-                        ChannelCard(channel = ch, onClick = { onWatch(ch) })
+                        ChannelCard(channel = ch, liveAlpha = liveAlpha, onClick = { onWatch(ch) })
                     }
                 }
                 val localEnt = allChannels.filter { it.category == "Entertainment" && it.country == "Uganda" }
@@ -202,7 +214,7 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
                         SectionHeader(title = "Entertainment", count = localEnt.size)
                     }
                     items(localEnt, key = { "ent_${it.id}" }) { ch ->
-                        ChannelCard(channel = ch, onClick = { onWatch(ch) })
+                        ChannelCard(channel = ch, liveAlpha = liveAlpha, onClick = { onWatch(ch) })
                     }
                 }
             } else {
@@ -221,7 +233,7 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
                             SectionHeader(title = label, count = chs.size)
                         }
                         items(chs, key = { "abroad_${cat}_${it.id}" }) { ch ->
-                            ChannelCard(channel = ch, onClick = { onWatch(ch) })
+                            ChannelCard(channel = ch, liveAlpha = liveAlpha, onClick = { onWatch(ch) })
                         }
                     }
                 }
@@ -289,7 +301,7 @@ private fun CategoryChip(label: String, selected: Boolean, onClick: () -> Unit) 
 }
 
 @Composable
-fun ChannelCard(channel: Channel, onClick: () -> Unit) {
+fun ChannelCard(channel: Channel, onClick: () -> Unit, liveAlpha: Float = 1f) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
     val scale by animateFloatAsState(
@@ -297,18 +309,6 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit) {
         animationSpec = tween(100),
         label = "channel_card_scale"
     )
-    // Soft pulse for live dot: alpha 1.0 to 0.4 and back over 1.6s
-    val infiniteTransition = rememberInfiniteTransition(label = "live_pulse")
-    val liveAlpha by infiniteTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 0.4f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(800, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "live_alpha"
-    )
-
     val isLive = channel.videoUrl.isNotBlank()
     val logoUrl = channel.logo?.trim().orEmpty()
     val hasLogo = logoUrl.isNotBlank()

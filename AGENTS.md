@@ -31,6 +31,12 @@
 - `LinkColors.ScreenBg` is `#000000` and `LinkColors.CardBg` is `#0F0F0F`; `LsColor.Card` is `#141414`. Don't mix them inside one component or you get a visible seam.
 - Restyling is presentational only: never touch click handlers, view ids, labels, or data classes. TV badge placement/size logic (`TvBadge.kt`, `TvBadgeView.kt`) is explicitly out of scope.
 
+## Performance rules (learned the hard way — don't regress these)
+- **Never pass a clock `Long` down into list items.** `nowMs` as a parameter invalidates every card on each tick. Read `ServerClock.now()` inside the leaf composable, or give the composable a defaulted param (`nowMs: Long = ServerClock.now()`) and precompute any *derived* value (e.g. `downloadSupport: Boolean`) at the call site. `HomeScreen`/`MoviesScreen` tickers were removed for exactly this.
+- **Main tabs stay composed.** `HomeScreen` renders all visited `MainSection`s via `rememberSaveableStateHolder` + `alpha(0f/1f)`, not a `when`. Replacing it with a `when` disposes `LazyListState`/Coil items and brings back the 2-3 s tab-switch stall.
+- **One infinite animation per grid, not per card.** `ChannelCard` takes `liveAlpha: Float` from a single `rememberInfiniteTransition` in `ChannelsScreen`; its default `1f` is for callers outside the grid.
+- No fake loading delays; show `Ready` data immediately.
+
 ## Getting the APK
 - Actions → "Build debug APK" → latest green run → Artifacts → `app-debug-apk` → download on phone → install (allow "install unknown apps" for the browser/Files app).
 - Artifacts are kept 14 days; red runs still upload `build-reports`.
