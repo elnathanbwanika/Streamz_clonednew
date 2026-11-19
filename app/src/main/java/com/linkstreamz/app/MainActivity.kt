@@ -5,9 +5,13 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.media3.common.Player
+import androidx.compose.runtime.mutableStateOf
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -66,6 +70,131 @@ import coil.Coil
 import coil.ImageLoader
 
 class MainActivity : ComponentActivity() {
+
+    /** Set while the player screen is mounted and showing video. */
+    private var pipController: PipController? = null
+
+    /** The on-screen video view, used for the PiP source rect hint. */
+    private var videoViewRef: android.view.View? = null
+
+    internal fun setPipVideoView(view: android.view.View?) {
+        videoViewRef = view
+    }
+
+    /** True while this activity is hosted in a PiP window. */
+    private val inPipState = mutableStateOf(false)
+
+    /**
+     * Live PiP state. Exposed as [State] (not a plain Boolean) so Compose
+     * subscribes and recomposes when the window enters/leaves PiP.
+     */
+    val isInPipState: androidx.compose.runtime.State<Boolean> get() = inPipState
+
+    internal fun attachPip(player: Player) {
+        val existing = pipController
+        if (existing != null && existing.player === player) return
+        val controller = PipController(this, player)
+        controller.onPipChanged = { inPip -> inPipState.value = inPip }
+        pipController = controller
+        controller.register()
+    }
+
+    internal fun setPipLive(live: Boolean) = pipController?.setLiveContent(live)
+
+    internal fun setPipVideoSize(width: Int, height: Int) = pipController?.setVideoSize(width, height)
+
+    internal fun setPipPlaying(playing: Boolean) = pipController?.setPlaying(playing)
+
+    internal fun setPipTitle(title: String, subtitle: String) = pipController?.setTitle(title, subtitle)
+
+    internal fun setPipCloseHandler(onClose: () -> Unit) {
+        pipController?.onCloseRequested = onClose
+    }
+
+    /**
+     * Android 12+: let the system enter PiP automatically when the user swipes
+     * home, with the correct ratio and actions already attached. Pre-12 falls
+     * back to [onUserLeaveHint].
+     */
+    internal fun enableAutoEnter() = updateAutoEnter(true)
+
+    internal fun disableAutoEnter() = updateAutoEnter(false)
+
+    private fun updateAutoEnter(enabled: Boolean) {
+        val controller = pipController ?: return
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return
+        try {
+            // On Android 12+ the close button is the system's own; wiring it here
+            // means dismissing the window pauses playback instead of leaving audio
+            // running behind a finished activity.
+            controller.applyCloseAction()
+            setPictureInPictureParams(
+                controller.buildParams().buildUpon()
+                    .setAutoEnterEnabled(enabled)
+                    .build(),
+            )
+        } catch (_: IllegalArgumentException) {
+            AppLogger.e("Pip", "setAutoEnterEnabled rejected")
+        }
+    }
+
+    /** Called by the player's "Mini player" button. */
+    internal fun enterPip(): Boolean {
+        val controller = pipController ?: return false
+        // Source rect hint: the video view's on-screen bounds, so the system can
+        // animate into/out of the PiP window smoothly instead of a hard cut.
+        val hint = videoViewRef?.let { view ->
+            if (view.isAttachedToWindow && view.width > 0 && view.height > 0) {
+                val loc = IntArray(2)
+                view.getLocationOnScreen(loc)
+                Rect(loc[0], loc[1], loc[0] + view.width, loc[1] + view.height)
+            } else null
+        }
+        return controller.enter(hint)
+    }
+
+    internal fun detachPip() {
+        pipController?.unregister()
+        pipController = null
+        inPipState.value = false
+    }
+
+    /**
+     * Called by the player when the user leaves the app (Home gesture/button)
+     * while playing. Android 12+ auto-enters via setAutoEnterEnabled, so this
+     * is the pre-12 fallback.
+     */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            pipController?.enter()
+        }
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        inPipState.value = isInPictureInPictureMode
+        pipController?.onPipModeChanged(isInPictureInPictureMode)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        pipController?.unregister()
+        // The PiP window was dismissed while we were in it: stop playback so no
+        // audio survives the closed window (pre-Android-12 fallback path).
+        if (pipController?.isInPip == true && !isInPictureInPictureMode) {
+            pipController?.onPipWindowClosed()
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        pipController?.register()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)

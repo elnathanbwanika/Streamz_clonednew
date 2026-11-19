@@ -63,17 +63,14 @@ fun PlayerVideoContent(
     hasMultipleServers: Boolean,
     isFullscreen: Boolean = false,
     tvBadge: TvBadgePlacement? = null,
+    isInPip: Boolean = false,
+    onVideoSizeChanged: (width: Int, height: Int) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
         // 1. Video Surface or Float Placeholder
         if (isFloating) {
-            Box(
-                Modifier.fillMaxSize().clickable { onHideFloat() },
-                contentAlignment = Alignment.Center,
-            ) {
-                EmptyContentState(Icons.Default.PictureInPictureAlt, "Playing in a floating window")
-            }
+            FloatingWindowPlaceholder(onTap = onHideFloat)
         } else {
             AndroidView(
                 factory = { context ->
@@ -84,6 +81,8 @@ fun PlayerVideoContent(
                         setShutterBackgroundColor(android.graphics.Color.BLACK)
                         keepScreenOn = true
                         subtitleView?.visibility = android.view.View.GONE
+                        // Hand the view to the host for the PiP source-rect hint.
+                        (context.findActivity() as? MainActivity)?.setPipVideoView(this)
                         // Clip to inner radius so video corners match the frame
                         clipToOutline = true
                         outlineProvider = object : android.view.ViewOutlineProvider() {
@@ -106,26 +105,49 @@ fun PlayerVideoContent(
                     playerView.clipToOutline = !isFullscreen
                 },
                 modifier = Modifier.fillMaxSize(),
+                onRelease = { view ->
+                    (view.context.findActivity() as? MainActivity)?.setPipVideoView(null)
+                    view.player = null
+                },
             )
         }
 
-        // 1.2. Brightness overlay
-        when {
-            playerBrightness < 100f -> {
-                val dimAlpha = 1f - (playerBrightness / 100f).coerceIn(0f, 1f)
-                if (dimAlpha > 0f)
-                    Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = dimAlpha)))
+        // 1.1. Report the real video size so the host can set the PiP aspect ratio.
+        DisposableEffect(exoPlayer) {
+            val listener = object : androidx.media3.common.Player.Listener {
+                override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                    if (videoSize.width > 0 && videoSize.height > 0) {
+                        onVideoSizeChanged(videoSize.width, videoSize.height)
+                    }
+                }
             }
-            playerBrightness > 100f -> {
-                val boostAlpha = ((playerBrightness - 100f) / 200f).coerceIn(0f, 1f) * 0.75f
-                if (boostAlpha > 0f)
-                    Box(Modifier.matchParentSize().background(Color.White.copy(alpha = boostAlpha)))
+            exoPlayer.addListener(listener)
+            val current = exoPlayer.videoSize
+            if (current.width > 0 && current.height > 0) {
+                onVideoSizeChanged(current.width, current.height)
+            }
+            onDispose { exoPlayer.removeListener(listener) }
+        }
+
+        // 1.2. Brightness overlay — hidden in PiP: the window must show only video.
+        if (!isInPip) {
+            when {
+                playerBrightness < 100f -> {
+                    val dimAlpha = 1f - (playerBrightness / 100f).coerceIn(0f, 1f)
+                    if (dimAlpha > 0f)
+                        Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = dimAlpha)))
+                }
+                playerBrightness > 100f -> {
+                    val boostAlpha = ((playerBrightness - 100f) / 200f).coerceIn(0f, 1f) * 0.75f
+                    if (boostAlpha > 0f)
+                        Box(Modifier.matchParentSize().background(Color.White.copy(alpha = boostAlpha)))
+                }
             }
         }
 
-        // 1.5. Scrim
+        // 1.5. Scrim — hidden in PiP.
         AnimatedVisibility(
-            visible = controlsVisible,
+            visible = controlsVisible && !isInPip,
             enter = fadeIn(tween(300)),
             exit = fadeOut(tween(600)),
             modifier = Modifier.matchParentSize(),
@@ -150,9 +172,9 @@ fun PlayerVideoContent(
             modifier = Modifier.matchParentSize(),
         )
 
-        // 1.7. Loading / buffering / syncing overlay
+        // 1.7. Loading / buffering / syncing overlay — hidden in PiP (video only).
         AnimatedVisibility(
-            visible = isExtracting || isBuffering || (isSyncing && !playing),
+            visible = !isInPip && (isExtracting || isBuffering || (isSyncing && !playing)),
             enter = fadeIn(tween(300)),
             exit = fadeOut(tween(600)),
             modifier = Modifier.fillMaxSize(),
@@ -189,24 +211,26 @@ fun PlayerVideoContent(
             }
         }
 
-        // 2. Overlay Controls
-        PlayerOverlay(
-            state = controlsState,
-            visible = controlsVisible || error != null,
-            onPlayPause = onPlayPause,
-            onRewind = onRewind,
-            onForward = onForward,
-            onSeek = onSeek,
-            onServerSelect = onServerSelect,
-            onVolumeChange = onVolumeChange,
-            onFullscreenToggle = onFullscreenToggle,
-            onFloatWindow = onFloatWindow,
-            onInteraction = onInteraction,
-            playerBrightness = playerBrightness,
-            onPlayerBrightnessChange = onPlayerBrightnessChange,
-            modifier = Modifier.matchParentSize(),
-            onBackgroundTap = onHideControls,
-        )
+        // 2. Overlay Controls — never drawn in PiP: the window must show only video.
+        if (!isInPip) {
+            PlayerOverlay(
+                state = controlsState,
+                visible = controlsVisible || error != null,
+                onPlayPause = onPlayPause,
+                onRewind = onRewind,
+                onForward = onForward,
+                onSeek = onSeek,
+                onServerSelect = onServerSelect,
+                onVolumeChange = onVolumeChange,
+                onFullscreenToggle = onFullscreenToggle,
+                onFloatWindow = onFloatWindow,
+                onInteraction = onInteraction,
+                playerBrightness = playerBrightness,
+                onPlayerBrightnessChange = onPlayerBrightnessChange,
+                modifier = Modifier.matchParentSize(),
+                onBackgroundTap = onHideControls,
+            )
+        }
 
         // Seek-feedback bubble
         var bubbleMessage by remember { mutableStateOf<String?>(null) }

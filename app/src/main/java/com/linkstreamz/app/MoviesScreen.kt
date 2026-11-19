@@ -1,10 +1,15 @@
 package com.linkstreamz.app
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -27,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -480,12 +486,28 @@ fun MediaCard(item: Any, onClick: () -> Unit, fullWidth: Boolean = false) {
         else -> return
     }
 
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(
+        targetValue = if (isPressed) 0.98f else 1f,
+        animationSpec = tween(durationMillis = 90),
+        label = "mediaCardPressScale",
+    )
+
     Column(
         modifier = Modifier
             .then(if (fullWidth) Modifier.fillMaxWidth() else Modifier.width(116.dp))
+            .graphicsLayer {
+                scaleX = pressScale
+                scaleY = pressScale
+            }
             .clip(LsShape.Poster)
             .background(LsColor.Card)
-            .clickable(onClick = onClick)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = LocalIndication.current,
+                onClick = onClick,
+            )
     ) {
         // ── Thumbnail: portrait 3:4, full card width ──────────────────────────
         Box(
@@ -521,15 +543,6 @@ fun MediaCard(item: Any, onClick: () -> Unit, fullWidth: Boolean = false) {
                     fontWeight = FontWeight.Bold,
                 )
             }
-            // Fallback play icon shown while image loads / if no thumb
-            // (AsyncImage shows nothing on failure — place icon under it so it
-            //  only appears when the image is absent)
-            Text(
-                text     = "▶",
-                color    = Color(0xFF3A2A20),
-                fontSize = 24.sp,
-                modifier = Modifier.align(Alignment.Center),
-            )
             TvBadgeOverlay(
                 placement = tvBadge?.card,
                 modifier = Modifier.matchParentSize(),

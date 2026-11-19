@@ -34,6 +34,14 @@
 - `LinkColors.ScreenBg` is `#000000` and `LinkColors.CardBg` is `#0F0F0F`; `LsColor.Card` is `#141414`. Don't mix them inside one component or you get a visible seam.
 - Restyling is presentational only: never touch click handlers, view ids, labels, or data classes. TV badge placement/size logic (`TvBadge.kt`, `TvBadgeView.kt`) is explicitly out of scope.
 
+## Picture-in-Picture (player)
+- Uses the **platform PiP API only** (`enterPictureInPictureMode`). Never `SYSTEM_ALERT_WINDOW` / "display over other apps" — the old `FloatingOverlayManager` overlay window is what produced the app-drawn curved-arrow/X/pause/zoom chrome and the black bars; it is no longer used by the PiP button (the file is left in place, unreferenced by `onFloatWindow`).
+- `PipSpec.kt` is framework-free (ratio clamp + action list) so it unit-tests on the JVM without Robolectric. `PipController.kt` is the Android plumbing. `MainActivity` owns the single session; `PlayerScreen` attaches the *same* `engine.player`, so expand never rebuffers.
+- Aspect ratio comes from the real video size via `Player.Listener.onVideoSizeChanged`, clamped to Android's `[1/2.39, 2.39]`; `RESIZE_MODE_FIT` + `setSeamlessResizeEnabled(false)`.
+- Actions: movies/series = rewind 10 / play-pause / forward 10; live (event, channel, highlight) = play-pause only. `ACTION_CLOSE` must stay in the receiver's `IntentFilter` or the X button silently does nothing.
+- While in PiP **no app UI** is drawn (controller, scrim, loading, badge) — only the video. The system's own expand/close overlay is the only chrome and cannot be restyled.
+- `MainActivity.isInPipState` is a Compose `State`; reading a plain `Boolean` getter would not recompose.
+
 ## Performance rules (learned the hard way — don't regress these)
 - **Never pass a clock `Long` down into list items.** `nowMs` as a parameter invalidates every card on each tick. Read `ServerClock.now()` inside the leaf composable, or give the composable a defaulted param (`nowMs: Long = ServerClock.now()`) and precompute any *derived* value (e.g. `downloadSupport: Boolean`) at the call site. `HomeScreen`/`MoviesScreen` tickers were removed for exactly this.
 - **Main tabs: compose only the active tab, but preserve scroll state.** `HomeScreen` renders just `section` inside `rememberSaveableStateHolder().SaveableStateProvider(section.name)` — a `when` in `SectionContent`. Keeping *hidden* tabs composed (the earlier `alpha(0f)` approach) left their nested lazy lists and long-lived `produceState`/`LaunchedEffect` loops running in a zero-size viewport, which froze a tab when you returned to it. The saveable holder preserves scroll offset/filters across dispose, so a return is instant without stale live state.

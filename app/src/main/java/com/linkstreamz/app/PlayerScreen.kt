@@ -117,7 +117,7 @@ data class MovieTarget(
 ) : PlayerTarget {
     override val servers: List<StreamServer> = listOf(StreamServer("Auto", movie.videoUrl))
     override val title: String = movie.title
-    override val subtitle: String = listOfNotNull(movie.genre, movie.year.toString(), movie.vj).joinToString(" | ")
+    override val subtitle: String = movie.vj?.takeIf { it.isNotBlank() } ?: "Link Streamz"
     override fun withServer(server: StreamServer) = copy(selectedServer = server)
 }
 
@@ -358,6 +358,28 @@ fun PlayerScreen(
     LaunchedEffect(updateRequired) {
         if (updateRequired != null) engine.pause()
     }
+
+    // ── Picture-in-Picture ───────────────────────────────────────────────────
+    // The activity owns the platform PiP session; the player instance is the
+    // same one used on screen, so expanding back never rebuffers.
+    val pipHost = activity as? MainActivity
+    val isInPip = pipHost?.isInPipState?.value ?: false
+    DisposableEffect(pipHost, target, playing) {
+        pipHost?.attachPip(engine.player)
+        pipHost?.setPipLive(PipActions.isLiveTarget(target))
+        pipHost?.setPipPlaying(playing)
+        pipHost?.setPipCloseHandler { engine.player.pause() }
+        pipHost?.setPipTitle(
+            title = target.title,
+            subtitle = target.subtitle.ifBlank { "Link Streamz" },
+        )
+        if (playing) pipHost?.enableAutoEnter() else pipHost?.disableAutoEnter()
+        onDispose { pipHost?.detachPip() }
+    }
+    LaunchedEffect(isInPip) {
+        if (isInPip) controlsVisible = false
+    }
+
 
     // ── Fallback logic ───────────────────────────────────────────────────────
     /** How many times to retry the same server before moving to the next. */
@@ -896,20 +918,7 @@ fun PlayerScreen(
                                 muted = v == 0f
                             },
                             onFullscreenToggle = { enterFullscreen(activity) },
-                            onFloatWindow = {
-                                FloatingOverlayManager.show(
-                                    context = context,
-                                    engine = engine,
-                                    onClose = { engine.player.stop() },
-                                    onExpand = {
-                                        FloatingOverlayManager.hide()
-                                        val intent = android.content.Intent(context, MainActivity::class.java).apply {
-                                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                                        }
-                                        context.startActivity(intent)
-                                    }
-                                )
-                            },
+                            onFloatWindow = { pipHost?.enterPip() },
                             onInteraction = ::touchControls,
                             onHideControls = { controlsVisible = false },
                             onPlayerBrightnessChange = { v -> playerBrightness = v },
@@ -925,6 +934,8 @@ fun PlayerScreen(
                             hasMultipleServers = target.servers.size > 1,
                             isFullscreen = false,
                             tvBadge = playerTvBadge,
+                            isInPip = isInPip,
+                            onVideoSizeChanged = { w, h -> pipHost?.setPipVideoSize(w, h) },
                         )
                     }
                 }
@@ -1002,20 +1013,7 @@ fun PlayerScreen(
                         muted = v == 0f
                     },
                     onFullscreenToggle = { exitFullscreen(activity) },
-                    onFloatWindow = {
-                        FloatingOverlayManager.show(
-                            context = context,
-                            engine = engine,
-                            onClose = { engine.player.stop() },
-                            onExpand = {
-                                FloatingOverlayManager.hide()
-                                val intent = android.content.Intent(context, MainActivity::class.java).apply {
-                                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                                }
-                                context.startActivity(intent)
-                            }
-                        )
-                    },
+                    onFloatWindow = { pipHost?.enterPip() },
                     onInteraction = ::touchControls,
                     onHideControls = { controlsVisible = false },
                     onPlayerBrightnessChange = { v -> playerBrightness = v },
@@ -1031,6 +1029,8 @@ fun PlayerScreen(
                     hasMultipleServers = target.servers.size > 1,
                     isFullscreen = true,
                     tvBadge = playerTvBadge,
+                    isInPip = isInPip,
+                    onVideoSizeChanged = { w, h -> pipHost?.setPipVideoSize(w, h) },
                 )
             }
         }
@@ -1407,6 +1407,49 @@ internal fun EmptyContentState(icon: androidx.compose.ui.graphics.vector.ImageVe
         Icon(icon, null, tint = LinkColors.MutedText.copy(alpha = 0.5f), modifier = Modifier.size(48.dp))
         Spacer(Modifier.height(16.dp))
         Text(message, color = LinkColors.MutedText, fontSize = 14.sp)
+    }
+}
+
+/**
+ * Placeholder shown behind the floating PiP window.
+ *
+ * Dark surface, orange accent, a small PiP glyph and centred text — no outline
+ * or border, so it reads as a calm backdrop rather than a card.
+ */
+@Composable
+internal fun FloatingWindowPlaceholder(onTap: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(LinkColors.ScreenBg)
+            .clickable(onClick = onTap),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Default.PictureInPictureAlt,
+                contentDescription = null,
+                tint = LinkColors.OrangePrimary,
+                modifier = Modifier.size(44.dp),
+            )
+            Text(
+                text = "Playing in a floating window",
+                color = LinkColors.PrimaryText,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = "Tap to return to the player",
+                color = LinkColors.MutedText,
+                fontFamily = MonoFont,
+                fontSize = 11.sp,
+                textAlign = TextAlign.Center,
+            )
+        }
     }
 }
 
