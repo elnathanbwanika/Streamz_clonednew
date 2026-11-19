@@ -15,7 +15,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
@@ -62,7 +61,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -129,13 +127,6 @@ fun HomeScreen(
     var mobileConfirmDownload by remember { mutableStateOf<Movie?>(null) }
     var showDownloadRationale by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
-
-    // Tabs that have been opened at least once. Once visited they stay composed
-    // (hidden via alpha) so switching back is instant instead of a cold rebuild.
-    val visitedSections = remember { mutableStateListOf(section) }
-    LaunchedEffect(section) {
-        if (!visitedSections.contains(section)) visitedSections.add(section)
-    }
 
     fun enqueueDownload(movie: Movie) {
         when (val result = DownloadManager.downloadMovie(context, movie)) {
@@ -246,47 +237,38 @@ fun HomeScreen(
             MainSectionTabs(selected = section, onSelect = onSectionChange)
 
             Box(Modifier.weight(1f)) {
-                // Keep every visited tab composed and just toggle visibility.
-                // Swapping the `when` branches used to dispose the outgoing
-                // screen's LazyListState, Coil item composition and scroll
-                // offset, so each tab tap rebuilt its list cold (2-3 s on a
-                // channel grid). `saveableStateHolder` also persists each
-                // screen's rememberSaveable state across the toggle.
+                // Compose only the active tab. Keeping hidden tabs composed
+                // (the earlier alpha(0f) approach) left their nested lazy lists
+                // and long-lived LaunchedEffect/produceState loops running in a
+                // zero-size viewport, which froze the tab when you returned.
+                // We now dispose on switch, but saveableStateHolder preserves
+                // each tab's rememberSaveable state (scroll offset, filters)
+                // so a return is instant without stale live state.
                 val keepAlive = rememberSaveableStateHolder()
-                MainSection.entries.forEach { entry ->
-                    if (entry == section || visitedSections.contains(entry)) {
-                        keepAlive.SaveableStateProvider(entry.name) {
-                            Box(
-                                Modifier
-                                    .fillMaxSize()
-                                    .alpha(if (entry == section) 1f else 0f),
-                            ) {
-                                SectionContent(
-                                    entry = entry,
-                                    movies = movies,
-                                    series = series,
-                                    channels = channels,
-                                    events = events,
-                                    downloads = downloads,
-                                    state = state,
-                                    mediaState = mediaState,
-                                    channelState = channelState,
-                                    sportsTab = sportsTab,
-                                    showError = showError,
-                                    focusLimited = focusLimited,
-                                    onFocusConsumed = onFocusConsumed,
-                                    onSectionChange = onSectionChange,
-                                    onSportsTabChange = { sportsTab = it },
-                                    onRetry = { scope.launch { repository.load() } },
-                                    onDownload = ::requestDownload,
-                                    onOpenDownloads = onDownloads,
-                                    onWatchChannel = playChannel,
-                                    onPlayer = onPlayer,
-                                    onDialogTarget = { dialogTarget = it },
-                                )
-                            }
-                        }
-                    }
+                keepAlive.SaveableStateProvider(section.name) {
+                    SectionContent(
+                        entry = section,
+                        movies = movies,
+                        series = series,
+                        channels = channels,
+                        events = events,
+                        downloads = downloads,
+                        state = state,
+                        mediaState = mediaState,
+                        channelState = channelState,
+                        sportsTab = sportsTab,
+                        showError = showError,
+                        focusLimited = focusLimited,
+                        onFocusConsumed = onFocusConsumed,
+                        onSectionChange = onSectionChange,
+                        onSportsTabChange = { sportsTab = it },
+                        onRetry = { scope.launch { repository.load() } },
+                        onDownload = ::requestDownload,
+                        onOpenDownloads = onDownloads,
+                        onWatchChannel = playChannel,
+                        onPlayer = onPlayer,
+                        onDialogTarget = { dialogTarget = it },
+                    )
                 }
             }
         }

@@ -33,7 +33,7 @@
 
 ## Performance rules (learned the hard way — don't regress these)
 - **Never pass a clock `Long` down into list items.** `nowMs` as a parameter invalidates every card on each tick. Read `ServerClock.now()` inside the leaf composable, or give the composable a defaulted param (`nowMs: Long = ServerClock.now()`) and precompute any *derived* value (e.g. `downloadSupport: Boolean`) at the call site. `HomeScreen`/`MoviesScreen` tickers were removed for exactly this.
-- **Main tabs stay composed.** `HomeScreen` renders all visited `MainSection`s via `rememberSaveableStateHolder` + `alpha(0f/1f)`, not a `when`. Replacing it with a `when` disposes `LazyListState`/Coil items and brings back the 2-3 s tab-switch stall.
+- **Main tabs: compose only the active tab, but preserve scroll state.** `HomeScreen` renders just `section` inside `rememberSaveableStateHolder().SaveableStateProvider(section.name)` — a `when` in `SectionContent`. Keeping *hidden* tabs composed (the earlier `alpha(0f)` approach) left their nested lazy lists and long-lived `produceState`/`LaunchedEffect` loops running in a zero-size viewport, which froze a tab when you returned to it. The saveable holder preserves scroll offset/filters across dispose, so a return is instant without stale live state.
 - **One infinite animation per grid, not per card.** `ChannelCard` takes `liveAlpha: Float` from a single `rememberInfiniteTransition` in `ChannelsScreen`; its default `1f` is for callers outside the grid.
 - No fake loading delays; show `Ready` data immediately.
 
