@@ -65,6 +65,9 @@ class PipController(
     /** Subtitle shown in the PiP window (Android 12+). */
     private var pipSubtitle: String = ""
 
+    /** On-screen bounds of the video view, for the enter/exit animation. */
+    private var sourceRectHint: Rect? = null
+
     fun setTitle(title: String, subtitle: String) {
         pipTitle = title
         pipSubtitle = subtitle
@@ -171,36 +174,41 @@ class PipController(
      * for video: it lets the window keep its old size while the content
      * re-lays-out, which shows black bars for a frame.
      */
-    fun buildParams(includeActions: Boolean = true): PictureInPictureParams {
+    fun buildParams(
+        includeActions: Boolean = true,
+        autoEnter: Boolean = false,
+        closeAction: RemoteAction? = null,
+    ): PictureInPictureParams {
         val ratio = PipAspectRatio.clamp(videoWidth, videoHeight)
         val builder = PictureInPictureParams.Builder()
             .setAspectRatio(Rational((ratio * 1000f).toInt(), 1000))
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             builder.setSeamlessResizeEnabled(false)
+            builder.setAutoEnterEnabled(autoEnter)
+            if (closeAction != null) builder.setCloseAction(closeAction)
+        }
+
+        if (sourceRectHint != null) {
+            builder.setSourceRectHint(sourceRectHint)
         }
 
         if (includeActions && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val pair = buildActions()
-            builder.setActions(pair.first)
-            // Android 12+ shows title/subtitle on the PiP window. setSubtitle needs
-            // a RemoteAction, so reuse the play/pause one.
+            builder.setActions(buildActions())
+            // Android 12+ shows a title/subtitle on the PiP window. Both take a
+            // plain CharSequence on PictureInPictureParams.Builder.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (pipTitle.isNotBlank()) builder.setTitle(pipTitle)
-                val subtitleAction = pair.second
-                if (pipSubtitle.isNotBlank() && subtitleAction != null) {
-                    builder.setSubtitle(pipSubtitle, subtitleAction)
-                }
+                if (pipSubtitle.isNotBlank()) builder.setSubtitle(pipSubtitle)
             }
         }
         return builder.build()
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
-    private fun buildActions(): Pair<List<RemoteAction>, RemoteAction?> {
+    private fun buildActions(): List<RemoteAction> {
         val actions = PipActions.forContent(isLiveContent)
         val out = ArrayList<RemoteAction>(actions.size)
-        var playPause: RemoteAction? = null
         for (action in actions) {
             when (action) {
                 PipAction.REWIND_10 -> out += remoteAction(
@@ -217,21 +225,17 @@ class PipController(
                     requestCode = PipRequestCodes.ACTION_FORWARD,
                     intentAction = PipRequestCodes.ACTION_FORWARD_10,
                 )
-                PipAction.PLAY_PAUSE -> {
-                    val ra = remoteAction(
-                        iconRes = if (isPlaying) android.R.drawable.ic_media_pause
-                        else android.R.drawable.ic_media_play,
-                        title = if (isPlaying) "Pause" else "Play",
-                        contentDescription = if (isPlaying) "Pause" else "Play",
-                        requestCode = PipRequestCodes.ACTION_PLAY_PAUSE,
-                        intentAction = PipRequestCodes.ACTION_PLAY_PAUSE_TOGGLE,
-                    )
-                    playPause = ra
-                    out += ra
-                }
+                PipAction.PLAY_PAUSE -> out += remoteAction(
+                    iconRes = if (isPlaying) android.R.drawable.ic_media_pause
+                    else android.R.drawable.ic_media_play,
+                    title = if (isPlaying) "Pause" else "Play",
+                    contentDescription = if (isPlaying) "Pause" else "Play",
+                    requestCode = PipRequestCodes.ACTION_PLAY_PAUSE,
+                    intentAction = PipRequestCodes.ACTION_PLAY_PAUSE_TOGGLE,
+                )
             }
         }
-        return out to playPause
+        return out
     }
 
     @RequiresApi(Build.VERSION_CODES.O)
@@ -291,14 +295,9 @@ class PipController(
     fun enter(sourceRectHint: Rect? = null): Boolean {
         if (!isSupported()) return false
         if (isInPip) return true
+        if (sourceRectHint != null) this.sourceRectHint = sourceRectHint
         return try {
-            val base = buildParams()
-            val params = if (sourceRectHint != null) {
-                base.buildUpon().setSourceRectHint(sourceRectHint).build()
-            } else {
-                base
-            }
-            activity.enterPictureInPictureMode(params)
+            activity.enterPictureInPictureMode(buildParams())
         } catch (e: IllegalStateException) {
             AppLogger.e("Pip", "enterPictureInPictureMode failed", e)
             false
@@ -321,12 +320,10 @@ class PipController(
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        val icon = Icon.createWithResource(activity, android.R.drawable.ic_menu_close_clear_cancel)
+        val closeAction = RemoteAction(icon, "Stop", "Stop playback", pending)
         try {
-            activity.setPictureInPictureParams(
-                buildParams().buildUpon().setCloseAction(
-                    PictureInPictureParams.CloseAction(pending, "Stop"),
-                ).build(),
-            )
+            activity.setPictureInPictureParams(buildParams(closeAction = closeAction))
         } catch (_: IllegalArgumentException) {
             AppLogger.e("Pip", "setCloseAction rejected")
         } catch (_: IllegalStateException) {

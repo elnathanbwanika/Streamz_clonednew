@@ -128,13 +128,11 @@ class MainActivity : ComponentActivity() {
             // means dismissing the window pauses playback instead of leaving audio
             // running behind a finished activity.
             controller.applyCloseAction()
-            setPictureInPictureParams(
-                controller.buildParams().buildUpon()
-                    .setAutoEnterEnabled(enabled)
-                    .build(),
-            )
+            setPictureInPictureParams(controller.buildParams(autoEnter = enabled))
         } catch (_: IllegalArgumentException) {
             AppLogger.e("Pip", "setAutoEnterEnabled rejected")
+        } catch (_: IllegalStateException) {
+            AppLogger.e("Pip", "setAutoEnterEnabled after window closed")
         }
     }
 
@@ -192,6 +190,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        // Foreground refresh: pick up manifest/config changes promptly.
+        WgManager.refresh(this)
         pipController?.register()
     }
 
@@ -573,11 +573,5 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-    }
-
-    override fun onStart() {
-        super.onStart()
-        // Foreground refresh: pick up manifest/config changes promptly.
-        WgManager.refresh(this)
     }
 }
