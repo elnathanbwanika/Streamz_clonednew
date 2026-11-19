@@ -13,6 +13,7 @@
 - `android-actions/setup-android@v3` FAILS on the runner (tries to install legacy `tools` package → "Failed to find package 'tools'"). Use the preinstalled SDK: set `ANDROID_HOME=/usr/local/lib/android/sdk` and run `yes | sdkmanager --licenses`.
 
 ## Pitfalls
+- **"There was a problem parsing the package" on install = the APK is not debug-signed.** `buildTypes` only declares `release` (no `debug` block, no `signingConfig`), and the release type has no signing config either. A build that is `minifyEnabled`/not-debuggable ships unsigned and Android refuses it at parse time. The APK that installs must come from `./gradlew assembleDebug` (or `assembleRelease` once a signing config is added) — never from a `release`-flavoured task that is not signed.
 - `local.properties` is gitignored (machine-specific `sdk.dir`); the workflow relies on the runner's preinstalled SDK via `ANDROID_HOME=/usr/local/lib/android/sdk`.
 - `app/build.gradle.kts` auto-increments `app/version.properties` on every `assemble`/`bundle` run; it also reads it at configuration time, so the file must be committed (it is).
 - NewPipeExtractor is pinned to a JitPack commit (`com.github.TeamNewPipe:NewPipeExtractor:94159dc971`); JitPack repo is in `settings.gradle.kts`. First CI run may be slow or 403 if JitPack has not built that commit yet — re-run, then check `https://jitpack.io/com/github/TeamNewPipe/NewPipeExtractor/94159dc971/`.
