@@ -548,7 +548,7 @@ fun PlayerScreen(
                     // controllable from the floating window. Pausing here would
                     // fight the PiP play/pause action (and resume() on ON_START
                     // would undo it), so leave playback to the user.
-                    if (!FloatingOverlayManager.isFloating.value && !pipHost?.isInPipNow) {
+                    if (!FloatingOverlayManager.isFloating.value && pipHost?.isInPipNow != true) {
                         resumeOnForeground = engine.player.playWhenReady
                         engine.pause()
                     } else {
@@ -561,7 +561,7 @@ fun PlayerScreen(
                 Lifecycle.Event.ON_START -> {
                     // Never resume on our own while in PiP: the user may have
                     // deliberately paused from the floating window.
-                    if (resumeOnForeground && !pipHost?.isInPipNow) {
+                    if (resumeOnForeground && pipHost?.isInPipNow != true) {
                         val state = engine.player.playbackState
                         if (state == androidx.media3.common.Player.STATE_IDLE ||
                             state == androidx.media3.common.Player.STATE_ENDED) {
