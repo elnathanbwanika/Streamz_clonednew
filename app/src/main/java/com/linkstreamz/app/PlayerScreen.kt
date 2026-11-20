@@ -366,19 +366,46 @@ fun PlayerScreen(
     val pipHost = activity as? MainActivity
     // Read inside a snapshot-observed scope: `by` on the State makes Compose
     // subscribe, so entering/leaving PiP actually recomposes this screen.
-    val isInPip by (pipHost?.isInPipState ?: remember { mutableStateOf(false) })
-    DisposableEffect(pipHost, target, playing) {
+    val isInPipState by (pipHost?.isInPipState ?: remember { mutableStateOf(false) })
+    val isPipTransitioning by (pipHost?.isPipTransitioningState ?: remember { mutableStateOf(false) })
+    // Single decision point, shared with the unit tests: the layout mode depends
+    // ONLY on the two PiP flags. Playback state, lifecycle events, touches,
+    // controller visibility and window resizes cannot reach this call at all.
+    val isInPip =
+        PipLayoutSpec.layoutMode(
+            isInPictureInPictureMode = isInPipState,
+            isTransitioningToPip = isPipTransitioning,
+        ) == PipLayoutMode.VIDEO_ONLY
+
+    // Per-target PiP identity. Keyed ONLY on the target: pausing from the PiP
+    // window must never tear this down, because detachPip() would drop the
+    // controller and (historically) clear the PiP flag, letting the normal page
+    // reappear inside the floating window.
+    DisposableEffect(pipHost, target) {
         pipHost?.attachPip(engine.player)
         pipHost?.setPipLive(PipActions.isLiveTarget(target))
-        pipHost?.setPipPlaying(playing)
         pipHost?.setPipCloseHandler { engine.player.pause() }
         pipHost?.setPipTitle(
             title = target.title,
             subtitle = target.subtitle.ifBlank { "Link Streamz" },
         )
-        if (playing) pipHost?.enableAutoEnter() else pipHost?.disableAutoEnter()
         onDispose { pipHost?.detachPip() }
     }
+
+    // Playback-dependent PiP chrome. These only push params; they never change
+    // the layout mode, which is derived from the platform PiP state alone.
+    LaunchedEffect(pipHost, playing) {
+        pipHost?.setPipPlaying(playing)
+        if (playing) pipHost?.enableAutoEnter() else pipHost?.disableAutoEnter()
+    }
+
+    // Re-derive the layout mode from the platform flag when this screen mounts,
+    // so a pause/buffer/error can never leave the normal page showing in PiP.
+    // The lifecycle callbacks keep it in sync afterwards.
+    LaunchedEffect(pipHost) {
+        pipHost?.refreshPipState("player-composed")
+    }
+
     LaunchedEffect(isInPip) {
         if (isInPip) controlsVisible = false
     }
@@ -517,13 +544,24 @@ fun PlayerScreen(
                             engine.player.duration,
                         )
                     }
-                    if (!FloatingOverlayManager.isFloating.value) {
+                    // In PiP the activity is stopped but still visible and
+                    // controllable from the floating window. Pausing here would
+                    // fight the PiP play/pause action (and resume() on ON_START
+                    // would undo it), so leave playback to the user.
+                    if (!FloatingOverlayManager.isFloating.value && !pipHost?.isInPipNow) {
                         resumeOnForeground = engine.player.playWhenReady
                         engine.pause()
+                    } else {
+                        // Entering/leaving PiP must never arm an auto-resume:
+                        // otherwise expanding would restart playback that the
+                        // user deliberately paused from the floating window.
+                        resumeOnForeground = false
                     }
                 }
                 Lifecycle.Event.ON_START -> {
-                    if (resumeOnForeground) {
+                    // Never resume on our own while in PiP: the user may have
+                    // deliberately paused from the floating window.
+                    if (resumeOnForeground && !pipHost?.isInPipNow) {
                         val state = engine.player.playbackState
                         if (state == androidx.media3.common.Player.STATE_IDLE ||
                             state == androidx.media3.common.Player.STATE_ENDED) {
@@ -564,6 +602,9 @@ fun PlayerScreen(
     )
 
     fun touchControls() {
+        // In PiP the system draws its own overlay and handles touches; tapping
+        // the window must never bring the app's controls (or any chrome) back.
+        if (isInPip) return
         controlsVisible = true
         lastInteractionMs = System.currentTimeMillis()
     }

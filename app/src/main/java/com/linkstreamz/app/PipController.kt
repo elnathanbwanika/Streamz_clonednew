@@ -71,7 +71,7 @@ class PipController(
     fun setTitle(title: String, subtitle: String) {
         pipTitle = title
         pipSubtitle = subtitle
-        if (isInPip) updateParams()
+        if (isInPip) updateParams("title-changed")
     }
 
     /** Set by the host so it can hide/show its own Compose chrome. */
@@ -88,7 +88,12 @@ class PipController(
             when (intent?.action) {
                 PipRequestCodes.ACTION_REWIND_10 -> seekBy(-PipActions.SKIP_SECONDS * 1000L)
                 PipRequestCodes.ACTION_FORWARD_10 -> seekBy(PipActions.SKIP_SECONDS * 1000L)
-                PipRequestCodes.ACTION_PLAY_PAUSE_TOGGLE -> togglePlayPause()
+                PipRequestCodes.ACTION_PLAY_PAUSE_TOGGLE -> {
+                    togglePlayPause()
+                    // Flip the cached icon state right away so the button shows
+                    // the new state without waiting for the Compose-side listener.
+                    isPlaying = player.playWhenReady
+                }
                 PipRequestCodes.ACTION_SEEK_TO -> {
                     val pos = intent.getLongExtra(PipRequestCodes.EXTRA_POSITION_MS, -1L)
                     if (pos >= 0L) player.seekTo(pos)
@@ -100,7 +105,7 @@ class PipController(
                 }
             }
             // The icon follows the state, so rebuild after every action.
-            refreshActions()
+            refreshActions("pip-action")
         }
     }
 
@@ -151,19 +156,19 @@ class PipController(
         videoWidth = width
         videoHeight = height
         // Keep the window ratio in step with the video while already in PiP.
-        if (isInPip) updateParams()
+        if (isInPip) updateParams("video-size-changed")
     }
 
     fun setLiveContent(live: Boolean) {
         if (live == isLiveContent) return
         isLiveContent = live
-        if (isInPip) refreshActions()
+        if (isInPip) refreshActions("live-content-changed")
     }
 
     fun setPlaying(playing: Boolean) {
         if (playing == isPlaying) return
         isPlaying = playing
-        if (isInPip) refreshActions()
+        if (isInPip) refreshActions("playbackStateChanged")
     }
 
     /**
@@ -260,13 +265,25 @@ class PipController(
     }
 
     /** Push the current params to the system (ratio + actions). */
-    fun updateParams() {
+    fun updateParams(trigger: String = "updateParams") {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         // setPictureInPictureParams is only meaningful while the activity is in
         // PiP; calling it after the window is gone throws IllegalStateException.
         if (!isInPip) return
         try {
+            // Reuses the existing aspect ratio and source rect hint; this never
+            // changes the layout mode (that is owned by the activity).
             activity.setPictureInPictureParams(buildParams())
+            // Log the layout-mode decision with its trigger: this is the line
+            // that shows which event fired while the window was in PiP. The mode
+            // can only ever be videoOnly here, because updateParams returns early
+            // unless isInPip — a "normal" line with a playback trigger would be
+            // the signature of the old bug.
+            AppLogger.d(
+                "Pip",
+                "layoutMode=" + (if (isInPip) "videoOnly" else "normal") +
+                    ", pip=" + isInPip + ", trigger=" + trigger,
+            )
         } catch (_: IllegalArgumentException) {
             // Never crash the player over PiP chrome.
             AppLogger.e("Pip", "setPictureInPictureParams rejected the ratio")
@@ -276,9 +293,9 @@ class PipController(
     }
 
     /** Rebuild only the action list (cheaper than a full params push). */
-    fun refreshActions() {
+    fun refreshActions(trigger: String = "refreshActions") {
         if (!isInPip) return
-        updateParams()
+        updateParams(trigger)
     }
 
     /** True when the platform can enter PiP at all. */
@@ -335,10 +352,10 @@ class PipController(
     fun onPipModeChanged(inPip: Boolean) {
         isInPip = inPip
         onPipChanged?.invoke(inPip)
-        logPipState(inPip)
+        logPipState(inPip, "onPictureInPictureModeChanged")
         if (inPip) {
             // Keep the system overlay in sync with the live player state.
-            refreshActions()
+            refreshActions("pip-entry")
         }
     }
 
@@ -349,7 +366,7 @@ class PipController(
      * ratio we set, the source-rect hint and the resize mode — the exact values
      * needed to tell "layout did not switch" apart from "video was cropped".
      */
-    private fun logPipState(inPip: Boolean) {
+    private fun logPipState(inPip: Boolean, trigger: String) {
         val metrics = activity.resources.displayMetrics
         val ratio = PipAspectRatio.clamp(videoWidth, videoHeight)
         val video = (activity as? MainActivity)?.videoViewForPip()
@@ -361,13 +378,14 @@ class PipController(
         AppLogger.d(
             "Pip",
             buildString {
-                append("isInPictureInPictureMode=").append(inPip)
-                append(" window=").append(metrics.widthPixels).append('x').append(metrics.heightPixels)
-                append(" videoView=").append(bounds)
-                append(" aspectRatio=").append(String.format(java.util.Locale.US, "%.4f", ratio))
-                append(" sourceRectHint=").append(sourceRectHint?.toString() ?: "null")
-                append(" layoutMode=").append(if (inPip) "video-only" else "normal")
-                append(" resizeMode=").append(
+                append("layoutMode=").append(if (inPip) "videoOnly" else "normal")
+                append(", pip=").append(inPip)
+                append(", trigger=").append(trigger)
+                append(", window=").append(metrics.widthPixels).append('x').append(metrics.heightPixels)
+                append(", videoView=").append(bounds)
+                append(", aspectRatio=").append(String.format(java.util.Locale.US, "%.4f", ratio))
+                append(", sourceRectHint=").append(sourceRectHint?.toString() ?: "null")
+                append(", resizeMode=").append(
                     PipLayoutSpec.resizeMode(isInPip = inPip, isFullscreen = false).name,
                 )
             },
@@ -381,7 +399,7 @@ class PipController(
             if (leaked.isNotEmpty()) {
                 AppLogger.e(
                     "Pip",
-                    "WARNING: non-video chrome must not be visible in PiP: " +
+                    "WARNING: non-video chrome visible in PiP (trigger=" + trigger + "): " +
                         leaked.joinToString { it.name },
                 )
             }
@@ -400,6 +418,6 @@ class PipController(
     }
 
     fun onConfigurationChanged(newConfig: Configuration) {
-        if (isInPip) refreshActions()
+        if (isInPip) refreshActions("onConfigurationChanged")
     }
 }

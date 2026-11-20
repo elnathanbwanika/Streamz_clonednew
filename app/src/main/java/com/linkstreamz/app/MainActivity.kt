@@ -95,6 +95,48 @@ class MainActivity : ComponentActivity() {
      */
     val isInPipState: androidx.compose.runtime.State<Boolean> get() = inPipState
 
+    /**
+     * Android 13+ transition flag (`isTransitioningToPip`). It is true only
+     * briefly, *before* [isInPictureInPictureMode] flips — that early window is
+     * the whole point: the first small frame must already be video-only, or the
+     * system draws the squeezed normal page for a frame or two.
+     */
+    private val pipTransitioningState = mutableStateOf(false)
+
+    val isPipTransitioningState: androidx.compose.runtime.State<Boolean>
+        get() = pipTransitioningState
+
+    /**
+     * True while the window is in PiP *or* about to shrink into it. Read live
+     * (non-Compose callers use this); the Compose mirror is
+     * [isPipTransitioningState].
+     */
+    internal val isInPipNow: Boolean
+        get() = isInPictureInPictureMode || pipTransitioningState.value
+
+    /**
+     * Single source of truth for the layout mode.
+     *
+     * The platform flag [isInPictureInPictureMode] is authoritative and always
+     * current; [inPipState] only mirrors it so Compose can observe it. Every
+     * lifecycle callback and every PiP transition calls this, so the layout can
+     * never be left in "normal" mode by a stale cached flag — and it is
+     * deliberately independent of playback state (playing/paused/buffering/
+     * ended/error), of touches and of controller visibility.
+     */
+    private fun syncPipState(trigger: String) {
+        val inPip = isInPictureInPictureMode
+        if (inPipState.value != inPip) {
+            inPipState.value = inPip
+            pipController?.onPipModeChanged(inPip)
+        }
+        AppLogger.d(
+            "Pip",
+            "layoutMode=" + (if (inPip) "videoOnly" else "normal") +
+                ", pip=" + inPip + ", trigger=" + trigger,
+        )
+    }
+
     internal fun attachPip(player: Player) {
         val existing = pipController
         if (existing != null && existing.player === player) return
@@ -163,8 +205,14 @@ class MainActivity : ComponentActivity() {
     internal fun detachPip() {
         pipController?.unregister()
         pipController = null
-        inPipState.value = false
+        // Do NOT clear the PiP flag here. detachPip runs when the player effect
+        // restarts (e.g. the user pauses from the PiP window), which is not the
+        // same thing as leaving PiP. The layout mode is owned by the platform
+        // state and re-derived through syncPipState().
     }
+
+    /** Re-derive the layout mode from the platform. Safe to call any time. */
+    internal fun refreshPipState(trigger: String) = syncPipState(trigger)
 
     /**
      * Called by the player when the user leaves the app (Home gesture/button)
@@ -176,6 +224,7 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
             pipController?.enter()
         }
+        syncPipState("onUserLeaveHint")
     }
 
     override fun onPictureInPictureModeChanged(
@@ -183,37 +232,68 @@ class MainActivity : ComponentActivity() {
         newConfig: Configuration,
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        inPipState.value = isInPictureInPictureMode
-        pipController?.onPipModeChanged(isInPictureInPictureMode)
+        // We have arrived (or left): the transition flag has done its job.
+        pipTransitioningState.value = false
+        // Final authority: the platform flag is already current here.
+        syncPipState("onPictureInPictureModeChanged")
     }
 
     /**
      * Android 13+ (API 33): fires when the PiP transition *starts*, before the
-     * window has shrunk. Switching the layout here means the first frame the
-     * system draws in the small window is already video-only — otherwise the
-     * full page (header, title, download button, rounded frame) gets squeezed
-     * into the window for a frame or two and the video is clipped.
-     *
-     * [onPictureInPictureModeChanged] stays the final authority: it sets the
-     * real state and restores the normal UI when leaving PiP.
+     * window has shrunk, and again when the system overlay is shown/hidden.
+     * [onPictureInPictureModeChanged] stays the final authority; this only
+     * re-derives the layout mode so the first small frame is already video-only.
      */
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     override fun onPictureInPictureUiStateChanged(pipState: PictureInPictureUiState) {
         super.onPictureInPictureUiStateChanged(pipState)
+        // Publish the transition flag FIRST: it is the only signal available
+        // before the window shrinks, and the next frame must be video-only.
+        pipTransitioningState.value = pipState.isTransitioningToPip
         if (pipState.isTransitioningToPip) {
-            inPipState.value = true
             pipController?.onPipModeChanged(true)
         }
+        syncPipState("onPictureInPictureUiStateChanged")
+    }
+
+    /**
+     * Every one of these can be the event that would otherwise let the normal
+     * page reappear inside the PiP window (e.g. after the player effect restarts
+     * on a pause). Re-derive the layout mode from the platform each time — the
+     * mode depends ONLY on the PiP state, never on playback state.
+     */
+    override fun onResume() {
+        super.onResume()
+        syncPipState("onResume")
+    }
+
+    override fun onPause() {
+        super.onPause()
+        syncPipState("onPause")
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // PiP window resize / rotation / screen off-on: keep the video-only mode.
+        syncPipState("onConfigurationChanged")
     }
 
     override fun onStop() {
         super.onStop()
-        pipController?.unregister()
+        // While in PiP the activity is only paused, but if a device does deliver
+        // ON_STOP we must keep the action receiver registered, otherwise the
+        // window's play/pause buttons would go dead. isInPipNow also covers the
+        // Android 13 transition window, so a stop mid-transition cannot unregister.
+        val pipActive = isInPipNow
+        if (!pipActive) {
+            pipController?.unregister()
+        }
         // The PiP window was dismissed while we were in it: stop playback so no
         // audio survives the closed window (pre-Android-12 fallback path).
-        if (pipController?.isInPip == true && !isInPictureInPictureMode) {
+        if (pipController?.isInPip == true && !pipActive) {
             pipController?.onPipWindowClosed()
         }
+        syncPipState("onStop")
     }
 
     override fun onStart() {
@@ -221,12 +301,16 @@ class MainActivity : ComponentActivity() {
         // Foreground refresh: pick up manifest/config changes promptly.
         WgManager.refresh(this)
         pipController?.register()
+        // Re-registering must not be mistaken for leaving PiP.
+        syncPipState("onStart")
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         handleNotificationIntent(intent)
+        // A notification tap can re-deliver an intent while we are in PiP.
+        syncPipState("onNewIntent")
     }
 
     private fun handleNotificationIntent(intent: Intent?) {

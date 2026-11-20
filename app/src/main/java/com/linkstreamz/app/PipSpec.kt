@@ -147,6 +147,68 @@ object PipLayoutSpec {
         isFullscreen -> PipResizeMode.FILL
         else -> PipResizeMode.FIT
     }
+
+    /**
+     * Resolve the layout mode from the platform PiP state.
+     *
+     * This is the single decision point, and it is deliberately a pure function
+     * of the PiP flags only: playback state, touches, controller visibility,
+     * lifecycle events and window size are all ignored. That is what makes the
+     * "paused in PiP shows the normal page" class of bug impossible to reintroduce
+     * — there is no input through which playback or a lifecycle event could
+     * reach the decision.
+     *
+     * @param isInPictureInPictureMode `Activity.isInPictureInPictureMode`
+     * @param isTransitioningToPip `PictureInPictureUiState.isTransitioningToPip`
+     *   (Android 13+); true means the window is about to shrink, so switch early.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun layoutMode(
+        isInPictureInPictureMode: Boolean,
+        isTransitioningToPip: Boolean,
+        playbackState: PlaybackState? = null,
+        lifecycleEvent: LifecycleEvent? = null,
+        controlsVisible: Boolean = false,
+        windowResized: Boolean = false,
+    ): PipLayoutMode {
+        // Every parameter after the two PiP flags is deliberately IGNORED. They
+        // exist so the decision point is explicit and so the tests can pass real
+        // values for them and prove they cannot influence the outcome: no
+        // playback state, no lifecycle event, no touch/controller visibility and
+        // no window resize may bring app chrome back into the floating window.
+        if (isInPictureInPictureMode || isTransitioningToPip) {
+            return PipLayoutMode.VIDEO_ONLY
+        }
+        return PipLayoutMode.NORMAL
+    }
+}
+
+/** The two player-screen layouts. */
+enum class PipLayoutMode { NORMAL, VIDEO_ONLY }
+
+/**
+ * Every playback state the player can be in.
+ *
+ * Exists only so the PiP layout tests can enumerate them and prove that the
+ * layout mode is identical for each — playback state must never influence it.
+ */
+enum class PlaybackState { PLAYING, PAUSED, BUFFERING, ENDED, ERROR }
+
+/**
+ * Every lifecycle callback / state change that could otherwise restore the
+ * normal page inside the floating window.
+ */
+enum class LifecycleEvent {
+    ON_RESUME,
+    ON_PAUSE,
+    ON_START,
+    ON_STOP,
+    ON_CONFIGURATION_CHANGED,
+    ON_NEW_INTENT,
+    ON_PICTURE_IN_PICTURE_MODE_CHANGED,
+    ON_PICTURE_IN_PICTURE_UI_STATE_CHANGED,
+    ON_USER_LEAVE_HINT,
+    ON_RECOMPOSITION,
 }
 
 /** Video scaling modes, mirroring Media3's `AspectRatioFrameLayout`. */
