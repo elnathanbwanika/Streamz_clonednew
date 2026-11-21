@@ -322,17 +322,20 @@ fun PlayerScreen(
     var ytExtractId by remember { mutableStateOf<String?>(null) }
     var ytExtractStream by remember { mutableStateOf<StreamServer?>(null) }
 
-    // ── Playback resume (movies only) ─────────────────────────────────────────
-    // Load once from SharedPreferences when this movie target is first composed.
-    val movieId = (target as? MovieTarget)?.movie?.id
-    val currentMovieId by rememberUpdatedState(movieId)
+    // ── Playback resume (everything except live TV / live events) ─────────────
+    // The key comes from PlaybackResume.keyFor so the resume policy lives in one
+    // place: movies, episodes, highlights, downloads and custom streams resume;
+    // live channels and live events return null and never touch the store.
+    val resumeKeyForTarget = remember(target) { PlaybackResume.keyFor(target) }
+    val currentResumeKey by rememberUpdatedState(resumeKeyForTarget)
     val bypassTunnel = ContentRouting.bypassTunnel(target)
     val itemTvBadge = remember(target) { target.playerTvBadge }
     val playerTvBadge = if (currentServer?.showTvBadge == false) null else itemTvBadge
     var resumePositionMs by remember { mutableLongStateOf(0L) }
     // True once we've applied the saved seek — prevents seeking again on reconnect/retry.
     var hasAppliedResume by remember { mutableStateOf(false) }
-    var loadedMovieId by remember { mutableStateOf<String?>(null) }
+    // The key whose position was loaded into resumePositionMs (not "movie" only).
+    var loadedResumeKey by remember { mutableStateOf<String?>(null) }
     // Throttle counter so we save position only every ~2 s (8 × 250 ms) not every tick.
     var resumeSaveTick by remember { mutableIntStateOf(0) }
     // Player-local brightness: 100f = no overlay (neutral); lower = darker, higher = brighter (white wash).
@@ -492,34 +495,32 @@ fun PlayerScreen(
         }
     }
 
+    // ── Resume persistence ────────────────────────────────────────────────────
+    // One place that writes the position, so every teardown path (leaving the
+    // screen, switching targets, backgrounding, the 2s tick) saves the same way
+    // and for the same content. Live targets have no key and are skipped.
+    fun persistResumePosition() {
+        val key = loadedResumeKey ?: return
+        if (key != currentResumeKey) return
+        PlaybackResume.save(
+            context,
+            key,
+            engine.player.currentPosition.coerceAtLeast(0L),
+            engine.player.duration,
+        )
+    }
+
     DisposableEffect(engine) {
         engine.player.addListener(engineFallbackListener)
         onDispose {
-            if (currentMovieId != null && loadedMovieId == currentMovieId) {
-                PlaybackResume.save(
-                    context,
-                    currentMovieId!!,
-                    engine.player.currentPosition.coerceAtLeast(0L),
-                    engine.player.duration,
-                )
-            }
+            persistResumePosition()
             engine.player.removeListener(engineFallbackListener)
             engine.release()
         }
     }
 
-    DisposableEffect(movieId) {
-        val id = movieId
-        onDispose {
-            if (id != null && loadedMovieId == id) {
-                PlaybackResume.save(
-                    context,
-                    id,
-                    engine.player.currentPosition.coerceAtLeast(0L),
-                    engine.player.duration,
-                )
-            }
-        }
+    DisposableEffect(resumeKeyForTarget) {
+        onDispose { persistResumePosition() }
     }
 
     var resumeOnForeground by remember { mutableStateOf(false) }
@@ -536,14 +537,7 @@ fun PlayerScreen(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_STOP -> {
-                    if (currentMovieId != null && loadedMovieId == currentMovieId) {
-                        PlaybackResume.save(
-                            context,
-                            currentMovieId!!,
-                            engine.player.currentPosition.coerceAtLeast(0L),
-                            engine.player.duration,
-                        )
-                    }
+                    persistResumePosition()
                     // In PiP the activity is stopped but still visible and
                     // controllable from the floating window. Pausing here would
                     // fight the PiP play/pause action (and resume() on ON_START
@@ -626,15 +620,17 @@ fun PlayerScreen(
         allServersFailed = false
         val isCustom = target is CustomTarget
 
-        val movie = (target as? MovieTarget)?.movie
-        if (movie != null) {
-            if (loadedMovieId != movie.id) {
-                loadedMovieId = movie.id
+        // Resume lookup: keyed by the target's resume key, so episodes, highlights,
+        // downloads and custom streams resume too. Live targets have a null key.
+        val resumeKey = currentResumeKey
+        if (resumeKey != null) {
+            if (loadedResumeKey != resumeKey) {
+                loadedResumeKey = resumeKey
                 hasAppliedResume = false
-                resumePositionMs = PlaybackResume.get(context, movie.id)
+                resumePositionMs = PlaybackResume.get(context, resumeKey)
             }
         } else {
-            loadedMovieId = null
+            loadedResumeKey = null
             hasAppliedResume = false
             resumePositionMs = 0L
         }
@@ -676,14 +672,14 @@ fun PlayerScreen(
                 }
                 // ── Resume: seek to saved position on first STATE_READY ────────
                 if (playbackState == androidx.media3.common.Player.STATE_READY &&
-                    currentMovieId != null && loadedMovieId == currentMovieId &&
+                    currentResumeKey != null && loadedResumeKey == currentResumeKey &&
                     !hasAppliedResume) {
                     hasAppliedResume = true
                     if (resumePositionMs > 0L) engine.player.seekTo(resumePositionMs)
                 }
-                // ── Resume: clear saved position when movie finishes ───────────
-                if (playbackState == androidx.media3.common.Player.STATE_ENDED && currentMovieId != null) {
-                    PlaybackResume.markFinished(context, currentMovieId!!)
+                // ── Resume: clear saved position when the video finishes ───────
+                if (playbackState == androidx.media3.common.Player.STATE_ENDED && currentResumeKey != null) {
+                    PlaybackResume.markFinished(context, currentResumeKey!!)
                 }
             }
             override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
@@ -764,12 +760,14 @@ fun PlayerScreen(
             position = engine.player.currentPosition.coerceAtLeast(0L)
             duration = engine.player.duration
             engine.checkStall()
-            // ── Resume: persist position every ~2 s while a movie is open ──
-            if (currentMovieId != null && loadedMovieId == currentMovieId && hasAppliedResume) {
+            // ── Resume: persist position every ~2 s while a video is open ──
+            // Only after the initial seek has been applied, so the tick cannot
+            // overwrite the saved position with 0 before we jump to it.
+            if (currentResumeKey != null && loadedResumeKey == currentResumeKey && hasAppliedResume) {
                 resumeSaveTick++
                 if (resumeSaveTick >= 8) {
                     resumeSaveTick = 0
-                    PlaybackResume.save(context, currentMovieId!!, position, duration)
+                    PlaybackResume.save(context, currentResumeKey!!, position, duration)
                 }
             }
             delay(250)
