@@ -1,6 +1,8 @@
 package com.linkstreamz.app
 
 import android.provider.Settings
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -22,12 +24,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -39,21 +42,23 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.delay
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Home featured carousel
+// Home featured carousel.
 //
-// GUI-only: it renders the feeds Home already loaded and never fetches. All
-// timing constants live in HomeCarousel (pure, unit-tested).
+// GUI only: it renders [slides] and never fetches anything. The slide list is
+// built from the already-loaded feeds by HomeCarousel and passed in.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * The featured carousel.
  *
- * - 0 slides: renders nothing (the caller's `item` disappears entirely).
- * - 1 slide: renders the card alone, with no pager, no dots and no timer.
- * - 2+: pager with dots, auto-sliding while [visible] and the app is foregrounded.
+ * Auto-slides every [HomeCarousel.AUTO_SLIDE_MS] with a
+ * [HomeCarousel.SLIDE_ANIM_MS] ease-in-out slide, looping endlessly. The timer
+ * runs only while [visible] and the app is resumed, and is cancelled outright
+ * (the effect is keyed on it) whenever the user is touching the carousel, the
+ * app is backgrounded, system animations are off, or talkback is on.
  *
- * Auto-sliding is disabled when system animations are off or when touch
- * exploration is on, and pauses for RESUME_AFTER_TOUCH_MS after a drag.
+ * A single slide renders as a plain card with no pager, dots or timer; an empty
+ * list renders nothing at all.
  */
 @Composable
 fun HomeCarousel(
@@ -70,6 +75,7 @@ fun HomeCarousel(
     if (slides.isEmpty()) return
 
     if (slides.size == 1) {
+        // One slide: no pager, no dots, no auto-slide - just the card.
         val only = slides.first()
         HomeCarouselCard(
             slide = only,
@@ -81,20 +87,27 @@ fun HomeCarousel(
         return
     }
 
-    val pagerState = rememberPagerState(pageCount = { slides.size })
+    val count = slides.size
+    // An "infinite" pager gives a seamless endless loop: advancing past the last
+    // slide simply walks onto the next lap instead of rewinding to the first.
+    val pagerState = rememberPagerState(
+        initialPage = remember(count) { startPageFor(count) },
+        pageCount = { Int.MAX_VALUE },
+    )
 
     val context = LocalContext.current
-    val animatorScale = remember(context) {
+    // Animations off (developer option / battery saver) => manual swipe only.
+    val animationsOff = remember(context) {
         runCatching {
             Settings.Global.getFloat(
                 context.contentResolver,
                 Settings.Global.ANIMATOR_DURATION_SCALE,
                 1f,
             )
-        }.getOrDefault(1f)
+        }.getOrDefault(1f) == 0f
     }
-    val animationsOff = animatorScale == 0f
-    val touchExplorationOn = LocalAccessibilityManager.current?.isEnabled == true
+    // Touch exploration (TalkBack) => manual swipe only.
+    val talkBackOn = LocalAccessibilityManager.current?.isTouchExplorationEnabled == true
 
     var inForeground by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -111,40 +124,52 @@ fun HomeCarousel(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // `holding` is true while the user's finger is down; it is a key of the timer
-    // effect below, so touching cancels the timer immediately instead of leaving
-    // it sleeping. After the finger lifts, the timer restarts and first waits out
-    // the remaining pause (RESUME_AFTER_TOUCH_MS).
-    var holding by remember { mutableStateOf️(false) }
+    // `holding` is a key of the timer effect, so a finger down cancels the timer
+    // immediately rather than leaving a coroutine sleeping in a long delay.
+    var holding by remember { mutableStateOf(false) }
     var pausedUntilMs by remember { mutableLongStateOf(0L) }
-    val autoSlide = visible && inForeground && !animationsOff && !touchExplorationOn
 
-    LaunchedEffect(autoSlide, slides.size, holding) {
+    val autoSlide = visible && inForeground && !animationsOff && !talkBackOn
+
+    LaunchedEffect(autoSlide, count, holding) {
         if (!autoSlide || holding) return@LaunchedEffect
         while (true) {
-            val wait = pausedUntilMs - System.currentTimeMillis()
-            if (wait > 0L) {
-                delay(wait)
-                continue
+            val remainingPause = pausedUntilMs - System.currentTimeMillis()
+            if (remainingPause > 0L) {
+                // Just released: wait out the pause, then slide straight away.
+                delay(remainingPause)
+            } else {
+                delay(HomeCarousel.AUTO_SLIDE_MS)
             }
-            delay(HomeCarousel.AUTO_SLIDE_MS)
             if (holding) continue
-            val next = (pagerState.currentPage + 1) % slides.size
             pagerState.animateScrollToPage(
-                page = next,
-                animationSpec = androidx.compose.animation.core.tween(
+                page = pagerState.currentPage + 1,
+                animationSpec = tween(
                     durationMillis = HomeCarousel.SLIDE_ANIM_MS,
-                    easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                    easing = FastOutSlowInEasing,
                 ),
             )
         }
     }
 
-    // Called when the gesture ends: pause auto-sliding for RESUME_AFTER_TOUCH_MS.
-    val releaseFinger = {
-        pausedUntilMs = System.currentTimeMillis() + HomeCarousel.RESUME_AFTER_TOUCH_MS
-        holding = false
-        Unit
+    // ── Keep the visible slide across data refreshes ─────────────────────────
+    // `anchorKey` is the slide currently on screen. When the list is rebuilt we
+    // move the pager back onto that same slide (in place, so nothing jumps) and
+    // only fall back to staying put if the slide no longer exists.
+    val anchorKey = remember { mutableStateOf(slides.first().key) }
+    val latestSlides by rememberUpdatedState(slides)
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.currentPage }.collect { page ->
+            anchorKey.value = latestSlides[page % latestSlides.size].key
+        }
+    }
+    val slideKeys = slides.map { it.key }
+    LaunchedEffect(slideKeys) {
+        val index = slideKeys.indexOf(anchorKey.value)
+        if (index >= 0) {
+            val page = pageForIndex(pagerState.currentPage, index, slides.size)
+            if (page != pagerState.currentPage) pagerState.scrollToPage(page)
+        }
     }
 
     Column(modifier.fillMaxWidth()) {
@@ -152,33 +177,30 @@ fun HomeCarousel(
             state = pagerState,
             contentPadding = PaddingValues(horizontal = 16.dp),
             pageSpacing = 12.dp,
-            key = { index -> slides[index].key },
-            // Compose the neighbouring page too, so Coil starts loading the next
-            // slide's images before the swipe and the slide never flashes.
+            // Compose the neighbouring page too, so Coil has the next slide's
+            // images loading before the swipe and the slide never flashes.
             beyondViewportPageCount = 1,
             modifier = Modifier
                 .fillMaxWidth()
-                .pointerInput(slides.size) {
-                    // Observe drags only: pausing must never steal the gesture
-                    // from the pager's own swipe or from the card's tap.
+                .pointerInput(count) {
+                    // Observe the touch only; nothing is consumed, so the pager's
+                    // own swipe and the card's tap still work normally.
                     awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        pausedUntilMs = Long.MAX_VALUE
-                        var dragged = false
+                        awaitFirstDown(requireUnconsumed = false)
+                        holding = true
+                        // Wait until every finger is up.
                         while (true) {
                             val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (change.pressed) {
-                                if (change.positionChange().getDistance() > 0f) dragged = true
-                            } else {
-                                break
-                            }
+                            if (event.changes.none { it.pressed }) break
                         }
-                        if (dragged) resume()
+                        // Let go: resume auto-sliding RESUME_AFTER_TOUCH_MS later.
+                        pausedUntilMs =
+                            System.currentTimeMillis() + HomeCarousel.RESUME_AFTER_TOUCH_MS
+                        holding = false
                     }
                 },
         ) { page ->
-            val slide = slides[page]
+            val slide = slides[page % count]
             HomeCarouselCard(
                 slide = slide,
                 onClick = { slide.open(onOpenSportsTab, onOpenLimited, onOpenMovieDetails) },
@@ -187,15 +209,13 @@ fun HomeCarousel(
             )
         }
 
-        if (slides.size > 1) {
-            HomeCarouselDots(
-                count = slides.size,
-                selected = pagerState.currentPage,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 10.dp),
-            )
-        }
+        HomeCarouselDots(
+            count = count,
+            selected = pagerState.currentPage % count,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp),
+        )
     }
 }
 
@@ -214,11 +234,24 @@ private fun HomeCarouselDots(count: Int, selected: Int, modifier: Modifier = Mod
                 Modifier
                     .size(if (index == selected) 6.dp else 5.dp)
                     .clip(CircleShape)
-                    .background(if (index == selected) LsColor.Accent else LsColor.TextDim.copy(alpha = 0.45f)),
+                    .background(
+                        if (index == selected) LsColor.Accent
+                        else LsColor.TextDim.copy(alpha = 0.45f)
+                    ),
             )
         }
     }
 }
+
+/** A page in the middle of the "infinite" range that maps to slide 0. */
+private fun startPageFor(count: Int): Int {
+    val middle = Int.MAX_VALUE / 2
+    return middle - (middle % count)
+}
+
+/** The nearest page at or after the current lap that shows slide [index]. */
+private fun pageForIndex(currentPage: Int, index: Int, count: Int): Int =
+    currentPage - (currentPage % count) + index
 
 /** Tap target for the whole card. */
 private fun HomeCarouselSlide.open(

@@ -64,7 +64,6 @@ data class MoviesFilterState(
 fun MoviesScreen(
     movies: List<Movie>,
     series: List<Series>,
-    downloads: List<DownloadItem> = emptyList(),
     onWatch: (Any) -> Unit,
     onDownload: (Movie) -> Unit = {},
     focusLimited: Boolean = false,
@@ -88,16 +87,9 @@ fun MoviesScreen(
     }
 
     // Ended time-limited movies are dead content: hide them from every rail,
-    // grid and search result. A copy the user already downloaded still plays
-    // offline, so it stays visible (and is listed in Downloads).
-    val downloadedMovieIds = remember(downloads) {
-        downloads.filter { it.status == DownloadStatus.COMPLETED }
-            .mapNotNull { it.movieId }
-            .toSet()
-    }
-    val visibleMovies = remember(movies, downloadedMovieIds) {
-        movies.visibleCatalogue(downloadedMovieIds = downloadedMovieIds)
-    }
+    // grid, filter and search result. A downloaded copy is a local file, so it
+    // stays reachable from the Downloads screen.
+    val visibleMovies = remember(movies, nowMs) { movies.visibleCatalogue(nowMs) }
 
     val limitedMovies = remember(visibleMovies, nowMs) {
         visibleMovies.filter { it.timeLimited != null && !it.isTimeLimitedEnded(nowMs) }
@@ -312,7 +304,7 @@ fun MoviesScreen(
         if (showFilter) {
             MoviesFilterDialog(
                 state = filterState,
-                allVJs = (movies.mapNotNull { it.vj } + series.mapNotNull { it.vj }).distinct().sorted(),
+                allVJs = (visibleMovies.mapNotNull { it.vj } + series.mapNotNull { it.vj }).distinct().sorted(),
                 onDismiss = { showFilter = false },
                 onApply = { newState -> filterState = newState; showFilter = false }
             )

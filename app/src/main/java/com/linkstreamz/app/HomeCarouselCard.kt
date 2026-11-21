@@ -272,6 +272,7 @@ fun HomeCarouselCard(
         )
         is HomeCarouselSlide.Limited -> LimitedSlideCard(
             movie = slide.movie,
+            limits = slide.limits,
             onClick = onClick,
             onPlay = onPlay,
             onDownload = { onDownload(slide.movie.toMovie()) },
@@ -370,13 +371,20 @@ private fun SportsSlideCard(
 @Composable
 private fun LimitedSlideCard(
     movie: CarouselMovie,
+    limits: MovieLimits,
     onClick: () -> Unit,
     onPlay: () -> Unit,
     onDownload: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val tl = movie.timeLimited ?: return
-    val state = tl.state(ServerClock.now())
+    // Derived from the limits the builder sorted this slide by, so the tag can
+    // never disagree with the bucket it came from.
+    val state = when {
+        ServerClock.now() < limits.startAtMs -> TimeLimitedState.UPCOMING
+        ServerClock.now() < limits.endAtMs -> TimeLimitedState.LIVE
+        else -> TimeLimitedState.ENDED
+    }
     val nowMs by produceState(ServerClock.now(), movie.id) {
         while (true) {
             // Under an hour left the countdown shows seconds, so tick every second.

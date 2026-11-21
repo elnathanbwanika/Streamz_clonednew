@@ -57,6 +57,14 @@
 - **One infinite animation per grid, not per card.** `ChannelCard` takes `liveAlpha: Float` from a single `rememberInfiniteTransition` in `ChannelsScreen`; its default `1f` is for callers outside the grid.
 - No fake loading delays; show `Ready` data immediately.
 
+## Home featured carousel
+- The slide list is built by `HomeCarousel.build(movies, events, nowMs)` in `HomeCarousel.kt` — pure, no Compose/Android, covered by `HomeCarouselTest` (round-robin order, 10-slide cap, de-dup, ended/finished excluded, empty kinds hidden, single & empty cases). Change ordering/filter rules there, not in the composable.
+- `HomeCarouselView.kt` is the pager; it uses an effectively infinite page range with modulo indexing so "loop endlessly" never rewinds to the first slide. `HomeCarouselCard.kt` holds the four layouts behind one fixed-height frame (`CarouselCardHeight`) — keep one height and radius for all slides or the pager resizes, i.e. the rail jumps.
+- **Ended time-limited movies are dead content.** Feed Home/Movies only `movies.visibleCatalogue()`; a downloaded copy stays reachable from Downloads (that screen lists the download store, not the catalogue), so no special-casing is needed anywhere else.
+- The auto-slide timer runs only while the Home tab is composed, the app is resumed, system animations are on and touch exploration is off. It is keyed on `holding`, so a touch *cancels* it instead of leaving a coroutine parked in a long `delay`.
+- The carousel is the only sports content that belongs on Home (the older Sports rail predates it).
+- Cards must not receive a clock `Long` — each slide runs its own `produceState` tick (1 s only under an hour left, else 60 s), which follows the performance rule above.
+
 ## Getting the APK
 - Actions → "Build release APK" → latest green run → Artifacts → `app-release-<versionName>` (e.g. `app-release-3.1.6`) → download on phone → install (allow "install unknown apps" for the browser/Files app).
 - Artifacts are kept 30 days; red runs still upload `build-reports`.

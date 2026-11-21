@@ -410,7 +410,6 @@ private fun SectionContent(
                 MoviesScreen(
                     movies = movies,
                     series = series,
-                    downloads = downloads,
                     onWatch = { item ->
                         if (item is Movie) onPlayer(MovieTarget(item))
                         if (item is Series && item.seasons.isNotEmpty() && item.seasons.first().episodes.isNotEmpty()) {
@@ -484,16 +483,9 @@ private fun HomeSummary(
     onOpenSportsTab: (SportsTab) -> Unit,
 ) {
     // Ended time-limited movies are dead content: they must not reach any rail
-    // or the carousel. The one exception is a copy the user already downloaded,
-    // which still plays offline (and is listed in Downloads).
-    val downloadedMovieIds = remember(downloads) {
-        downloads.filter { it.status == DownloadStatus.COMPLETED }
-            .map { it.movieId }
-            .toSet()
-    }
-    val visibleMovies = remember(movies, downloadedMovieIds) {
-        movies.visibleCatalogue(downloadedMovieIds = downloadedMovieIds)
-    }
+    // or the carousel. A downloaded copy is a local file, so it stays reachable
+    // from the Downloads screen instead.
+    val visibleMovies = remember(movies) { movies.visibleCatalogue() }
 
     val homeMovies = remember(visibleMovies) { visibleMovies.filter { it.translated }.ifEmpty { visibleMovies } }
     val newlyAdded = remember(homeMovies) { homeMovies.takeLast(10).reversed() }
