@@ -27,6 +27,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
@@ -110,14 +111,16 @@ fun HomeCarousel(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    // While paused this holds a future timestamp; Long.MAX_VALUE means "held by
-    // the user's finger". The loop below re-reads it every tick, so a touch takes
-    // effect immediately instead of after the current delay.
+    // `holding` is true while the user's finger is down; it is a key of the timer
+    // effect below, so touching cancels the timer immediately instead of leaving
+    // it sleeping. After the finger lifts, the timer restarts and first waits out
+    // the remaining pause (RESUME_AFTER_TOUCH_MS).
+    var holding by remember { mutableStateOf️(false) }
     var pausedUntilMs by remember { mutableLongStateOf(0L) }
     val autoSlide = visible && inForeground && !animationsOff && !touchExplorationOn
 
-    LaunchedEffect(autoSlide, slides.size) {
-        if (!autoSlide) return@LaunchedEffect
+    LaunchedEffect(autoSlide, slides.size, holding) {
+        if (!autoSlide || holding) return@LaunchedEffect
         while (true) {
             val wait = pausedUntilMs - System.currentTimeMillis()
             if (wait > 0L) {
@@ -125,7 +128,7 @@ fun HomeCarousel(
                 continue
             }
             delay(HomeCarousel.AUTO_SLIDE_MS)
-            if (pausedUntilMs > System.currentTimeMillis()) continue
+            if (holding) continue
             val next = (pagerState.currentPage + 1) % slides.size
             pagerState.animateScrollToPage(
                 page = next,
@@ -137,8 +140,10 @@ fun HomeCarousel(
         }
     }
 
-    val resume = {
+    // Called when the gesture ends: pause auto-sliding for RESUME_AFTER_TOUCH_MS.
+    val releaseFinger = {
         pausedUntilMs = System.currentTimeMillis() + HomeCarousel.RESUME_AFTER_TOUCH_MS
+        holding = false
         Unit
     }
 
@@ -148,6 +153,9 @@ fun HomeCarousel(
             contentPadding = PaddingValues(horizontal = 16.dp),
             pageSpacing = 12.dp,
             key = { index -> slides[index].key },
+            // Compose the neighbouring page too, so Coil starts loading the next
+            // slide's images before the swipe and the slide never flashes.
+            beyondViewportPageCount = 1,
             modifier = Modifier
                 .fillMaxWidth()
                 .pointerInput(slides.size) {

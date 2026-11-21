@@ -56,12 +56,18 @@ import java.util.Locale
 // ─────────────────────────────────────────────────────────────────────────────
 // Carousel slide cards.
 //
-// Every slide uses the same outer frame (HomeCarouselFrame): same corner radius,
-// same minimum height, same padding. Only the inner content differs, so sliding
-// between kinds never shifts the layout.
+// Every slide uses the same outer frame (HomeCarouselFrame): the same FIXED
+// height, the same corner radius, the same padding, and the same three-zone
+// layout (header / middle / footer with SpaceBetween). Only the content differs,
+// so neither changing slide nor a ticking countdown can shift the layout.
+// A fixed height (rather than heightIn) is what keeps the pager from resizing
+// between slides, which would otherwise make the whole rail jump.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Shared shell: one radius, one min height, one padding, one background wash. */
+/** Fixed card height. Tall enough for the widest slide (limited movie). */
+private val CarouselCardHeight = 190.dp
+
+/** Shared shell: one height, one radius, one padding, one background wash. */
 @Composable
 private fun HomeCarouselFrame(
     onClick: () -> Unit,
@@ -72,7 +78,7 @@ private fun HomeCarouselFrame(
     Column(
         modifier
             .fillMaxWidth()
-            .heightIn(min = 132.dp)
+            .height(CarouselCardHeight)
             .clip(LsShape.Hero)
             .background(LsColor.HeroBase)
             .drawBehind {
@@ -85,6 +91,7 @@ private fun HomeCarouselFrame(
             .semantics { this.contentDescription = contentDescription }
             .clickable(onClick = onClick)
             .padding(horizontal = 18.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.SpaceBetween,
         content = content,
     )
 }
@@ -110,7 +117,7 @@ private fun CarouselTag(text: String, background: Color = LinkColors.OrangePrima
     }
 }
 
-/** Muted mono line next to the tag (time left, "Starts in ..."). */
+/** Muted mono line beside a tag (time left, "Starts in ..."). */
 @Composable
 private fun CarouselMeta(text: String) {
     Text(
@@ -124,9 +131,9 @@ private fun CarouselMeta(text: String) {
     )
 }
 
-/** Two-line title that reserves both lines, so a shorter title cannot shift the card. */
+/** Title that always reserves two lines, so a shorter title cannot shift the card. */
 @Composable
-private fun CarouselTitle(text: String, size: Int = 24) {
+private fun CarouselTitle(text: String, size: Int = 20) {
     Text(
         text,
         color = LsColor.Text,
@@ -138,7 +145,7 @@ private fun CarouselTitle(text: String, size: Int = 24) {
     )
 }
 
-/** Two-line body that always occupies both lines. */
+/** Body line that always reserves its two lines. */
 @Composable
 private fun CarouselBody(text: String) {
     Text(
@@ -171,6 +178,28 @@ private fun PulsingDot(color: Color = LsColor.OnAccent) {
             .graphicsLayer { this.alpha = alpha }
             .background(color, CircleShape)
     )
+}
+
+/** Live tag: orange pill with a pulsing dot. */
+@Composable
+private fun LiveTag() {
+    Row(
+        Modifier
+            .background(LinkColors.OrangePrimary, LsShape.Pill)
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        PulsingDot()
+        Text(
+            "LIVE",
+            color = LsColor.OnAccent,
+            fontFamily = MonoFont,
+            fontSize = 8.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 0.8.sp,
+        )
+    }
 }
 
 /** Orange primary button, borderless. */
@@ -209,7 +238,7 @@ private fun CarouselIconButton(description: String, onClick: () -> Unit) {
     }
 }
 
-/** "Starts in 2h 15m" inside 24 h, otherwise the EAT day and time. */
+/** "Starts in 2h 15m" inside 24 h, otherwise the kickoff day and time in EAT. */
 internal fun startsInText(startMs: Long?, nowMs: Long): String {
     if (startMs == null) return "Starting soon"
     val remaining = startMs - nowMs
@@ -243,7 +272,6 @@ fun HomeCarouselCard(
         )
         is HomeCarouselSlide.Limited -> LimitedSlideCard(
             movie = slide.movie,
-            limits = slide.limits,
             onClick = onClick,
             onPlay = onPlay,
             onDownload = { onDownload(slide.movie.toMovie()) },
@@ -258,7 +286,7 @@ fun HomeCarouselCard(
     }
 }
 
-/** LIVE / UPCOMING event: league, both crests + names, countdown, CTA. */
+/** LIVE / UPCOMING event: tag, league, both crests with names, countdown, CTA. */
 @Composable
 private fun SportsSlideCard(
     event: Event,
@@ -267,8 +295,7 @@ private fun SportsSlideCard(
     onPlay: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // A minute is enough for an event countdown, so this ticks once a minute and
-    // only for the slide that is actually composed.
+    // A minute is plenty for an event countdown, and only the composed slide runs it.
     val nowMs by produceState(ServerClock.now(), event.id) {
         while (true) {
             delay(60_000L)
@@ -277,37 +304,19 @@ private fun SportsSlideCard(
     }
     val league = listOf(event.sport, event.league).filter { it.isNotBlank() }.joinToString(" | ")
     val teams = "${event.home.name} vs ${event.away.name}"
+    val when_ = startsInText(event.startMs, nowMs)
     HomeCarouselFrame(
         onClick = onClick,
         contentDescription = if (isLive) {
             "Live now, $league, $teams. Watch live."
         } else {
-            "Upcoming, $league, $teams, ${startsInText(event.startMs, nowMs)}"
+            "Upcoming, $league, $teams, $when_"
         },
         modifier = modifier,
     ) {
+        // Zone 1 - tag + league
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (isLive) {
-                Row(
-                    Modifier
-                        .background(LinkColors.OrangePrimary, LsShape.Pill)
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    PulsingDot()
-                    Text(
-                        "LIVE",
-                        color = LsColor.OnAccent,
-                        fontFamily = MonoFont,
-                        fontSize = 8.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.8.sp,
-                    )
-                }
-            } else {
-                CarouselTag("UPCOMING", background = LsColor.FillSubtle)
-            }
+            if (isLive) LiveTag() else CarouselTag("UPCOMING", background = LsColor.FillSubtle)
             Spacer(Modifier.width(8.dp))
             Text(
                 league,
@@ -319,7 +328,7 @@ private fun SportsSlideCard(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Spacer(Modifier.height(10.dp))
+        // Zone 2 - both crests with their names
         Row(verticalAlignment = Alignment.CenterVertically) {
             Crest(event.home, size = 26.dp)
             Spacer(Modifier.width(8.dp))
@@ -335,14 +344,14 @@ private fun SportsSlideCard(
             Spacer(Modifier.width(8.dp))
             Crest(event.away, size = 26.dp)
         }
-        Spacer(Modifier.height(8.dp))
+        // Zone 3 - countdown, plus the CTA for live events only
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
-                if (isLive) "Playing now" else startsInText(event.startMs, nowMs),
+                if (isLive) "Playing now" else when_,
                 color = LsColor.TextDim,
                 fontFamily = MonoFont,
                 fontSize = 10.sp,
@@ -357,11 +366,10 @@ private fun SportsSlideCard(
     }
 }
 
-/** Time-limited movie: tag + time left / "Starts in ...", title, availability, Watch + download. */
+/** Time-limited movie: tag with time left, title, availability, Watch + download. */
 @Composable
 private fun LimitedSlideCard(
     movie: CarouselMovie,
-    limits: MovieLimits,
     onClick: () -> Unit,
     onPlay: () -> Unit,
     onDownload: () -> Unit,
@@ -371,8 +379,8 @@ private fun LimitedSlideCard(
     val state = tl.state(ServerClock.now())
     val nowMs by produceState(ServerClock.now(), movie.id) {
         while (true) {
-            // Under an hour left the countdown shows seconds, so tick every second;
-            // otherwise a minute is plenty and avoids needless recomposition.
+            // Under an hour left the countdown shows seconds, so tick every second.
+            // Otherwise a minute is plenty, which keeps recomposition cheap.
             val remaining = tl.endAtMs - ServerClock.now()
             delay(if (remaining in 1..3_600_000L) 1_000L else 60_000L)
             value = ServerClock.now()
@@ -388,15 +396,18 @@ private fun LimitedSlideCard(
         contentDescription = "Limited time movie, ${movie.title}, $meta",
         modifier = modifier,
     ) {
+        // Zone 1 - tag + time left / starts in
         Row(verticalAlignment = Alignment.CenterVertically) {
             CarouselTag("LIMITED TIME")
             Spacer(Modifier.width(8.dp))
             CarouselMeta(meta)
         }
-        Spacer(Modifier.height(8.dp))
-        CarouselTitle(movie.title)
-        CarouselBody(timeLimitedAvailabilityText(movie.toMovie()))
-        Spacer(Modifier.height(10.dp))
+        // Zone 2 - title + availability
+        Column {
+            CarouselTitle(movie.title)
+            CarouselBody(timeLimitedAvailabilityText(movie.toMovie()))
+        }
+        // Zone 3 - Watch / Details + download when allowed
         Row(verticalAlignment = Alignment.CenterVertically) {
             CarouselButton(if (state == TimeLimitedState.LIVE) "Watch" else "Details", onPlay)
             if (DownloadSupport.canDownload(movie.toMovie(), nowMs)) {
@@ -423,8 +434,9 @@ private fun NewMovieSlideCard(
         contentDescription = "New movie, ${movie.title}, $meta. Play.",
         modifier = modifier,
     ) {
+        // Zone 1 - tag
         CarouselTag("NEW")
-        Spacer(Modifier.height(10.dp))
+        // Zone 2 - poster + text
         Row(verticalAlignment = Alignment.CenterVertically) {
             AsyncImage(
                 model = movie.thumbUrl,
@@ -457,7 +469,9 @@ private fun NewMovieSlideCard(
                     )
                 }
             }
-            Spacer(Modifier.width(12.dp))
+        }
+        // Zone 3 - Play
+        Row(verticalAlignment = Alignment.CenterVertically) {
             CarouselButton("Play", onPlay)
         }
     }

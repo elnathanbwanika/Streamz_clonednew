@@ -8,9 +8,6 @@ package com.linkstreamz.app
 // can be unit-tested and a refresh can never trigger a network call.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The four kinds of slide, in round-robin priority order. */
-enum class CarouselKind { LIVE_EVENT, TIME_LIMITED, UPCOMING_EVENT, NEW_MOVIE }
-
 /** One carousel slide. [key] is stable across rebuilds so the pager can keep it. */
 sealed interface CarouselSlide {
     val key: String

@@ -36,7 +36,7 @@ data class CarouselMovie(
     val year: Int,
     val vj: String?,
     val thumbUrl: String,
-    val videoUrl: String,
+    val videoUrl: String = "",
     val timeLimited: TimeLimited?,
     val allowDownload: Boolean,
     val servers: List<StreamServer> = emptyList(),

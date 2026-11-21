@@ -50,19 +50,19 @@ class HomeCarouselTest {
         allowDownload = true,
     )
 
-    private fun liveLimit(id: String, endsInMs: Long = HOUR) = TimeLimited(
+    private fun liveLimit(endsInMs: Long = HOUR) = TimeLimited(
         startAtMs = NOW - HOUR,
         durationHours = ((endsInMs + HOUR) / HOUR).toInt(),
         allowDownload = true,
     )
 
-    private fun upcomingLimit(id: String, startsInMs: Long = HOUR) = TimeLimited(
+    private fun upcomingLimit(startsInMs: Long = HOUR) = TimeLimited(
         startAtMs = NOW + startsInMs,
         durationHours = 2,
         allowDownload = true,
     )
 
-    private fun endedLimit(id: String) = TimeLimited(
+    private fun endedLimit() = TimeLimited(
         startAtMs = NOW - 10 * HOUR,
         durationHours = 2,
         allowDownload = true,
@@ -71,7 +71,7 @@ class HomeCarouselTest {
     @Test
     fun `round robin order is live event, limited movie, upcoming event, new movie`() {
         val slides = HomeCarousel.build(
-            movies = listOf(movie("m1"), movie("m2", liveLimit("m2"))),
+            movies = listOf(movie("m1"), movie("m2", liveLimit())),
             events = listOf(liveEvent("e1"), upcomingEvent("e2", HOUR)),
             nowMs = NOW,
         )
@@ -84,7 +84,7 @@ class HomeCarouselTest {
     @Test
     fun `round robin repeats with the next item of each kind`() {
         val slides = HomeCarousel.build(
-            movies = listOf(movie("m1"), movie("m2", liveLimit("m2")), movie("m3", liveLimit("m3"))),
+            movies = listOf(movie("m1"), movie("m2", liveLimit()), movie("m3", liveLimit())),
             events = listOf(liveEvent("e1"), liveEvent("e2"), upcomingEvent("u1", HOUR)),
             nowMs = NOW,
         )
@@ -100,7 +100,7 @@ class HomeCarouselTest {
     @Test
     fun `caps at ten slides`() {
         val events = (1..8).map { liveEvent("e$it") }
-        val movies = (1..8).map { movie("m$it", liveLimit("m$it")) }
+        val movies = (1..8).map { movie("m$it", liveLimit()) }
         val slides = HomeCarousel.build(movies = movies, events = events, nowMs = NOW)
         assertEquals(HomeCarousel.MAX_SLIDES, slides.size)
     }
@@ -122,14 +122,14 @@ class HomeCarouselTest {
 
     @Test
     fun `ended time limited movies are excluded everywhere`() {
-        val ended = movie("mEnded", endedLimit("mEnded"))
+        val ended = movie("mEnded", endedLimit())
         val slides = HomeCarousel.build(movies = listOf(ended), events = emptyList(), nowMs = NOW)
         assertTrue(slides.isEmpty())
     }
 
     @Test
     fun `ended time limited movie is not offered as a new movie`() {
-        val ended = movie("mEnded", endedLimit("mEnded"))
+        val ended = movie("mEnded", endedLimit())
         val fresh = movie("mFresh")
         val slides = HomeCarousel.build(movies = listOf(ended, fresh), events = emptyList(), nowMs = NOW)
         assertEquals(listOf("new-movie-mFresh"), slides.map { it.key })
@@ -163,8 +163,8 @@ class HomeCarouselTest {
     fun `time limited movies are live first then upcoming`() {
         val slides = HomeCarousel.build(
             movies = listOf(
-                movie("up", upcomingLimit("up")),
-                movie("live", liveLimit("live")),
+                movie("up", upcomingLimit()),
+                movie("live", liveLimit()),
             ),
             events = emptyList(),
             nowMs = NOW,
