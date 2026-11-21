@@ -24,6 +24,7 @@
 - `app/libs/linktunnel.aar` (15 MB, gomobile WireGuard) is committed on purpose and un-ignored in `.gitignore`; it is a `files(...)` dependency, so it must stay in the repo. Rebuild: `scripts/build-tunnel-aar.sh` (needs Go + gomobile + NDK).
 - `app/google-services.json` is committed; the `com.google.gms.google-services` plugin is applied, so a missing/mismatched file fails the build at `processDebugGoogleServices` (package_name must be `com.linkstreamz.app`).
 - No git binary and no `.git` dir in the local sandbox — commits/pushes go through the git tools or the user's phone.
+- **Compose's `LocalAccessibilityManager` does not expose `isTouchExplorationEnabled`** on Compose BOM 2024.12.01 (only `isEnabled`) — `:app:compileReleaseKotlin` fails with `Unresolved reference 'isTouchExplorationEnabled'`. To detect TalkBack, get the framework manager from `LocalContext`: `context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager` and read/listen on `isTouchExplorationEnabled` / `TouchExplorationStateChangeListener`.
 
 ## UI / design tokens
 - Single token layer: `app/src/main/java/com/linkstreamz/app/LinkTokens.kt` — `LsColor`, `LsSpace`, `LsShape`, `LsType` + text helpers (`LsSectionHeading`, `LsBadge`, `LsMeta`, `LsDialogBody`).

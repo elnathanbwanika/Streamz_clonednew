@@ -1,6 +1,8 @@
 package com.linkstreamz.app
 
+import android.content.Context
 import android.provider.Settings
+import android.view.accessibility.AccessibilityManager
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -31,7 +33,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -106,8 +107,22 @@ fun HomeCarousel(
             )
         }.getOrDefault(1f) == 0f
     }
-    // Touch exploration (TalkBack) => manual swipe only.
-    val talkBackOn = LocalAccessibilityManager.current?.isTouchExplorationEnabled == true
+    // Touch exploration (TalkBack) => manual swipe only. Read from the framework
+    // manager and listen for changes, so toggling TalkBack while Home is open is
+    // picked up immediately.
+    val accessibilityManager = remember(context) {
+        context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager
+    }
+    var talkBackOn by remember {
+        mutableStateOf(accessibilityManager?.isTouchExplorationEnabled == true)
+    }
+    DisposableEffect(accessibilityManager) {
+        val listener = AccessibilityManager.TouchExplorationStateChangeListener { enabled ->
+            talkBackOn = enabled
+        }
+        accessibilityManager?.addTouchExplorationStateChangeListener(listener)
+        onDispose { accessibilityManager?.removeTouchExplorationStateChangeListener(listener) }
+    }
 
     var inForeground by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
