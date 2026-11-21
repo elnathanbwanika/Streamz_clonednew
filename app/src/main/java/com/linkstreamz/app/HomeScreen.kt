@@ -104,10 +104,14 @@ fun HomeScreen(
     onSectionChange: (MainSection) -> Unit,
     onOpenLimited: () -> Unit,
     focusLimited: Boolean,
+    sportsTab: SportsTab = SportsTab.LIVE,
+    onSportsTabChange: (SportsTab) -> Unit = {},
     onFocusConsumed: () -> Unit,
     onSettings: () -> Unit,
     onDownloads: () -> Unit = {},
     onPlayer: (PlayerTarget) -> Unit,
+    onOpenMovieDetails: (Movie) -> Unit = { onPlayer(MovieTarget(it)) },
+    onOpenSportsTab: (SportsTab) -> Unit = {},
 ) {
     val state by repository.state.collectAsState()
     val mediaState  by moviesRepo.state.collectAsState()
@@ -121,7 +125,6 @@ fun HomeScreen(
     val events   = (state as? FeedState.Ready)?.feed?.events ?: emptyList()
 
     val context = LocalContext.current
-    var sportsTab by rememberSaveable { mutableStateOf(SportsTab.LIVE) }
     var dialogTarget by remember { mutableStateOf<PlayerTarget?>(null) }
     var pendingDownload by remember { mutableStateOf<Movie?>(null) }
     var mobileConfirmDownload by remember { mutableStateOf<Movie?>(null) }
@@ -261,13 +264,15 @@ fun HomeScreen(
                         focusLimited = focusLimited,
                         onFocusConsumed = onFocusConsumed,
                         onSectionChange = onSectionChange,
-                        onSportsTabChange = { sportsTab = it },
+                        onSportsTabChange = onSportsTabChange,
                         onRetry = { scope.launch { repository.load() } },
                         onDownload = ::requestDownload,
                         onOpenDownloads = onDownloads,
                         onWatchChannel = playChannel,
                         onPlayer = onPlayer,
                         onDialogTarget = { dialogTarget = it },
+                        onOpenMovieDetails = onOpenMovieDetails,
+                        onOpenSportsTab = onOpenSportsTab,
                     )
                 }
             }
@@ -364,6 +369,8 @@ private fun SectionContent(
     onWatchChannel: (Channel) -> Unit,
     onPlayer: (PlayerTarget) -> Unit,
     onDialogTarget: (PlayerTarget) -> Unit,
+    onOpenMovieDetails: (Movie) -> Unit,
+    onOpenSportsTab: (SportsTab) -> Unit,
 ) {
     val context = LocalContext.current
     when (entry) {
@@ -381,6 +388,8 @@ private fun SectionContent(
             onWatchChannel = onWatchChannel,
             onPlayer = onPlayer,
             selectTarget = { target -> selectTarget(target, onPlayer, onDialogTarget, context) },
+            onOpenMovieDetails = onOpenMovieDetails,
+            onOpenSportsTab = onOpenSportsTab,
         )
 
         MainSection.SPORTS -> SportsContent(
@@ -401,6 +410,7 @@ private fun SectionContent(
                 MoviesScreen(
                     movies = movies,
                     series = series,
+                    downloads = downloads,
                     onWatch = { item ->
                         if (item is Movie) onPlayer(MovieTarget(item))
                         if (item is Series && item.seasons.isNotEmpty() && item.seasons.first().episodes.isNotEmpty()) {
@@ -470,15 +480,59 @@ private fun HomeSummary(
     onWatchChannel: (Channel) -> Unit,
     onPlayer: (PlayerTarget) -> Unit,
     selectTarget: (PlayerTarget) -> Unit,
+    onOpenMovieDetails: (Movie) -> Unit,
+    onOpenSportsTab: (SportsTab) -> Unit,
 ) {
-    val homeMovies = remember(movies) { movies.filter { it.translated }.ifEmpty { movies } }
+    // Ended time-limited movies are dead content: they must not reach any rail
+    // or the carousel. The one exception is a copy the user already downloaded,
+    // which still plays offline (and is listed in Downloads).
+    val downloadedMovieIds = remember(downloads) {
+        downloads.filter { it.status == DownloadStatus.COMPLETED }
+            .map { it.movieId }
+            .toSet()
+    }
+    val visibleMovies = remember(movies, downloadedMovieIds) {
+        movies.visibleCatalogue(downloadedMovieIds = downloadedMovieIds)
+    }
+
+    val homeMovies = remember(visibleMovies) { visibleMovies.filter { it.translated }.ifEmpty { visibleMovies } }
     val newlyAdded = remember(homeMovies) { homeMovies.takeLast(10).reversed() }
     val trending = remember(homeMovies) { homeMovies.take(10) }
-    val bannerMovie = remember(movies) { TimeLimitedBannerSelector.select(movies, ServerClock.now()) }
-    val bannerDownloadSupport = remember(bannerMovie) {
-        bannerMovie?.let { DownloadSupport.canDownload(it, ServerClock.now()) } ?: false
+    val carouselMovies = remember(visibleMovies) {
+        visibleMovies.map { movie ->
+            CarouselMovie(
+                id = movie.id,
+                title = movie.title,
+                genre = movie.genre,
+                year = movie.year,
+                vj = movie.vj,
+                thumbUrl = movie.thumbUrl,
+                videoUrl = movie.videoUrl,
+                timeLimited = movie.timeLimited,
+                allowDownload = movie.allowDownload,
+                servers = movie.servers,
+            )
+        }
     }
-    val newestLimited = remember(movies) { TimeLimitedBannerSelector.newest(movies, ServerClock.now()) }
+    // Rebuilt when the feeds change, or once a minute so a window that opens or
+    // closes while Home is idle drops out of the list. The pager keeps its slide
+    // by key, so a rebuild never jumps back to the first slide.
+    val carouselTick by produceState(0L, movies, events) {
+        while (true) {
+            delay(60_000L)
+            value += 1L
+        }
+    }
+    val carouselSlides = remember(carouselMovies, events, carouselTick) {
+        val now = ServerClock.now()
+        val slides = HomeCarousel.build(
+            movies = carouselMovies,
+            events = events,
+            nowMs = now,
+        )
+        HomeCarouselSlides.resolve(slides = slides, movies = carouselMovies)
+    }
+    val newestLimited = remember(visibleMovies) { TimeLimitedBannerSelector.newest(visibleMovies, ServerClock.now()) }
     val homeSportsEvents = remember(events) {
         events.sortedByDescending { it.startMs ?: Long.MIN_VALUE }
     }
@@ -494,14 +548,17 @@ private fun HomeSummary(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        bannerMovie?.let { movie ->
-            item(key = "home-limited") {
-                HomeTimeLimitedBanner(
-                    movie = movie,
-                    downloadSupport = bannerDownloadSupport,
-                    onOpenMovies = onOpenLimited,
-                    onWatch = { selectTarget(MovieTarget(movie)) },
-                    onDownload = { onDownload(movie) },
+        if (carouselSlides.isNotEmpty()) {
+            item(key = "home-carousel") {
+                HomeCarousel(
+                    slides = carouselSlides,
+                    visible = true,
+                    onOpenSportsTab = onOpenSportsTab,
+                    onPlayEvent = { selectTarget(EventTarget(it)) },
+                    onOpenLimited = onOpenLimited,
+                    onWatchMovie = { selectTarget(MovieTarget(it)) },
+                    onDownloadMovie = onDownload,
+                    onOpenMovieDetails = onOpenMovieDetails,
                 )
             }
         }
@@ -781,102 +838,6 @@ private fun SportsSubTabs(
                         .width(if (isSelected) 28.dp else 0.dp)
                         .background(LinkColors.OrangePrimary, RoundedCornerShape(99.dp))
                 )
-            }
-        }
-    }
-}
-
-@Composable
-private fun HomeTimeLimitedBanner(
-    movie: Movie,
-    downloadSupport: Boolean,
-    onOpenMovies: () -> Unit,
-    onWatch: () -> Unit,
-    onDownload: () -> Unit,
-) {
-    val tl = movie.timeLimited ?: return
-    val now = ServerClock.now()
-    val state = movie.effectiveTimeLimitedState(now) ?: return
-    Row(
-        Modifier.fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clip(LsShape.Hero)
-            .background(LsColor.HeroBase)
-            .drawBehind {
-                // Soft large orange circle, top-right, 16 % opacity
-                drawCircle(
-                    color = LsColor.Accent.copy(alpha = 0.16f),
-                    radius = size.width * 0.55f,
-                    center = Offset(size.width, 0f),
-                )
-            }
-            .clickable(onClick = onOpenMovies)
-            .padding(horizontal = 18.dp, vertical = 16.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.background(LinkColors.OrangePrimary, LsShape.Pill)
-                        .padding(horizontal = 8.dp, vertical = 3.dp)
-                ) {
-                    Text(
-                        when (state) {
-                            TimeLimitedState.LIVE -> "LIMITED TIME"
-                            TimeLimitedState.UPCOMING -> "COMING SOON"
-                            TimeLimitedState.ENDED -> "ENDED"
-                        },
-                        color = LsColor.OnAccent, fontFamily = MonoFont, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp,
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    when (state) {
-                        TimeLimitedState.LIVE -> timeLimitedRemainingText(tl, now)
-                        TimeLimitedState.UPCOMING -> "Starts in ${timeLimitedStartCountdown(tl, now)}"
-                        TimeLimitedState.ENDED -> "Window ended"
-                    },
-                    color = LinkColors.OrangeLight, fontFamily = MonoFont, fontSize = 9.sp, fontWeight = FontWeight.Bold,
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            Text(movie.title, color = LsColor.Text, fontWeight = FontWeight.Bold, fontSize = 24.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(
-                "Available ${formatEatDateTime(tl.startAtMs)} EAT for ${formatDuration(tl.durationHours)}",
-                color = LsColor.TextDim,
-                fontFamily = MonoFont,
-                fontSize = 10.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 4.dp),
-            )
-        }
-        Spacer(Modifier.width(14.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(12.dp), horizontalAlignment = Alignment.End) {
-            Button(
-                onClick = onWatch,
-                colors = ButtonDefaults.buttonColors(containerColor = LinkColors.OrangePrimary),
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 0.dp),
-                shape = LsShape.Button,
-                modifier = Modifier.height(LsSpace.Button).widthIn(min = 120.dp),
-            ) {
-                Text(
-                    if (state == TimeLimitedState.LIVE) "Watch" else "Details",
-                    color = LsColor.OnAccent,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-            if (downloadSupport) {
-                IconButton(
-                    onClick = onDownload,
-                    modifier = Modifier
-                        .size(LsSpace.Button)
-                        .clip(LsShape.Button)
-                        .background(LsColor.FillSubtle)
-                ) {
-                    Icon(Icons.Default.Download, "Download", tint = LinkColors.OrangePrimary, modifier = Modifier.size(18.dp))
-                }
             }
         }
     }

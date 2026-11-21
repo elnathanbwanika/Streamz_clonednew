@@ -88,6 +88,24 @@ fun Movie.isTimeLimitedEnded(nowMs: Long = ServerClock.now()): Boolean =
 fun List<Movie>.visibleTimeLimited(nowMs: Long = ServerClock.now()): List<Movie> =
     filter { it.timeLimited != null && !it.isTimeLimitedEnded(nowMs) }
 
+/**
+ * The list every Home/Movies rail, grid and search result must be built from.
+ *
+ * A time-limited movie whose window has ENDED is dead content: it can no longer
+ * be played or downloaded, so it must not appear anywhere in the catalogue. The
+ * one exception is a movie the user already downloaded — that copy still plays
+ * offline, so it stays visible (and is reachable from Downloads).
+ *
+ * Non-time-limited movies are always visible.
+ */
+fun List<Movie>.visibleCatalogue(
+    nowMs: Long = ServerClock.now(),
+    downloadedMovieIds: Set<String> = emptySet(),
+): List<Movie> = filter { movie ->
+    val tl = movie.timeLimited ?: return@filter true
+    tl.state(nowMs) != TimeLimitedState.ENDED || movie.id in downloadedMovieIds
+}
+
 fun timeLimitedAvailabilityText(movie: Movie): String {
     val tl = movie.timeLimited ?: return ""
     return "Available ${formatEatDateTime(tl.startAtMs)} EAT for ${formatDuration(tl.durationHours)}"

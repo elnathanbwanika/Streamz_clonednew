@@ -440,6 +440,9 @@ class MainActivity : ComponentActivity() {
                 
                 var target by remember { mutableStateOf<PlayerTarget?>(null) }
                 var mainSection by rememberSaveable { mutableStateOf(MainSection.HOME) }
+                // Hoisted from HomeScreen so the featured carousel can open
+                // Sports on a specific sub-tab (live / upcoming).
+                var sportsTab by rememberSaveable { mutableStateOf(SportsTab.LIVE) }
                 var focusLimited by remember { mutableStateOf(false) }
 
                 LaunchedEffect(Unit) {
@@ -582,6 +585,8 @@ class MainActivity : ComponentActivity() {
                                 settings = settings,
                                 section = mainSection,
                                 onSectionChange = { mainSection = it },
+                                sportsTab = sportsTab,
+                                onSportsTabChange = { sportsTab = it },
                                 onOpenLimited = {
                                     focusLimited = true
                                     mainSection = MainSection.MOVIES
@@ -593,6 +598,17 @@ class MainActivity : ComponentActivity() {
                                 onPlayer = {
                                     target = it
                                     navController.navigate(AppRoutes.PLAYER)
+                                },
+                                onOpenMovieDetails = {
+                                    // The player screen is the one screen that
+                                    // already renders a movie's details + play
+                                    // action, so "details" opens it there.
+                                    target = MovieTarget(it)
+                                    navController.navigate(AppRoutes.PLAYER)
+                                },
+                                onOpenSportsTab = { tab ->
+                                    sportsTab = tab
+                                    mainSection = MainSection.SPORTS
                                 },
                             )
                         }

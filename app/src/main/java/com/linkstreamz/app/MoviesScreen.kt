@@ -64,6 +64,7 @@ data class MoviesFilterState(
 fun MoviesScreen(
     movies: List<Movie>,
     series: List<Series>,
+    downloads: List<DownloadItem> = emptyList(),
     onWatch: (Any) -> Unit,
     onDownload: (Movie) -> Unit = {},
     focusLimited: Boolean = false,
@@ -86,8 +87,20 @@ fun MoviesScreen(
         }
     }
 
-    val limitedMovies = remember(movies, nowMs) {
-        movies.filter { it.timeLimited != null && !it.isTimeLimitedEnded(nowMs) }
+    // Ended time-limited movies are dead content: hide them from every rail,
+    // grid and search result. A copy the user already downloaded still plays
+    // offline, so it stays visible (and is listed in Downloads).
+    val downloadedMovieIds = remember(downloads) {
+        downloads.filter { it.status == DownloadStatus.COMPLETED }
+            .mapNotNull { it.movieId }
+            .toSet()
+    }
+    val visibleMovies = remember(movies, downloadedMovieIds) {
+        movies.visibleCatalogue(downloadedMovieIds = downloadedMovieIds)
+    }
+
+    val limitedMovies = remember(visibleMovies, nowMs) {
+        visibleMovies.filter { it.timeLimited != null && !it.isTimeLimitedEnded(nowMs) }
             .sortedWith(
                 compareBy<Movie> { it.effectiveTimeLimitedState(nowMs) != TimeLimitedState.LIVE }
                     .thenBy { it.timeLimited?.endAtMs ?: Long.MAX_VALUE }
@@ -105,10 +118,10 @@ fun MoviesScreen(
         }
     }
 
-    fun byId(id: String): Any? = movies.find { it.id == id } ?: series.find { it.id == id }
+    fun byId(id: String): Any? = visibleMovies.find { it.id == id } ?: series.find { it.id == id }
 
-    val filteredMovies = remember(movies, filterState) {
-        movies.filter { item ->
+    val filteredMovies = remember(visibleMovies, filterState) {
+        visibleMovies.filter { item ->
             val matchTranslated = when (filterState.translatedFilter) {
                 TranslatedFilter.TRANSLATED -> item.translated
                 TranslatedFilter.NON_TRANSLATED -> !item.translated
@@ -147,7 +160,7 @@ fun MoviesScreen(
         return
     }
 
-    val allItems: List<Any> = movies + series
+    val allItems: List<Any> = visibleMovies + series
     val searchResults = remember(searchQuery, allItems) {
         if (searchQuery.length < 2) emptyList()
         else allItems.filter { item ->
