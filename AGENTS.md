@@ -66,6 +66,11 @@
 - The carousel is the only sports content that belongs on Home (the older Sports rail predates it).
 - Cards must not receive a clock `Long` — each slide runs its own `produceState` tick (1 s only under an hour left, else 60 s), which follows the performance rule above.
 
+## In-app messages (server-controlled popups)
+- `InAppMessage.kt` is the pure core (model, tolerant `content.json` parser, EAT day helper, eligibility, frequency rules, queue selection) — covered by `InAppMessageTest`. Change ordering/cap/frequency rules there, not in the composable.
+- `EventsRepository.parseFeed` calls `InAppMessageStore.ingest(root)`; the store keeps the last good `messages` array in SharedPreferences for offline launches and per-id seen markers. `MainActivity` initialises it in `onCreate`, and `InAppMessageController` exposes one message at a time with a 3-per-session cap.
+- Never show over update/permissions/player/PiP: `messagesBlocked` in `MainActivity` feeds `controller.setBlocked`. The controller is `remember`ed, so "always" resets on a new process but not on a foreground return.
+
 ## Getting the APK
 - Actions → "Build release APK" → latest green run → Artifacts → `app-release-<versionName>` (e.g. `app-release-3.1.6`) → download on phone → install (allow "install unknown apps" for the browser/Files app).
 - Artifacts are kept 30 days; red runs still upload `build-reports`.

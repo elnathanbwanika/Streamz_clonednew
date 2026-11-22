@@ -64,6 +64,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import java.io.PrintWriter
@@ -350,6 +351,7 @@ class MainActivity : ComponentActivity() {
         // APP-UPDATE: Load the last known update requirement before first composition.
         AppUpdateStore.init(this, BuildConfig.VERSION_NAME)
         AppUpdateDownloader.init(this)
+        InAppMessageStore.init(this)
         
         val prefs = getSharedPreferences("crash_prefs", Context.MODE_PRIVATE)
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
@@ -424,6 +426,13 @@ class MainActivity : ComponentActivity() {
 
                 val navController = rememberNavController()
                 val repository = remember { EventsRepository() }
+                val feedState by repository.state.collectAsStateWithLifecycle()
+                // Survives rotation/locale changes: an "always" message is once
+                // per launch/session, not once per Activity recreation.
+                val shownMessages = rememberSaveable { mutableSetOf<Long>() }
+                val messageController = remember(shownMessages) {
+                    InAppMessageController(shownThisSession = shownMessages)
+                }
                 val moviesRepo = remember { MoviesRepository() }
                 val channelsRepo = remember { ChannelsRepository() }
                 val settingsRepository = remember { SettingsRepository(applicationContext) }
@@ -571,6 +580,23 @@ class MainActivity : ComponentActivity() {
                     )
                 }
 
+                // IN-APP MESSAGES: never over the update/permission dialogs, the
+                // full-screen player, or PiP. Everything else is a normal screen.
+                val currentEntry by navController.currentBackStackEntryAsState()
+                val playerOpen = currentEntry?.destination?.route == AppRoutes.PLAYER ||
+                    isInPipState.value || isPipTransitioningState.value
+                val messagesBlocked = updateRequirement != null || showOnboarding || playerOpen
+
+                // Declared first so the gate is open before any show trigger runs.
+                LaunchedEffect(messagesBlocked) { messageController.setBlocked(messagesBlocked) }
+                LaunchedEffect(Unit) { messageController.onAppStart() }
+                LaunchedEffect(resumeTick) {
+                    if (resumeTick > 0) messageController.onForeground()
+                }
+                LaunchedEffect(feedState) {
+                    if (feedState is FeedState.Ready) messageController.onContentChanged()
+                }
+
                 LaunchedEffect(repository) { repository.start(this) }
                 LaunchedEffect(moviesRepo)  { moviesRepo.start(this) }
                 LaunchedEffect(channelsRepo) { channelsRepo.start(this) }
@@ -698,6 +724,38 @@ class MainActivity : ComponentActivity() {
                             onCloseApp = { closeApp() },
                         )
                     }
+
+                    InAppMessageHost(
+                        controller = messageController,
+                        onAction = { action ->
+                            when (action) {
+                                InAppMessageAction.None -> Unit
+                                is InAppMessageAction.Link -> openMessageLink(this@MainActivity, action.url)
+                                is InAppMessageAction.Screen -> when (action.section) {
+                                    "downloads" -> navController.navigate(AppRoutes.DOWNLOADS) {
+                                        launchSingleTop = true
+                                    }
+                                    "sports" -> {
+                                        sportsTab = SportsTab.LIVE
+                                        mainSection = MainSection.SPORTS
+                                        navController.navigate(AppRoutes.MAIN) { launchSingleTop = true }
+                                    }
+                                    "movies" -> {
+                                        mainSection = MainSection.MOVIES
+                                        navController.navigate(AppRoutes.MAIN) { launchSingleTop = true }
+                                    }
+                                    "channels" -> {
+                                        mainSection = MainSection.CHANNELS
+                                        navController.navigate(AppRoutes.MAIN) { launchSingleTop = true }
+                                    }
+                                    else -> {
+                                        mainSection = MainSection.HOME
+                                        navController.navigate(AppRoutes.MAIN) { launchSingleTop = true }
+                                    }
+                                }
+                            }
+                        },
+                    )
                 }
             }
         }

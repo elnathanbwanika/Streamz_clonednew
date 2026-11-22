@@ -221,6 +221,7 @@ class EventsRepository(private val preview: Boolean = false) {
     // FEED: Parses all six sections from the root JSON object in one pass.
     private fun parseFeed(root: JsonObject): Feed {
         AppUpdateStore.ingest(root["appUpdate"])
+        InAppMessageStore.ingest(root)
 
         // FEED: Build team code-map from teams[] so home/away codes resolve to full Team objects.
         val teamMap: Map<String, Team> = parseTeams(root)
