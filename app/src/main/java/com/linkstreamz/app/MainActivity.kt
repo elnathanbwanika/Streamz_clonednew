@@ -69,6 +69,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import java.io.PrintWriter
 import java.io.StringWriter
+import kotlinx.coroutines.delay
 import coil.Coil
 
 class MainActivity : ComponentActivity() {
