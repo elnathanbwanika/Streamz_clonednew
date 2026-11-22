@@ -109,9 +109,9 @@ object LsSpace {
 object LsShape {
     val Chip: RoundedCornerShape = RoundedCornerShape(percent = 50)
     val Button: RoundedCornerShape = RoundedCornerShape(16.dp)
-    val Card: RoundedCornerShape = RoundedCornerShape(22.dp)
+    val Card: RoundedCornerShape = RoundedCornerShape(14.dp)
     val Hero: RoundedCornerShape = RoundedCornerShape(28.dp)
-    val Poster: RoundedCornerShape = RoundedCornerShape(18.dp)
+    val Poster: RoundedCornerShape = RoundedCornerShape(12.dp)
     val Dialog: RoundedCornerShape = RoundedCornerShape(28.dp)
     val Sheet: RoundedCornerShape = RoundedCornerShape(28.dp)
     val Pill: RoundedCornerShape = RoundedCornerShape(percent = 50)
