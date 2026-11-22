@@ -15,6 +15,7 @@
 - `android-actions/setup-android@v3` FAILS on the runner (tries to install legacy `tools` package → "Failed to find package 'tools'"). Use the preinstalled SDK: set `ANDROID_HOME=/usr/local/lib/android/sdk` and run `yes | sdkmanager --licenses`.
 
 ## Player / PiP / images
+- `groupDownloads()` must group episodes by `(series, season)` only — including the episode number creates multiple "Season N" groups with the same key and crashes `DownloadsScreen`'s LazyColumn with "Key was already used".
 - PiP aspect ratio must come from Media3 `VideoSize.pixelWidthHeightRatio`, not raw width/height: anamorphic movie files otherwise produce a stretched floating window. `PipAspectRatio.display()` is the single pure helper; `AppImages.loader()` is the single shared Coil loader (retry + prefetch), do not create per-screen loaders.
 
 ## Pitfalls

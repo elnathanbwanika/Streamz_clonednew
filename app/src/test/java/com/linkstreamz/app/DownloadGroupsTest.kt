@@ -63,4 +63,31 @@ class DownloadGroupsTest {
         val groups = groupDownloads(listOf(item("e", "episode", "Show", null, 3)))
         assertEquals("Episodes", groups.first { it.key == "series:Show:0" }.title)
     }
+
+    @Test fun groupKeysAreUniqueForManyEpisodesInOneSeason() {
+        // Regression: grouping by (series, season, episode) produced one
+        // "Season 2" group per episode, all with the same key, which crashed
+        // LazyColumn in DownloadsScreen.
+        val groups = groupDownloads(
+            (1..6).map { item("e$it", "episode", "Mobland", 2, it) }
+        )
+        val keys = groups.map { it.key }
+        assertEquals(keys.size, keys.toSet().size)
+        assertEquals(1, keys.count { it == "series:Mobland:2" })
+        assertEquals(6, groups.first { it.key == "series:Mobland:2" }.items.size)
+    }
+
+    @Test fun allGroupKeysAreUniqueAcrossMoviesAndSeries() {
+        val groups = groupDownloads(
+            listOf(
+                item("m1"), item("m2"),
+                item("e1", "episode", "Mobland", 1, 1),
+                item("e2", "episode", "Mobland", 1, 2),
+                item("e3", "episode", "Mobland", 2, 1),
+                item("e4", "episode", "Other", 1, 1),
+            )
+        )
+        val keys = groups.map { it.key }
+        assertEquals(keys.size, keys.toSet().size)
+    }
 }
