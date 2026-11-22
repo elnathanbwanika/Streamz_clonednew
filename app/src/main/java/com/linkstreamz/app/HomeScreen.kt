@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 
 import android.widget.Toast
 import android.Manifest
@@ -797,7 +798,7 @@ private fun SportsSubTabs(
     onSelect: (SportsTab) -> Unit,
 ) {
     LazyRow(
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, vertical = 2.dp),
+        contentPadding = PaddingValues(start = 16.dp, top = 2.dp, end = 16.dp, bottom = 2.dp),
         horizontalArrangement = Arrangement.spacedBy(AppControlSpec.ChipGap),
         modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
     ) {

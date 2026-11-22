@@ -1,5 +1,6 @@
 package com.linkstreamz.app
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -87,6 +88,7 @@ private fun controlModifier(
         .minimumInteractiveComponentSize()
         .clickable(
             interactionSource = interaction,
+            indication = LocalIndication.current,
             enabled = enabled,
             onClick = onClick,
         )
