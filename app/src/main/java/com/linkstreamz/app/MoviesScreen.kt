@@ -1,12 +1,10 @@
 package com.linkstreamz.app
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -22,15 +20,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -40,7 +37,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 
@@ -50,15 +46,6 @@ import kotlinx.coroutines.delay
 
 private val NEWLY_ADDED_IDS = listOf("mv-1", "sr-1", "mv-4", "sr-2", "mv-2", "sr-3", "mv-9")
 private val TRENDING_MOVIE_IDS = listOf("mv-1", "mv-4", "mv-2", "mv-6", "mv-5", "mv-3", "mv-7", "mv-8", "mv-10", "mv-11")
-
-enum class TranslatedFilter(val label: String) { TRANSLATED("Translated"), NON_TRANSLATED("Non-translated") }
-enum class MediaContentType(val label: String) { MOVIES("Movies"), SERIES("Series") }
-
-data class MoviesFilterState(
-    val translatedFilter: TranslatedFilter = TranslatedFilter.TRANSLATED,
-    val contentType: MediaContentType = MediaContentType.MOVIES,
-    val vjFilter: String? = null
-)
 
 @Composable
 fun MoviesScreen(
@@ -112,26 +99,8 @@ fun MoviesScreen(
 
     fun byId(id: String): Any? = visibleMovies.find { it.id == id } ?: series.find { it.id == id }
 
-    val filteredMovies = remember(visibleMovies, filterState) {
-        visibleMovies.filter { item ->
-            val matchTranslated = when (filterState.translatedFilter) {
-                TranslatedFilter.TRANSLATED -> item.translated
-                TranslatedFilter.NON_TRANSLATED -> !item.translated
-            }
-            val matchVj = filterState.vjFilter == null || item.vj == filterState.vjFilter
-            matchTranslated && matchVj
-        }
-    }
-
-    val filteredSeries = remember(series, filterState) {
-        series.filter { item ->
-            val matchTranslated = when (filterState.translatedFilter) {
-                TranslatedFilter.TRANSLATED -> item.translated
-                TranslatedFilter.NON_TRANSLATED -> !item.translated
-            }
-            val matchVj = filterState.vjFilter == null || item.vj == filterState.vjFilter
-            matchTranslated && matchVj
-        }
+    val (filteredMovies, filteredSeries) = remember(visibleMovies, series, filterState) {
+        filterCatalogue(visibleMovies, series, filterState)
     }
 
     val newlyAdded = remember(filteredMovies, filteredSeries, filterState) {
@@ -199,27 +168,53 @@ fun MoviesScreen(
                             }
                         }
                     }
-                    // Filter button
-                    val activeFilters = buildList {
-                        if (filterState.contentType == MediaContentType.SERIES) add("Series")
-                        if (filterState.vjFilter != null) add(filterState.vjFilter!!.replace("VJ ", ""))
-                    }
+                    // Filter trigger — count badge makes active refinements obvious
+                    val activeCount = activeFilterCount(filterState)
                     Box(
                         Modifier
                             .heightIn(min = 48.dp)
-                            .background(
-                                if (activeFilters.isNotEmpty()) LinkColors.OrangePrimary else LinkColors.CardBg,
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(if (activeCount > 0) LsColor.AccentDim else LinkColors.CardBg)
+                            .border(
+                                1.dp,
+                                if (activeCount > 0) LsColor.Accent else LsColor.FillSubtle,
                                 RoundedCornerShape(12.dp)
                             )
                             .clickable { showFilter = true }
-                            .padding(horizontal = 14.dp),
+                            .padding(horizontal = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            if (activeFilters.isNotEmpty()) activeFilters.joinToString(" · ") else "Filter",
-                            color = if (activeFilters.isNotEmpty()) Color.Black else LinkColors.PrimaryText,
-                            fontSize = 13.sp, fontFamily = MonoFont, fontWeight = FontWeight.Medium
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                Icons.Default.Tune,
+                                null,
+                                tint = if (activeCount > 0) LsColor.Accent else LinkColors.MutedText,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                "Filters",
+                                color = if (activeCount > 0) LsColor.Text else LinkColors.PrimaryText,
+                                fontFamily = MonoFont,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            if (activeCount > 0) {
+                                Box(
+                                    Modifier.size(18.dp).clip(CircleShape).background(LsColor.Accent),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        "$activeCount",
+                                        color = LsColor.OnAccent,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -302,9 +297,10 @@ fun MoviesScreen(
         }
 
         if (showFilter) {
-            MoviesFilterDialog(
+            MoviesFilterSheet(
                 state = filterState,
-                allVJs = (visibleMovies.mapNotNull { it.vj } + series.mapNotNull { it.vj }).distinct().sorted(),
+                movies = visibleMovies,
+                series = series,
                 onDismiss = { showFilter = false },
                 onApply = { newState -> filterState = newState; showFilter = false }
             )
@@ -627,130 +623,6 @@ private data class CardData(
     val vjLabel: String?,   // null = not translated / no VJ
     val tvBadge: TvBadge?,
 )
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Filter Dialog (centered, not bottom sheet)
-// ─────────────────────────────────────────────────────────────────────────────
-
-@Composable
-fun MoviesFilterDialog(
-    state: MoviesFilterState,
-    allVJs: List<String>,
-    onDismiss: () -> Unit,
-    onApply: (MoviesFilterState) -> Unit
-) {
-    var draft by remember { mutableStateOf(state) }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            Modifier
-                .fillMaxWidth()
-                .clip(LsShape.Dialog)
-                .background(LsColor.Card)
-                .padding(20.dp)
-        ) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("Filter", color = LsColor.Text, fontFamily = BodyFont, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-                    Icon(Icons.Default.Close, null, tint = LinkColors.MutedText, modifier = Modifier.size(16.dp))
-                }
-            }
-            Spacer(Modifier.height(16.dp))
-
-            // Translated / Non-translated segmented control
-            Text("Content", color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 10.sp, letterSpacing = 0.6.sp)
-            Spacer(Modifier.height(8.dp))
-            Row(
-                Modifier.fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF0A0A0A))
-            ) {
-                TranslatedFilter.entries.forEach { tab ->
-                    val selected = draft.translatedFilter == tab
-                    Box(
-                        Modifier.weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (selected) LinkColors.OrangePrimary else Color.Transparent)
-                            .clickable { draft = draft.copy(translatedFilter = tab) }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(tab.label, color = if (selected) Color.Black else LinkColors.MutedText, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
-                    }
-                }
-            }
-            Spacer(Modifier.height(16.dp))
-
-            // Type (Movies / Series)
-            Text("Type", color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 10.sp, letterSpacing = 0.6.sp)
-            Spacer(Modifier.height(8.dp))
-            Row(
-                Modifier.fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF0A0A0A))
-            ) {
-                MediaContentType.entries.forEach { type ->
-                    val selected = draft.contentType == type
-                    Box(
-                        Modifier.weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (selected) LinkColors.OrangePrimary else Color.Transparent)
-                            .clickable { draft = draft.copy(contentType = type) }
-                            .padding(vertical = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(type.label, color = if (selected) Color.Black else LinkColors.MutedText, fontSize = 13.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
-                    }
-                }
-            }
-
-            // VJ filter (only when Translated)
-            AnimatedVisibility(visible = draft.translatedFilter == TranslatedFilter.TRANSLATED) {
-                Column {
-                    Spacer(Modifier.height(16.dp))
-                    Text("VJ", color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 10.sp, letterSpacing = 0.6.sp)
-                    Spacer(Modifier.height(8.dp))
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        item {
-                            VJChip(label = "All", selected = draft.vjFilter == null) { draft = draft.copy(vjFilter = null) }
-                        }
-                        items(allVJs) { vj ->
-                            VJChip(label = vj.replace("VJ ", ""), selected = draft.vjFilter == vj) { draft = draft.copy(vjFilter = vj) }
-                        }
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(24.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(
-                    onClick = { draft = MoviesFilterState(); onApply(MoviesFilterState()) },
-                    modifier = Modifier.weight(1f),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.4f))
-                ) { Text("Reset", color = LinkColors.OrangePrimary) }
-                Button(
-                    onClick = { onApply(draft) },
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = LinkColors.OrangePrimary)
-                ) { Text("Apply", color = Color.Black, fontWeight = FontWeight.SemiBold) }
-            }
-        }
-    }
-}
-
-@Composable
-private fun VJChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .shadow(if (selected) 4.dp else 0.dp, RoundedCornerShape(999.dp), ambientColor = LinkColors.OrangePrimary.copy(0.3f))
-            .clip(RoundedCornerShape(999.dp))
-            .background(if (selected) LinkColors.OrangePrimary else Color(0xFF0A0A0A))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 7.dp)
-    ) {
-        Text(label, color = if (selected) Color.Black else LinkColors.MutedText, fontSize = 12.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal)
-    }
-}
 
 // Keep top-level references for backward-compat
 @Composable

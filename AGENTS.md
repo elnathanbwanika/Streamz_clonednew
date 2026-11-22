@@ -14,6 +14,9 @@
 - `gradle.properties` must NOT contain `org.gradle.java.home` (it pointed to a local sdkman path and breaks the runner). Keep `org.gradle.jvmargs=-Xmx3g` to avoid OOM.
 - `android-actions/setup-android@v3` FAILS on the runner (tries to install legacy `tools` package → "Failed to find package 'tools'"). Use the preinstalled SDK: set `ANDROID_HOME=/usr/local/lib/android/sdk` and run `yes | sdkmanager --licenses`.
 
+## Movies filter
+- `MoviesFilter.kt` owns the filter model, pure helpers (`matchesMoviesFilter`, `filterCatalogue`, `activeFilterCount`, facet builders) and the `MoviesFilterSheet` bottom sheet. `MoviesScreen.kt` only holds `filterState` and calls the helpers — keep the predicate in one place so the sheet's live "Show N results" count matches the catalogue exactly.
+
 ## Player / PiP / images
 - Downloads UI is hierarchical: Movies/Series tabs at root → series card → season card → episode rows. `DownloadGroups.kt` supplies pure helpers (`downloadMovies`, `downloadSeries`, `downloadSeasons`, `downloadEpisodes`); each page renders one flat list so LazyColumn keys never collide. `BackHandler` steps back through the in-screen stack before leaving the screen.
 - Related content for local playback: `DownloadedTarget.from(item)` carries the source `DownloadItem`; `DownloadedRelatedContent` in `PlayerScreen.kt` then shows other completed movie downloads, or all downloaded episodes of the same series with season chips. Keep building downloaded targets through the factory so `sourceItem` is never lost.
