@@ -329,22 +329,21 @@ private fun SportsSlideCard(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        // Zone 2 - both crests with their names
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Crest(event.home, size = 26.dp)
-            Spacer(Modifier.width(8.dp))
-            Text(
-                teams,
-                color = LsColor.Text,
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            Spacer(Modifier.width(8.dp))
-            Crest(event.away, size = 26.dp)
-        }
+        // Zone 2 - shared match row: fixed 36dp badges, flexible names, fixed status.
+        TeamRow(
+            home = event.home,
+            away = event.away,
+            status = {
+                Text(
+                    if (isLive) "LIVE" else when_,
+                    color = LsColor.TextDim,
+                    fontFamily = MonoFont,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            },
+        )
         // Zone 3 - countdown, plus the CTA for live events only
         Row(
             Modifier.fillMaxWidth(),

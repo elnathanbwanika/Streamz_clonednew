@@ -776,7 +776,7 @@ private fun SportsContent(
                         } else {
                             LazyColumn(
                                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier.fillMaxSize(),
                             ) {
                                 items(

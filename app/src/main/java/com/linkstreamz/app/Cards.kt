@@ -29,7 +29,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -56,10 +55,10 @@ fun EventCard(
             icon = { SportIcon(event.sport, status) },
             label = listOf(event.sport, event.league).filter { it.isNotBlank() }.joinToString(" | "),
         )
-        MatchRow(
+        TeamRow(
             home = event.home,
             away = event.away,
-            center = { MatchCenter(event, status, nowMs) },
+            status = { MatchCenter(event, status, nowMs) },
         )
     }
 }
@@ -77,10 +76,10 @@ fun HighlightCard(
                 { QualityChip(it) }
             },
         )
-        MatchRow(
+        TeamRow(
             home = highlight.home,
             away = highlight.away,
-            center = {
+            status = {
                 Box(
                     Modifier.size(34.dp).shadow(
                         elevation = 8.dp,
@@ -88,7 +87,7 @@ fun HighlightCard(
                         ambientColor = LinkColors.OrangePrimary.copy(alpha = 0.35f),
                         spotColor = LinkColors.OrangePrimary.copy(alpha = 0.35f)
                     ).background(
-                        Brush.verticalGradient(listOf(LinkColors.OrangeLight, LinkColors.OrangePrimary)), 
+                        Brush.verticalGradient(listOf(LinkColors.OrangeLight, LinkColors.OrangePrimary)),
                         CircleShape
                     ),
                     contentAlignment = Alignment.Center,
@@ -117,22 +116,22 @@ fun SingleItemCard(
             },
             label = categoryLine,
         )
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            TeamSide(team, right = false, Modifier.weight(1f), imageLoader = imageLoader)
-            if (statusText != null) {
-                Text(
-                    statusText,
-                    color = if (isLive) Color(0xFFFF3B30) else LinkColors.MutedText,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(start = 8.dp)
-                )
-            }
-        }
+        TeamRowSingle(
+            team = team,
+            status = statusText?.let {
+                {
+                    Text(
+                        it,
+                        color = if (isLive) Color(0xFFFF3B30) else LinkColors.MutedText,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            },
+            imageLoader = imageLoader,
+        )
     }
 }
 
@@ -163,9 +162,7 @@ private fun CardFrame(
                 indication = LocalIndication.current, 
                 onClick = onClick
             )
-            .then(
-                Modifier.padding(11.dp, 11.dp, 13.dp, 13.dp)
-            ),
+            .then(Modifier.padding(12.dp)),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         content()
@@ -179,7 +176,7 @@ private fun CardLeague(
     trailing: (@Composable () -> Unit)? = null,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 11.dp),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
@@ -187,7 +184,7 @@ private fun CardLeague(
         Text(
             text = label.ifBlank { "Sports" }.uppercase(),
             color = Color(0xFFE3D3C4),
-            fontSize = 10.5.sp,
+            fontSize = 11.5.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = .4.sp,
             maxLines = 1,
@@ -199,58 +196,9 @@ private fun CardLeague(
 }
 
 @Composable
-private fun MatchRow(
-    home: Team?,
-    away: Team?,
-    center: @Composable () -> Unit,
-) {
-    Row(
-        Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        TeamSide(home, right = false, Modifier.weight(1f))
-        Box(Modifier.width(52.dp), contentAlignment = Alignment.Center) { center() }
-        TeamSide(away, right = true, Modifier.weight(1f))
-    }
-}
-
-@Composable
-private fun TeamSide(
-    team: Team?,
-    right: Boolean,
-    modifier: Modifier = Modifier,
-    imageLoader: coil.ImageLoader? = null,
-) {
-    Row(
-        modifier,
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = if (right) Arrangement.End else Arrangement.Start,
-    ) {
-        if (!right) {
-            team?.let { Crest(it, imageLoader = imageLoader) }
-            Spacer(Modifier.width(12.dp))
-        }
-        Text(
-            team?.name ?: "Highlight",
-            color = LinkColors.PrimaryText,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = if (right) TextAlign.End else TextAlign.Start,
-        )
-        if (right) {
-            Spacer(Modifier.width(12.dp))
-            team?.let { Crest(it, imageLoader = imageLoader) }
-        }
-    }
-}
-
-@Composable
 fun Crest(
     team: Team,
-    size: androidx.compose.ui.unit.Dp = 44.dp,
+    size: androidx.compose.ui.unit.Dp = TeamBadgeSize,
     imageLoader: coil.ImageLoader? = null,
 ) {
     val fallbackText = team.initials.take(3).uppercase().takeIf { it.isNotBlank() } ?: "?"
@@ -312,10 +260,10 @@ private fun MatchCenter(event: Event, status: String, nowMs: Long) {
             LiveIndicatorRadar(text = currentMinute(event.startMs, nowMs) ?: "LIVE")
         }
         "upcoming" -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("STARTS IN", color = LinkColors.OrangePrimary, fontFamily = MonoFont, fontSize = 6.5.sp, letterSpacing = 0.3.sp, maxLines = 1, softWrap = false, textAlign = TextAlign.Center)
-            Text(countdownText(event.startMs, nowMs) ?: event.at.ifBlank { "Soon" }, color = LinkColors.OrangePrimary, fontFamily = MonoFont, fontSize = 10.5.sp)
+            Text("STARTS IN", color = LinkColors.OrangePrimary, fontFamily = MonoFont, fontSize = 8.sp, letterSpacing = 0.3.sp, maxLines = 1, softWrap = false, textAlign = TextAlign.Center)
+            Text(countdownText(event.startMs, nowMs) ?: event.at.ifBlank { "Soon" }, color = LinkColors.OrangePrimary, fontFamily = MonoFont, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        else -> Text("Ended", color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 10.sp)
+        else -> Text("Ended", color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 12.sp, maxLines = 1)
     }
 }
 
@@ -348,7 +296,7 @@ fun LiveIndicatorRadar(text: String) {
         )
 
         Box(
-            modifier = Modifier.size(12.dp),
+            modifier = Modifier.size(8.dp),
             contentAlignment = Alignment.Center
         ) {
             // Expanding outer ring
@@ -374,8 +322,9 @@ fun LiveIndicatorRadar(text: String) {
             text = text.uppercase(),
             color = LinkColors.OrangePrimary,
             fontFamily = MonoFont,
-            fontSize = 11.5.sp,
-            fontWeight = FontWeight.Bold
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
         )
     }
 }
@@ -483,12 +432,18 @@ fun MiniCard(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        home?.let { Crest(it) }
-        away?.let { Crest(it) }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(title, color = LinkColors.PrimaryText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        trailing()
+        TeamRow(
+            home = home,
+            away = away,
+            status = {
+                androidx.compose.foundation.layout.Column(
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(title, color = LinkColors.PrimaryText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(subtitle, color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    trailing()
+                }
+            },
+        )
     }
 }

@@ -71,6 +71,10 @@
 - `EventsRepository.parseFeed` calls `InAppMessageStore.ingest(root)`; the store keeps the last good `messages` array in SharedPreferences for offline launches and per-id seen markers. `MainActivity` initialises it in `onCreate`, and `InAppMessageController` exposes one message at a time with a 3-per-session cap.
 - Never show over update/permissions/player/PiP: `messagesBlocked` in `MainActivity` feeds `controller.setBlocked`. The controller is `remember`ed, so "always" resets on a new process but not on a foreground return.
 
+## Team badges / match rows
+- `TeamRow.kt` is the single source of truth for match rows: fixed 36dp badge slots outside weighted name slots, 60dp status column, 14→11sp autosize, 2-line ellipsis. Badge size must never depend on name length.
+- Root cause of shrinking badges: `TeamSide` put `Crest` inside a `Modifier.weight(1f)` Row, so the badge shared the weighted width with the name. Do not reintroduce weights or wrap-content on badges.
+
 ## Getting the APK
 - Actions → "Build release APK" → latest green run → Artifacts → `app-release-<versionName>` (e.g. `app-release-3.1.6`) → download on phone → install (allow "install unknown apps" for the browser/Files app).
 - Artifacts are kept 30 days; red runs still upload `build-reports`.
