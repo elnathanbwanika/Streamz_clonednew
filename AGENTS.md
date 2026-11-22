@@ -16,6 +16,7 @@
 
 ## Player / PiP / images
 - Downloads UI is hierarchical: Movies/Series tabs at root → series card → season card → episode rows. `DownloadGroups.kt` supplies pure helpers (`downloadMovies`, `downloadSeries`, `downloadSeasons`, `downloadEpisodes`); each page renders one flat list so LazyColumn keys never collide. `BackHandler` steps back through the in-screen stack before leaving the screen.
+- Related content for local playback: `DownloadedTarget.from(item)` carries the source `DownloadItem`; `DownloadedRelatedContent` in `PlayerScreen.kt` then shows other completed movie downloads, or all downloaded episodes of the same series with season chips. Keep building downloaded targets through the factory so `sourceItem` is never lost.
 - PiP aspect ratio must come from Media3 `VideoSize.pixelWidthHeightRatio`, not raw width/height: anamorphic movie files otherwise produce a stretched floating window. `PipAspectRatio.display()` is the single pure helper; `AppImages.loader()` is the single shared Coil loader (retry + prefetch), do not create per-screen loaders.
 
 ## Pitfalls

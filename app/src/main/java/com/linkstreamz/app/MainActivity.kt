@@ -681,14 +681,7 @@ class MainActivity : ComponentActivity() {
                                     if (uri.isNullOrBlank()) {
                                         android.widget.Toast.makeText(applicationContext, "File is not available yet", android.widget.Toast.LENGTH_SHORT).show()
                                     } else {
-                                        target = DownloadedTarget(
-                                            localUri = uri,
-                                            title = item.title,
-                                            subtitle = listOfNotNull(item.seriesTitle, item.episodeTitle)
-                                                .joinToString(" · ")
-                                                .ifBlank { "Downloaded" },
-                                            tvBadge = item.tvBadge,
-                                        )
+                                        target = DownloadedTarget.from(item)
                                         navController.navigate(AppRoutes.PLAYER)
                                     }
                                 },

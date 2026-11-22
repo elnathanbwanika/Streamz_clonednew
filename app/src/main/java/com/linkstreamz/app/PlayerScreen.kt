@@ -139,10 +139,34 @@ data class DownloadedTarget(
     override val title: String,
     override val subtitle: String,
     val tvBadge: TvBadge? = null,
+    /** The download behind this playback; lets related content show siblings. */
+    val sourceItem: DownloadItem? = null,
     override val selectedServer: StreamServer? = StreamServer("On device", url = localUri),
 ) : PlayerTarget {
     override val servers: List<StreamServer> = listOf(StreamServer("On device", url = localUri))
     override fun withServer(server: StreamServer) = copy(selectedServer = server)
+
+    companion object {
+        /** Build a target directly from a saved download. */
+        fun from(item: DownloadItem): DownloadedTarget {
+            val uri = item.fileUri.orEmpty()
+            return DownloadedTarget(
+                localUri = uri,
+                title = item.title,
+                subtitle = if (item.kind == "episode") {
+                    listOfNotNull(
+                        item.seriesTitle,
+                        item.season?.let { "S$it" },
+                        item.episode?.let { "E$it" },
+                    ).joinToString(" · ")
+                } else {
+                    "Downloaded movie"
+                },
+                tvBadge = item.tvBadge,
+                sourceItem = item,
+            )
+        }
+    }
 }
 
 private val PlayerTarget.playerTvBadge: TvBadgePlacement?
@@ -905,16 +929,9 @@ fun PlayerScreen(
                     },
                     onPlayDownloaded = currentDownload?.fileUri
                         ?.takeIf { it.isNotBlank() && currentDownload.status == DownloadStatus.COMPLETED }
-                        ?.let { uri ->
+                        ?.let {
                             {
-                                onTarget(
-                                    DownloadedTarget(
-                                        localUri = uri,
-                                        title = target.title,
-                                        subtitle = target.subtitle,
-                                        tvBadge = currentDownload.tvBadge,
-                                    )
-                                )
+                                onTarget(DownloadedTarget.from(currentDownload))
                             }
                         },
                     onOpenDownloads = onOpenDownloads,
@@ -1318,6 +1335,11 @@ private fun RelatedContent(
     }
 
     Column(Modifier.fillMaxSize()) {
+        if (target is DownloadedTarget) {
+            DownloadedRelatedContent(target, onTarget)
+            return@Column
+        }
+
         if (target is EpisodeTarget) {
             var selectedSeason by remember(target.series) { mutableStateOf(target.season) }
             Text("EPISODES", color = LinkColors.MutedText, fontFamily = DisplayFont, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 0.8.sp, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 8.dp))
@@ -1485,6 +1507,155 @@ private fun RelatedContent(
                             onClick = card.onClick,
                             imageLoader = relatedImageLoader,
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Related content for locally saved playback.
+ *
+ * Movies get the other completed downloads as cards. Episodes get every
+ * downloaded episode of the same series, with season chips for quick picking.
+ * Tapping a card switches the player to that saved file without leaving the
+ * player screen.
+ */
+@Composable
+private fun DownloadedRelatedContent(
+    target: DownloadedTarget,
+    onTarget: (PlayerTarget) -> Unit,
+) {
+    val downloads by DownloadManager.items.collectAsStateWithLifecycle()
+    val source = target.sourceItem
+    val ready = remember(downloads) {
+        downloads.filter { it.status == DownloadStatus.COMPLETED && !it.fileUri.isNullOrBlank() }
+    }
+    val imageLoader = AppImages.direct(LocalContext.current)
+
+    if (source == null || source.kind != "episode") {
+        val movies = ready.filter { it.kind != "episode" && it.id != source?.id }
+        Text(
+            "MORE DOWNLOADED MOVIES",
+            color = LinkColors.MutedText,
+            fontFamily = DisplayFont,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            letterSpacing = 0.8.sp,
+            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 8.dp),
+        )
+        HorizontalDivider(color = LinkColors.LineAlpha, modifier = Modifier.padding(horizontal = 16.dp))
+        if (movies.isEmpty()) {
+            EmptyContentState(Icons.Default.Movie, "No other downloaded movies")
+        } else {
+            LazyColumn(
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 64.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                items(movies, key = { it.id }) { item ->
+                    SingleItemCard(
+                        categoryLine = "DOWNLOADED",
+                        team = Team(name = item.title, crestClass = "", initials = "", logo = item.thumbUrl),
+                        statusText = "On this device",
+                        isLive = false,
+                        onClick = { onTarget(DownloadedTarget.from(item)) },
+                        imageLoader = imageLoader,
+                    )
+                }
+            }
+        }
+        return
+    }
+
+    val seriesTitle = source.seriesTitle ?: source.title
+    val episodes = remember(ready, seriesTitle) {
+        ready.filter { it.kind == "episode" && (it.seriesTitle ?: it.title) == seriesTitle }
+            .sortedWith(compareBy({ it.season ?: 0 }, { it.episode ?: 0 }))
+    }
+    val seasons = remember(episodes) { episodes.mapNotNull { it.season }.distinct().sorted() }
+    var selectedSeason by remember(seriesTitle, source.season) {
+        mutableStateOf(source.season ?: seasons.firstOrNull())
+    }
+
+    Text(
+        "EPISODES · $seriesTitle".uppercase(),
+        color = LinkColors.MutedText,
+        fontFamily = DisplayFont,
+        fontWeight = FontWeight.Bold,
+        fontSize = 11.sp,
+        letterSpacing = 0.8.sp,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 8.dp),
+    )
+    LazyRow(
+        contentPadding = PaddingValues(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(seasons, key = { it }) { season ->
+            val isSelected = season == selectedSeason
+            Box(
+                Modifier.clip(RoundedCornerShape(8.dp))
+                    .background(if (isSelected) LinkColors.OrangePrimary else LinkColors.CardBg)
+                    .clickable { selectedSeason = season }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                Text(
+                    "Season $season",
+                    color = if (isSelected) Color.Black else LinkColors.PrimaryText,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+    val visible = episodes.filter { selectedSeason == null || it.season == selectedSeason }
+    if (visible.isEmpty()) {
+        EmptyContentState(Icons.Default.Tv, "No other downloaded episodes")
+    } else {
+        LazyColumn(
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 64.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            items(visible, key = { it.id }) { item ->
+                val isPlaying = item.id == source.id
+                Row(
+                    Modifier.fillMaxWidth()
+                        .background(if (isPlaying) LinkColors.OrangePrimary.copy(alpha = 0.1f) else Color.Transparent)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(enabled = !isPlaying) { onTarget(DownloadedTarget.from(item)) }
+                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "E${item.episode ?: "-"} · ${item.episodeTitle ?: item.title}",
+                            color = if (isPlaying) LinkColors.OrangePrimary else LinkColors.PrimaryText,
+                            fontSize = 13.sp,
+                            fontWeight = if (isPlaying) FontWeight.Bold else FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (item.season != null) {
+                            Text(
+                                "Season ${item.season}",
+                                color = LinkColors.MutedText,
+                                fontSize = 10.sp,
+                                fontFamily = MonoFont,
+                            )
+                        }
+                    }
+                    if (isPlaying) {
+                        Text(
+                            "Playing",
+                            color = LinkColors.OrangePrimary,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.border(1.dp, LinkColors.OrangePrimary, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 4.dp, vertical = 2.dp),
+                        )
+                    } else {
+                        Icon(Icons.Default.PlayArrow, null, tint = LinkColors.OrangePrimary, modifier = Modifier.size(18.dp))
                     }
                 }
             }
