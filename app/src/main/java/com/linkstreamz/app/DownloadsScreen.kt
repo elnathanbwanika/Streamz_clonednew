@@ -1,5 +1,5 @@
-[Earlier content for app/src/main/java/com/linkstreamz/app/DownloadsScreen.kt (1379 chars, already written to disk). The module surface below may not show every signature you need — re-read with read_file before editing this file again, OR before importing/calling anything from it in another file. Do not recreate it from scratch and do not guess a function's parameters from memory.
-Module surface:
+package com.linkstreamz.app
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*

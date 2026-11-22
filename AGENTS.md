@@ -29,6 +29,7 @@
 - **Never show raw exception messages in the UI.** OkHttp errors contain signed bucket URLs/tokens. Use `UserFacingError.message(e)` when persisting failures and `UserFacingError.fromStored(...)` when rendering stored errors. `LogRedactor` is for logs only, not UI.
 - No git binary and no `.git` dir in the local sandbox — commits/pushes go through the git tools or the user's phone.
 - **Compose's `LocalAccessibilityManager` does not expose `isTouchExplorationEnabled`** on Compose BOM 2024.12.01 (only `isEnabled`) — `:app:compileReleaseKotlin` fails with `Unresolved reference 'isTouchExplorationEnabled'`. To detect TalkBack, get the framework manager from `LocalContext`: `context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager` and read/listen on `isTouchExplorationEnabled` / `TouchExplorationStateChangeListener`.
+- **After writing a Kotlin file in pieces, verify line 1 is `package com.linkstreamz.app` and that no `[Earlier content ...]` / `Module surface:` wrapper text leaked into the file.** Both produce `compileReleaseKotlin` failures that look like unrelated unresolved references. Check with `find app/src -name '*.kt' -exec grep -lF -e '[Earlier' -e 'Module surface:' {} \;`.
 
 ## UI / design tokens
 - Single token layer: `app/src/main/java/com/linkstreamz/app/LinkTokens.kt` — `LsColor`, `LsSpace`, `LsShape`, `LsType` + text helpers (`LsSectionHeading`, `LsBadge`, `LsMeta`, `LsDialogBody`).

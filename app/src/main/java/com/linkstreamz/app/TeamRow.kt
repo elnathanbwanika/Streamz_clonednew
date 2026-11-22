@@ -13,7 +13,6 @@ import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -107,14 +106,15 @@ private fun AutoSizeTeamName(text: String, right: Boolean, modifier: Modifier) {
     SubcomposeLayout(modifier) { constraints ->
         val steps = listOf(14, 13, 12, 11)
         val maxWidth = constraints.maxWidth
+        val measureConstraints = constraints.copy(minWidth = 0, maxWidth = maxWidth)
         var chosen = steps[0]
         var placeable = subcompose("name-${steps[0]}") { TeamNameText(text, chosen.sp, align) }
-            .first().measure(Constraints(maxWidth = maxWidth))
+            .first().measure(measureConstraints)
 
         if (placeable.height > lineHeight(chosen) * TeamNameMaxLines && chosen > 11) {
             for (size in steps.drop(1)) {
                 val candidate = subcompose("name-$size") { TeamNameText(text, size.sp, align) }
-                    .first().measure(Constraints(maxWidth = maxWidth))
+                    .first().measure(measureConstraints)
                 placeable = candidate
                 chosen = size
                 if (placeable.height <= lineHeight(chosen) * TeamNameMaxLines) break
