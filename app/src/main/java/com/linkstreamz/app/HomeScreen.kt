@@ -449,7 +449,6 @@ private fun MainSectionTabs(selected: MainSection, onSelect: (MainSection) -> Un
                 label = item.label,
                 selected = selected == item,
                 onClick = { onSelect(item) },
-                modifier = Modifier.weight(1f, fill = false),
                 contentDescription = item.label,
             )
         }

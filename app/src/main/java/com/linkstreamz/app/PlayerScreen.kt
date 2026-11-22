@@ -1271,16 +1271,7 @@ private fun PlayerBarAction(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     description: String,
     onClick: () -> Unit,
-) {
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier.size(38.dp)
-            .background(LinkColors.CardBg, RoundedCornerShape(12.dp))
-            .border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
-    ) {
-        Icon(icon, description, tint = LinkColors.OrangePrimary, modifier = Modifier.size(18.dp))
-    }
-}
+) = AppIconButton(icon, description, onClick)
 
 
 

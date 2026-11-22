@@ -16,6 +16,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -115,33 +116,38 @@ fun AppChip(
     } else {
         if (pressed) LinkColors.CardBg.copy(alpha = 0.78f) else AppControlSpec.UnselectedFill
     }
-    Box(
-        modifier
-            .then(click)
-            .clip(AppControlShape)
-            .background(fill)
-            .defaultMinSize(minHeight = AppControlSpec.ChipHeight)
-            .padding(horizontal = AppControlSpec.ChipPaddingHorizontal, vertical = AppControlSpec.ChipPaddingVertical)
-            .then(if (enabled) Modifier else Modifier.graphicsLayer { alpha = AppControlSpec.DisabledAlpha }),
-        contentAlignment = Alignment.Center,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = label,
-                color = if (selected) AppControlSpec.SelectedText else AppControlSpec.UnselectedText,
-                fontFamily = BodyFont,
-                fontSize = AppControlSpec.ChipTextSize,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-            )
-            if (trailingIcon != null && selected) {
-                Spacer(Modifier.width(4.dp))
-                Icon(
-                    trailingIcon,
-                    contentDescription = null,
-                    tint = AppControlSpec.SelectedText,
-                    modifier = Modifier.size(13.dp),
+    // Outer box owns the 48dp touch target; inner box owns the compact visuals.
+    Box(modifier.then(click), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .clip(AppControlShape)
+                .background(fill)
+                .defaultMinSize(minHeight = AppControlSpec.ChipHeight)
+                .padding(
+                    horizontal = AppControlSpec.ChipPaddingHorizontal,
+                    vertical = AppControlSpec.ChipPaddingVertical,
                 )
+                .then(if (enabled) Modifier else Modifier.graphicsLayer { alpha = AppControlSpec.DisabledAlpha }),
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = label,
+                    color = if (selected) AppControlSpec.SelectedText else AppControlSpec.UnselectedText,
+                    fontFamily = BodyFont,
+                    fontSize = AppControlSpec.ChipTextSize,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
+                if (trailingIcon != null && selected) {
+                    Spacer(Modifier.width(4.dp))
+                    Icon(
+                        trailingIcon,
+                        contentDescription = null,
+                        tint = AppControlSpec.SelectedText,
+                        modifier = Modifier.size(13.dp),
+                    )
+                }
             }
         }
     }
@@ -168,6 +174,7 @@ fun AppButton(
     large: Boolean = false,
     enabled: Boolean = true,
     contentDescription: String? = null,
+    leadingIcon: ImageVector? = null,
 ) {
     val (click, pressed) = controlModifier(enabled, onClick, contentDescription)
     val fill = when (variant) {
@@ -179,26 +186,38 @@ fun AppButton(
         AppButtonVariant.Primary -> AppControlSpec.SelectedText
         AppButtonVariant.Secondary, AppButtonVariant.Text -> AppControlSpec.UnselectedText
     }
-    Box(
-        modifier
-            .then(click)
-            .clip(AppControlShape)
-            .background(fill)
-            .defaultMinSize(
-                minHeight = if (large) AppControlSpec.LargeButtonHeight else AppControlSpec.ButtonHeight,
-            )
-            .padding(horizontal = 16.dp, vertical = 6.dp)
-            .then(if (enabled) Modifier else Modifier.graphicsLayer { alpha = AppControlSpec.DisabledAlpha }),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            color = textColor,
-            fontFamily = BodyFont,
-            fontSize = AppControlSpec.ButtonTextSize,
-            fontWeight = FontWeight.Medium,
-            maxLines = 1,
-        )
+    Box(modifier.then(click), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .clip(AppControlShape)
+                .background(fill)
+                .defaultMinSize(
+                    minHeight = if (large) AppControlSpec.LargeButtonHeight else AppControlSpec.ButtonHeight,
+                )
+                .padding(horizontal = 16.dp, vertical = 6.dp)
+                .then(if (enabled) Modifier else Modifier.graphicsLayer { alpha = AppControlSpec.DisabledAlpha }),
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (leadingIcon != null) {
+                    Icon(
+                        leadingIcon,
+                        contentDescription = null,
+                        tint = textColor,
+                        modifier = Modifier.size(AppControlSpec.IconSize),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text(
+                    text = label,
+                    color = textColor,
+                    fontFamily = BodyFont,
+                    fontSize = AppControlSpec.ButtonTextSize,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                )
+            }
+        }
     }
 }
 
@@ -215,15 +234,16 @@ fun AppIconButton(
     enabled: Boolean = true,
 ) {
     val (click, pressed) = controlModifier(enabled, onClick, contentDescription)
-    Box(
-        modifier
-            .then(click)
-            .clip(AppControlShape)
-            .background(if (pressed) AppControlSpec.UnselectedFill.copy(alpha = 0.78f) else AppControlSpec.UnselectedFill)
-            .size(AppControlSpec.IconButtonSize)
-            .then(if (enabled) Modifier else Modifier.graphicsLayer { alpha = AppControlSpec.DisabledAlpha }),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(icon, contentDescription, tint = tint, modifier = Modifier.size(AppControlSpec.IconSize))
+    Box(modifier.then(click), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier
+                .clip(AppControlShape)
+                .background(if (pressed) AppControlSpec.UnselectedFill.copy(alpha = 0.78f) else AppControlSpec.UnselectedFill)
+                .size(AppControlSpec.IconButtonSize)
+                .then(if (enabled) Modifier else Modifier.graphicsLayer { alpha = AppControlSpec.DisabledAlpha }),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(icon, null, tint = tint, modifier = Modifier.size(AppControlSpec.IconSize))
+        }
     }
 }

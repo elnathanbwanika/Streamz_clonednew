@@ -1086,7 +1086,9 @@ fun BrandPrimaryButton(
         AppButton(
             label = text,
             onClick = onClick,
+            modifier = Modifier.fillMaxWidth(),
             large = true,
+            leadingIcon = icon,
         )
     }
 }
