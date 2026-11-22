@@ -22,72 +22,51 @@ class DownloadGroupsTest {
         error = null, createdAt = created, updatedAt = created,
     )
 
-    @Test fun emptyListGivesNoGroups() {
-        assertTrue(groupDownloads(emptyList()).isEmpty())
+    @Test fun moviesAreSeparateAndNewestFirst() {
+        val movies = downloadMovies(listOf(
+            item("old", created = 1L),
+            item("e", "episode", "Show", 1, 1),
+            item("new", created = 2L),
+        ))
+        assertEquals(listOf("new", "old"), movies.map { it.id })
     }
 
-    @Test fun moviesAreGroupedSeparatelyFromEpisodes() {
-        val groups = groupDownloads(
-            listOf(item("m1"), item("e1", "episode", "Show", 1, 1), item("m2"))
+    @Test fun seriesListHasOneEntryPerSeriesWithCounts() {
+        val items = listOf(
+            item("a1", "episode", "Mobland", 1, 1, 1L),
+            item("a2", "episode", "Mobland", 1, 2, 2L),
+            item("a3", "episode", "Mobland", 2, 1, 3L),
+            item("b1", "episode", "Other", 1, 1, 4L),
+            item("m"),
         )
-        assertEquals("movies", groups.first().key)
-        assertEquals(2, groups.first().items.size)
-        assertTrue(groups.any { it.key == "series:Show" })
+        val series = downloadSeries(items)
+        assertEquals(2, series.size)
+        assertEquals("Other", series.first().title)
+        val mobland = series.first { it.title == "Mobland" }
+        assertEquals(2, mobland.seasonCount)
+        assertEquals(3, mobland.episodeCount)
     }
 
-    @Test fun episodesAreGroupedBySeriesAndSeason() {
-        val groups = groupDownloads(
-            listOf(
-                item("e2", "episode", "Show", 1, 2),
-                item("e1", "episode", "Show", 1, 1),
-                item("e3", "episode", "Show", 2, 1),
-            )
+    @Test fun seasonsAreUniqueAndSortedByNumber() {
+        val items = (1..6).map { item("e$it", "episode", "Mobland", 2, it) } +
+            listOf(item("s1", "episode", "Mobland", 1, 1), item("u", "episode", "Mobland", null, 9))
+        val seasons = downloadSeasons(items, "Mobland")
+        assertEquals(listOf(0, 1, 2), seasons.map { it.number })
+        assertEquals(6, seasons.first { it.number == 2 }.episodeCount)
+        assertEquals(seasons.size, seasons.map { it.number }.toSet().size)
+    }
+
+    @Test fun episodesAreOrderedByEpisodeNumber() {
+        val items = listOf(
+            item("e3", "episode", "Mobland", 2, 3),
+            item("e1", "episode", "Mobland", 2, 1),
+            item("e2", "episode", "Mobland", 2, 2),
+            item("other", "episode", "Mobland", 1, 1),
         )
-        val s1 = groups.first { it.key == "series:Show:1" }
-        val s2 = groups.first { it.key == "series:Show:2" }
-        assertEquals("Season 1", s1.title)
-        assertEquals("Season 2", s2.title)
-        assertEquals(listOf("e1", "e2"), s1.items.map { it.id })
-        assertEquals(1, s2.items.size)
-    }
-
-    @Test fun multipleSeriesGetTheirOwnHeaders() {
-        val groups = groupDownloads(
-            listOf(item("a", "episode", "Show A", 1, 1), item("b", "episode", "Show B", 1, 1))
+        assertEquals(
+            listOf("e1", "e2", "e3"),
+            downloadEpisodes(items, "Mobland", 2).map { it.id },
         )
-        assertTrue(groups.any { it.key == "series:Show A" })
-        assertTrue(groups.any { it.key == "series:Show B" })
-    }
-
-    @Test fun missingSeasonUsesEpisodesLabel() {
-        val groups = groupDownloads(listOf(item("e", "episode", "Show", null, 3)))
-        assertEquals("Episodes", groups.first { it.key == "series:Show:0" }.title)
-    }
-
-    @Test fun groupKeysAreUniqueForManyEpisodesInOneSeason() {
-        // Regression: grouping by (series, season, episode) produced one
-        // "Season 2" group per episode, all with the same key, which crashed
-        // LazyColumn in DownloadsScreen.
-        val groups = groupDownloads(
-            (1..6).map { item("e$it", "episode", "Mobland", 2, it) }
-        )
-        val keys = groups.map { it.key }
-        assertEquals(keys.size, keys.toSet().size)
-        assertEquals(1, keys.count { it == "series:Mobland:2" })
-        assertEquals(6, groups.first { it.key == "series:Mobland:2" }.items.size)
-    }
-
-    @Test fun allGroupKeysAreUniqueAcrossMoviesAndSeries() {
-        val groups = groupDownloads(
-            listOf(
-                item("m1"), item("m2"),
-                item("e1", "episode", "Mobland", 1, 1),
-                item("e2", "episode", "Mobland", 1, 2),
-                item("e3", "episode", "Mobland", 2, 1),
-                item("e4", "episode", "Other", 1, 1),
-            )
-        )
-        val keys = groups.map { it.key }
-        assertEquals(keys.size, keys.toSet().size)
+        assertTrue(downloadEpisodes(items, "Missing", 2).isEmpty())
     }
 }

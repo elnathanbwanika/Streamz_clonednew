@@ -1,59 +1,57 @@
 package com.linkstreamz.app
 
-data class DownloadGroup(
-    val key: String,
+/** A downloaded series as shown on the Series tab. */
+data class DownloadSeries(
     val title: String,
-    val subtitle: String?,
-    val items: List<DownloadItem>,
+    val thumbUrl: String,
+    val seasonCount: Int,
+    val episodeCount: Int,
+    val latestAt: Long,
 )
 
-/**
- * Groups saved downloads into Movies and Series, with one group per
- * series/season. Uses only metadata already stored on [DownloadItem].
- */
-fun groupDownloads(items: List<DownloadItem>): List<DownloadGroup> {
-    if (items.isEmpty()) return emptyList()
-    val result = mutableListOf<DownloadGroup>()
+/** A season inside a downloaded series. */
+data class DownloadSeason(
+    val number: Int,
+    val episodeCount: Int,
+)
 
-    val movies = items.filter { it.kind != "episode" }
-        .sortedByDescending { it.createdAt }
-    if (movies.isNotEmpty()) {
-        result += DownloadGroup(
-            key = "movies",
-            title = "Movies",
-            subtitle = "${movies.size} item${if (movies.size == 1) "" else "s"}",
-            items = movies,
-        )
-    }
+/** Standalone movies, newest first. */
+fun downloadMovies(items: List<DownloadItem>): List<DownloadItem> =
+    items.filter { it.kind != "episode" }.sortedByDescending { it.createdAt }
 
-    // One group per series + season (NOT per episode): including the episode
-    // number here produced several "Season N" groups with the same key, which
-    // crashed LazyColumn with "key was already used".
+/** Downloaded series, newest activity first. */
+fun downloadSeries(items: List<DownloadItem>): List<DownloadSeries> =
     items.filter { it.kind == "episode" }
-        .groupBy { Pair(it.seriesTitle ?: it.title, it.season ?: 0) }
-        .toList()
-        .sortedWith(
-            compareBy<Pair<Pair<String, Int>, List<DownloadItem>>> { it.first.first.lowercase() }
-                .thenBy { it.first.second }
-        )
-        .groupBy { it.first.first }
-        .forEach { (series, seasons) ->
-            val seasonGroups = seasons.map { (key, episodes) ->
-                val season = key.second
-                DownloadGroup(
-                    key = "series:$series:$season",
-                    title = if (season > 0) "Season $season" else "Episodes",
-                    subtitle = "${episodes.size} episode${if (episodes.size == 1) "" else "s"}",
-                    items = episodes.sortedBy { it.episode ?: 0 },
-                )
-            }
-            result += DownloadGroup(
-                key = "series:$series",
-                title = series,
-                subtitle = "${seasonGroups.sumOf { it.items.size }} episodes",
-                items = emptyList(),
+        .groupBy { it.seriesTitle?.takeIf { t -> t.isNotBlank() } ?: it.title }
+        .map { (title, episodes) ->
+            val newest = episodes.maxByOrNull { it.createdAt }!!
+            DownloadSeries(
+                title = title,
+                thumbUrl = episodes.asSequence()
+                    .map { it.thumbUrl }
+                    .filter { it.isNotBlank() }
+                    .firstOrNull().orEmpty(),
+                seasonCount = episodes.map { it.season ?: 0 }.distinct().size,
+                episodeCount = episodes.size,
+                latestAt = newest.createdAt,
             )
-            result.addAll(seasonGroups)
         }
-    return result
-}
+        .sortedWith(compareByDescending<DownloadSeries> { it.latestAt }
+            .thenBy { it.title.lowercase() })
+
+/** Seasons available for one series, in ascending order (0 = unassigned). */
+fun downloadSeasons(items: List<DownloadItem>, series: String): List<DownloadSeason> =
+    items.filter { it.kind == "episode" && (it.seriesTitle?.takeIf { t -> t.isNotBlank() } ?: it.title) == series }
+        .groupBy { it.season ?: 0 }
+        .toList()
+        .sortedBy { it.first }
+        .map { (number, episodes) -> DownloadSeason(number, episodes.size) }
+
+/** Episodes of one season, ordered by episode number. */
+fun downloadEpisodes(items: List<DownloadItem>, series: String, season: Int): List<DownloadItem> =
+    items.filter {
+        it.kind == "episode" &&
+            (it.seriesTitle?.takeIf { t -> t.isNotBlank() } ?: it.title) == series &&
+            (it.season ?: 0) == season
+    }.sortedWith(compareBy<DownloadItem> { it.episode ?: Int.MAX_VALUE }
+        .thenBy { it.createdAt })
