@@ -866,6 +866,7 @@ fun PlayerScreen(
                     tvBadge = null,
                     isInPip = true,
                     onVideoSizeChanged = { w, h -> pipHost?.setPipVideoSize(w, h) },
+                    onVideoAspectRatio = { ratio -> pipHost?.setPipVideoAspectRatio(ratio) },
                 )
             }
         } else if (!isFs) {
@@ -1024,6 +1025,7 @@ fun PlayerScreen(
                             tvBadge = playerTvBadge,
                             isInPip = isInPip,
                             onVideoSizeChanged = { w, h -> pipHost?.setPipVideoSize(w, h) },
+                    onVideoAspectRatio = { ratio -> pipHost?.setPipVideoAspectRatio(ratio) },
                         )
                     }
                 }
@@ -1119,6 +1121,7 @@ fun PlayerScreen(
                     tvBadge = playerTvBadge,
                     isInPip = isInPip,
                     onVideoSizeChanged = { w, h -> pipHost?.setPipVideoSize(w, h) },
+                    onVideoAspectRatio = { ratio -> pipHost?.setPipVideoAspectRatio(ratio) },
                 )
             }
         }

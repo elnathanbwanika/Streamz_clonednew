@@ -32,6 +32,31 @@ class PipSpecTest {
     }
 
     @Test
+    fun anamorphicMovieUsesDisplayRatioNotCodedSize() {
+        // 720x576 with SAR 1.42 displays as 16:9. Using 720/576 (1.25) would
+        // make the floating window too narrow; ignoring SAR entirely and using
+        // the raw 5:4 also mismatches the video surface.
+        assertEquals(16f / 9f, PipAspectRatio.display(720, 576, 1.42f, 0), 0.01f)
+    }
+
+    @Test
+    fun squarePixelStreamKeepsCodedRatio() {
+        assertEquals(16f / 9f, PipAspectRatio.display(1920, 1080, 1f, 0), 0.0001f)
+    }
+
+    @Test
+    fun rotatedAnamorphicFrameSwapsDimensions() {
+        val ratio = PipAspectRatio.display(720, 576, 1.42f, 90)
+        assertEquals(576f / (720f * 1.42f), ratio, 0.0001f)
+    }
+
+    @Test
+    fun invalidPixelRatioFallsBackToOne() {
+        assertEquals(16f / 9f, PipAspectRatio.display(1920, 1080, Float.NaN, 0), 0.0001f)
+        assertEquals(16f / 9f, PipAspectRatio.display(1920, 1080, 0f, 0), 0.0001f)
+    }
+
+    @Test
     fun ultraWideIsClampedToMaximum() {
         // 3840x1080 = 3.55, wider than Android's 2.39 limit.
         assertEquals(PipAspectRatio.MAX_RATIO, PipAspectRatio.clamp(3840, 1080), 0.0001f)

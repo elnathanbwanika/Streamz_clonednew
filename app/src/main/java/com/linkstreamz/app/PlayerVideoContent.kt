@@ -65,6 +65,7 @@ fun PlayerVideoContent(
     tvBadge: TvBadgePlacement? = null,
     isInPip: Boolean = false,
     onVideoSizeChanged: (width: Int, height: Int) -> Unit = { _, _ -> },
+    onVideoAspectRatio: (Float) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Box(modifier = modifier.fillMaxSize()) {
@@ -123,6 +124,17 @@ fun PlayerVideoContent(
                 override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
                     if (videoSize.width > 0 && videoSize.height > 0) {
                         onVideoSizeChanged(videoSize.width, videoSize.height)
+                        // The coded size alone is wrong for anamorphic movie
+                        // files: Media3 applies pixelWidthHeightRatio on screen,
+                        // so PiP must use the same display ratio.
+                        onVideoAspectRatio(
+                            PipAspectRatio.display(
+                                width = videoSize.width,
+                                height = videoSize.height,
+                                pixelRatio = videoSize.pixelWidthHeightRatio,
+                                rotationDegrees = videoSize.unappliedRotationDegrees,
+                            )
+                        )
                     }
                 }
             }
@@ -130,6 +142,14 @@ fun PlayerVideoContent(
             val current = exoPlayer.videoSize
             if (current.width > 0 && current.height > 0) {
                 onVideoSizeChanged(current.width, current.height)
+                onVideoAspectRatio(
+                    PipAspectRatio.display(
+                        width = current.width,
+                        height = current.height,
+                        pixelRatio = current.pixelWidthHeightRatio,
+                        rotationDegrees = current.unappliedRotationDegrees,
+                    )
+                )
             }
             onDispose { exoPlayer.removeListener(listener) }
         }

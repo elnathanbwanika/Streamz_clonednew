@@ -49,7 +49,10 @@ class PipController(
     var isInPip: Boolean = false
         private set
 
-    /** Latest known video size; updated by the video surface. */
+    /** Latest known display aspect ratio, from the real video size. */
+    private var videoRatio: Float? = null
+
+    /** Latest known video size; used only as a fallback when no ratio arrived. */
     private var videoWidth: Int = 0
     private var videoHeight: Int = 0
 
@@ -152,12 +155,28 @@ class PipController(
 
     fun setVideoSize(width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
-        if (width == videoWidth && height == videoHeight) return
+        if (width == videoWidth && height == videoHeight && videoRatio != null) return
         videoWidth = width
         videoHeight = height
-        // Keep the window ratio in step with the video while already in PiP.
+        // Fallback only: the display ratio callback is authoritative.
+        if (videoRatio == null) videoRatio = PipAspectRatio.clamp(width, height)
         if (isInPip) updateParams("video-size-changed")
     }
+
+    /**
+     * Authoritative display ratio from Media3's [androidx.media3.common.VideoSize],
+     * which accounts for non-square pixels and rotation. Callers must use this
+     * instead of raw width/height for movie files.
+     */
+    fun setVideoAspectRatio(ratio: Float) {
+        val clamped = PipAspectRatio.clamp(ratio)
+        if (clamped == videoRatio) return
+        videoRatio = clamped
+        if (isInPip) updateParams("video-aspect-changed")
+    }
+
+    private fun currentRatio(): Float =
+        videoRatio ?: PipAspectRatio.clamp(videoWidth, videoHeight)
 
     fun setLiveContent(live: Boolean) {
         if (live == isLiveContent) return
@@ -184,7 +203,7 @@ class PipController(
         autoEnter: Boolean = false,
         closeAction: RemoteAction? = null,
     ): PictureInPictureParams {
-        val ratio = PipAspectRatio.clamp(videoWidth, videoHeight)
+        val ratio = currentRatio()
         val builder = PictureInPictureParams.Builder()
             .setAspectRatio(Rational((ratio * 1000f).toInt(), 1000))
 
@@ -368,7 +387,7 @@ class PipController(
      */
     private fun logPipState(inPip: Boolean, trigger: String) {
         val metrics = activity.resources.displayMetrics
-        val ratio = PipAspectRatio.clamp(videoWidth, videoHeight)
+        val ratio = currentRatio()
         val video = (activity as? MainActivity)?.videoViewForPip()
         val bounds = if (video != null && video.isAttachedToWindow) {
             val r = Rect()

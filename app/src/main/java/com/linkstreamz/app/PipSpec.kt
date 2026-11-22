@@ -49,6 +49,29 @@ object PipAspectRatio {
         return ratio.coerceIn(MIN_RATIO, MAX_RATIO)
     }
 
+    /**
+     * Display aspect ratio of a decoded frame.
+     *
+     * Media3 reports the *coded* width/height plus a sample aspect ratio. Movie
+     * files (especially downloaded/transcoded ones) frequently have non-square
+     * pixels, e.g. 720x576 with SAR 1.42 -> 16:9 on screen. Using the coded
+     * dimensions alone makes the PiP window too wide. Live channel streams are
+     * usually square-pixel, which is why this only showed up on movies.
+     *
+     * A 90/270 rotation swaps the dimensions before applying the pixel ratio.
+     */
+    fun display(width: Int, height: Int, pixelRatio: Float, rotationDegrees: Int): Float {
+        if (width <= 0 || height <= 0) return DEFAULT_RATIO
+        val sar = if (pixelRatio.isNaN() || pixelRatio.isInfinite() || pixelRatio <= 0f) 1f else pixelRatio
+        val swapped = rotationDegrees == 90 || rotationDegrees == 270
+        val w = if (swapped) height.toFloat() else width.toFloat() * sar
+        val h = if (swapped) width.toFloat() * sar else height.toFloat()
+        if (w <= 0f || h <= 0f) return DEFAULT_RATIO
+        val raw = w / h
+        if (raw.isNaN() || raw.isInfinite()) return DEFAULT_RATIO
+        return clamp(raw)
+    }
+
     /** True when Android will accept this ratio without throwing. */
     fun isSupported(ratio: Float): Boolean =
         !ratio.isNaN() && !ratio.isInfinite() && ratio >= MIN_RATIO && ratio <= MAX_RATIO

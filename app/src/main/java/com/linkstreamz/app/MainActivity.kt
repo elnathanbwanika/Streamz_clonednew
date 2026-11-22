@@ -70,7 +70,6 @@ import androidx.navigation.navArgument
 import java.io.PrintWriter
 import java.io.StringWriter
 import coil.Coil
-import coil.ImageLoader
 
 class MainActivity : ComponentActivity() {
 
@@ -150,6 +149,8 @@ class MainActivity : ComponentActivity() {
     internal fun setPipLive(live: Boolean) = pipController?.setLiveContent(live)
 
     internal fun setPipVideoSize(width: Int, height: Int) = pipController?.setVideoSize(width, height)
+
+    internal fun setPipVideoAspectRatio(ratio: Float) = pipController?.setVideoAspectRatio(ratio)
 
     internal fun setPipPlaying(playing: Boolean) = pipController?.setPlaying(playing)
 
@@ -336,11 +337,7 @@ class MainActivity : ComponentActivity() {
 
         // Route Coil image requests through the same tunnel-aware client.
         try {
-            Coil.setImageLoader(
-                ImageLoader.Builder(this)
-                    .okHttpClient(HttpClients.newBuilder().build())
-                    .build()
-            )
+            Coil.setImageLoader(AppImages.loader(this))
         } catch (e: Exception) {
             AppLogger.e("MainActivity", "Failed to init image loader", e)
         }
@@ -435,6 +432,43 @@ class MainActivity : ComponentActivity() {
                 }
                 val moviesRepo = remember { MoviesRepository() }
                 val channelsRepo = remember { ChannelsRepository() }
+                val movieFeedState by moviesRepo.state.collectAsStateWithLifecycle()
+                val channelFeedState by channelsRepo.state.collectAsStateWithLifecycle()
+
+                // BOOT: welcome animation while the first content load is in
+                // flight. A hard timeout guarantees the app is never blocked.
+                var welcomeVisible by remember { mutableStateOf(true) }
+                LaunchedEffect(Unit) {
+                    val started = System.currentTimeMillis()
+                    delay(BootSpec.MIN_VISIBLE_MS)
+                    while (System.currentTimeMillis() - started < BootSpec.MAX_VISIBLE_MS &&
+                        (moviesRepo.state.value is MediaFeedState.Loading ||
+                            channelsRepo.state.value is ChannelFeedState.Loading)
+                    ) {
+                        delay(60L)
+                    }
+                    welcomeVisible = false
+                }
+                // THUMBNAILS: warm the shared cache as soon as feeds arrive so
+                // cards paint with their art instead of blank tiles.
+                LaunchedEffect(movieFeedState) {
+                    val state = movieFeedState
+                    if (state is MediaFeedState.Ready) {
+                        AppImages.prefetch(
+                            this@MainActivity,
+                            state.movies.map { it.thumbUrl } + state.series.map { it.thumbUrl },
+                        )
+                    }
+                }
+                LaunchedEffect(channelFeedState) {
+                    val state = channelFeedState
+                    if (state is ChannelFeedState.Ready) {
+                        AppImages.prefetch(
+                            this@MainActivity,
+                            state.channels.mapNotNull { it.logo },
+                        )
+                    }
+                }
                 val settingsRepository = remember { SettingsRepository(applicationContext) }
                 
                 // Using custom factory to pass the repository
@@ -756,6 +790,11 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                     )
+
+                    // Last so it covers everything during the initial load.
+                    if (welcomeVisible) {
+                        LinkEcosystemWelcome()
+                    }
                 }
             }
         }
