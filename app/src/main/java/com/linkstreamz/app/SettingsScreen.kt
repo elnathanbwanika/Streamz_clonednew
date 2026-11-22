@@ -1082,58 +1082,25 @@ fun BrandPrimaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier.fillMaxWidth(),
 ) {
-    Box(
-        modifier = modifier
-            .clip(LsShape.Button)
-            .background(LsColor.Accent)
-            .clickable(onClick = onClick)
-            .heightIn(min = LsSpace.Button)
-            .padding(vertical = 12.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector        = icon,
-                contentDescription = null,
-                tint               = LsColor.OnAccent,
-                modifier           = Modifier.size(18.dp),
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                text       = text,
-                color      = LsColor.OnAccent,
-                fontSize   = 14.sp,
-                fontWeight = FontWeight.Bold,
-            )
-        }
+    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        AppButton(
+            label = text,
+            onClick = onClick,
+            large = true,
+        )
     }
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// BrandOutlinedButton – transparent fill, orange border (Refresh / Reset)
-// ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
 fun BrandOutlinedButton(
     text: String,
     onClick: () -> Unit,
 ) {
-    Box(
-        modifier = Modifier
-            .defaultMinSize(minWidth = 84.dp, minHeight = LsSpace.Touch)
-            .clip(LsShape.Button)
-            .background(LsColor.FillSubtle)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text       = text,
-            color      = LsColor.Text,
-            fontSize   = 13.5.sp,
-            fontWeight = FontWeight.SemiBold,
-        )
-    }
+    AppButton(
+        label = text,
+        onClick = onClick,
+        variant = AppButtonVariant.Secondary,
+    )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -1151,15 +1151,13 @@ fun PlayerScreen(
             title = { Text("Download over mobile data?", color = LinkColors.PrimaryText) },
             text = { Text(DownloadConditions.MOBILE_DATA_MESSAGE, color = LinkColors.MutedText) },
             confirmButton = {
-                TextButton(onClick = {
+                AppButton("Download", {
                     mobileConfirmDownload = null
                     requestDownloadPermissions(request)
-                }) { Text("Download", color = LinkColors.OrangePrimary) }
+                })
             },
             dismissButton = {
-                TextButton(onClick = { mobileConfirmDownload = null }) {
-                    Text("Cancel", color = LinkColors.MutedText)
-                }
+                AppButton("Cancel", { mobileConfirmDownload = null }, variant = AppButtonVariant.Secondary)
             },
         )
     }
@@ -1176,7 +1174,7 @@ fun PlayerScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = {
+                AppButton("Continue", {
                     showDownloadRationale = false
                     val missing = buildList {
                         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
@@ -1192,12 +1190,14 @@ fun PlayerScreen(
                     } else {
                         downloadPermissionLauncher.launch(missing.toTypedArray())
                     }
-                }) { Text("Continue", color = LinkColors.OrangePrimary) }
+                })
             },
             dismissButton = {
-                TextButton(onClick = { showDownloadRationale = false; pendingDownload = null }) {
-                    Text("Not now", color = LinkColors.MutedText)
-                }
+                AppButton(
+                    "Not now",
+                    { showDownloadRationale = false; pendingDownload = null },
+                    variant = AppButtonVariant.Text,
+                )
             },
         )
     }
@@ -1228,9 +1228,7 @@ private fun PlayerBar(
     onDownloadSeason: (() -> Unit)? = null,
 ) {
     Row(Modifier.fillMaxWidth().padding(14.dp, 14.dp, 16.dp, 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        IconButton(onClick = onBack, modifier = Modifier.size(38.dp).background(LinkColors.CardBg, RoundedCornerShape(12.dp)).border(1.dp, LinkColors.OrangePrimary.copy(alpha = 0.35f), RoundedCornerShape(12.dp))) {
-            Icon(Icons.Default.ArrowBack, "Back", tint = LinkColors.OrangePrimary, modifier = Modifier.size(18.dp))
-        }
+        AppIconButton(Icons.Default.ArrowBack, "Back", onBack)
         Column(Modifier.weight(1f)) {
             Text(target.title.uppercase(), color = LinkColors.PrimaryText, fontFamily = DisplayFont, fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = .8.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(target.subtitle.uppercase(), color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 11.sp, letterSpacing = .5.sp, modifier = Modifier.padding(top = 4.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1345,12 +1343,12 @@ private fun RelatedContent(
             Text("EPISODES", color = LinkColors.MutedText, fontFamily = DisplayFont, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 0.8.sp, modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 8.dp))
             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(target.series.seasons) { season ->
-                    val isSelected = season == selectedSeason
-                    Box(
-                        Modifier.clip(RoundedCornerShape(8.dp)).background(if (isSelected) LinkColors.OrangePrimary else LinkColors.CardBg).clickable { selectedSeason = season }.padding(horizontal = 12.dp, vertical = 6.dp)
-                    ) {
-                        Text("Season ${season.number}", color = if (isSelected) Color.Black else LinkColors.PrimaryText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
+                    AppChip(
+                        label = "Season ${season.number}",
+                        selected = season == selectedSeason,
+                        onClick = { selectedSeason = season },
+                        contentDescription = "Season ${season.number}",
+                    )
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -1589,23 +1587,15 @@ private fun DownloadedRelatedContent(
     )
     LazyRow(
         contentPadding = PaddingValues(horizontal = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(AppControlSpec.ChipGap),
     ) {
         items(seasons, key = { it }) { season ->
-            val isSelected = season == selectedSeason
-            Box(
-                Modifier.clip(RoundedCornerShape(8.dp))
-                    .background(if (isSelected) LinkColors.OrangePrimary else LinkColors.CardBg)
-                    .clickable { selectedSeason = season }
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
-            ) {
-                Text(
-                    "Season $season",
-                    color = if (isSelected) Color.Black else LinkColors.PrimaryText,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
+            AppChip(
+                label = "Season $season",
+                selected = season == selectedSeason,
+                onClick = { selectedSeason = season },
+                contentDescription = "Season $season",
+            )
         }
     }
     Spacer(Modifier.height(12.dp))
@@ -1780,10 +1770,7 @@ private fun TimeLimitedBlockScreen(
                 fontSize = 11.sp,
             )
             Spacer(Modifier.height(22.dp))
-            Button(
-                onClick = onBack,
-                colors = ButtonDefaults.buttonColors(containerColor = LinkColors.OrangePrimary),
-            ) { Text("Go back", color = Color.Black, fontWeight = FontWeight.SemiBold) }
+            AppButton("Go back", onBack)
         }
     }
 }

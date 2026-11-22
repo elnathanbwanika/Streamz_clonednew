@@ -43,6 +43,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -165,16 +166,17 @@ fun PlayerIconButton(
 
     Box(
         modifier = modifier
+            .minimumInteractiveComponentSize()
             .size(size)
             .then(
                 if (isPlayPause) Modifier.shadow(
                     elevation = 20.dp,
-                    shape = CircleShape,
+                    shape = AppControlShape,
                     ambientColor = LinkColors.OrangePrimary.copy(alpha = 0.28f),
                     spotColor = LinkColors.OrangePrimary.copy(alpha = 0.28f)
                 ) else Modifier
             )
-            .clip(CircleShape)
+            .clip(AppControlShape)
             .background(fill)
             .clickable(
                 interactionSource = interactionSource,
@@ -511,14 +513,14 @@ private fun PanelItem(
 
     Box(
         modifier = Modifier
+            .minimumInteractiveComponentSize()
             .size(ItemSize)
-            .clip(RoundedCornerShape(ItemRadius))
+            .clip(AppControlShape)
             .background(bg)
-            .border(1.dp, if (isActive) Orange else ItemBorder, RoundedCornerShape(ItemRadius))
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, description, tint = iconTint, modifier = Modifier.size(21.dp))
+        Icon(icon, description, tint = iconTint, modifier = Modifier.size(AppControlSpec.IconSize))
     }
 }
 
@@ -687,10 +689,10 @@ fun PlayerSettingsPanel(
                         // "Reset" button — brings player back to neutral brightness (100 = no overlay)
                         Box(
                             modifier = Modifier
+                                .minimumInteractiveComponentSize()
                                 .size(32.dp)
-                                .clip(RoundedCornerShape(10.dp))
+                                .clip(AppControlShape)
                                 .background(if (playerBrightness == 100f) Orange else ItemBg)
-                                .border(1.dp, if (playerBrightness == 100f) Orange else ItemBorder, RoundedCornerShape(10.dp))
                                 .clickable { onPlayerBrightnessChange(100f) },
                             contentAlignment = Alignment.Center,
                         ) {
@@ -698,7 +700,7 @@ fun PlayerSettingsPanel(
                                 Icons.Default.BrightnessAuto,
                                 "Reset brightness",
                                 tint = if (playerBrightness == 100f) Color.Black else Orange,
-                                modifier = Modifier.size(17.dp),
+                                modifier = Modifier.size(AppControlSpec.IconSize),
                             )
                         }
                     }

@@ -18,10 +18,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -31,12 +29,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
@@ -44,7 +39,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -402,22 +396,18 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         confirmButton = {
-                            TextButton(onClick = {
+                            AppButton("Copy Log", {
                                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                 val clip = ClipData.newPlainText("Crash Log", crashLog)
                                 clipboard.setPrimaryClip(clip)
                                 android.widget.Toast.makeText(this@MainActivity, "Copied to clipboard", android.widget.Toast.LENGTH_SHORT).show()
-                            }) {
-                                Text("Copy Log")
-                            }
+                            })
                         },
                         dismissButton = {
-                            TextButton(onClick = {
+                            AppButton("Dismiss", {
                                 prefs.edit().remove("crash_log").apply()
-                                crashLog = null 
-                            }) {
-                                Text("Dismiss")
-                            }
+                                crashLog = null
+                            }, variant = AppButtonVariant.Secondary)
                         }
                     )
                 }
@@ -590,27 +580,18 @@ class MainActivity : ComponentActivity() {
                             }
                         },
                         confirmButton = {
-                            Button(
-                                onClick = {
-                                    onboardingPrefs.edit().putBoolean("seen", true).apply()
-                                    showOnboarding = false
-                                    val missing = requiredPermissions()
-                                    if (missing.isNotEmpty()) onboardingLauncher.launch(missing)
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = LinkColors.OrangePrimary,
-                                    contentColor = Color.Black,
-                                ),
-                                shape = RoundedCornerShape(10.dp),
-                            ) {
-                                Text("Continue", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = {
+                            AppButton("Continue", {
                                 onboardingPrefs.edit().putBoolean("seen", true).apply()
                                 showOnboarding = false
-                            }) { Text("Not now", color = LinkColors.MutedText, fontSize = 12.sp) }
+                                val missing = requiredPermissions()
+                                if (missing.isNotEmpty()) onboardingLauncher.launch(missing)
+                            })
+                        },
+                        dismissButton = {
+                            AppButton("Not now", {
+                                onboardingPrefs.edit().putBoolean("seen", true).apply()
+                                showOnboarding = false
+                            }, variant = AppButtonVariant.Text)
                         },
                     )
                 }

@@ -26,10 +26,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -216,43 +215,28 @@ private fun InAppMessageDialog(
                     )
 
                     if (message.buttonLabel != null) {
-                        Button(
-                            onClick = { onAction(message.action) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = LsSpace.Touch),
-                            shape = LsShape.Button,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = LsColor.Accent,
-                                contentColor = LsColor.OnAccent,
-                            ),
-                        ) {
-                            Text(message.buttonLabel, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        }
+                        AppButton(
+                            message.buttonLabel,
+                            { onAction(message.action) },
+                            modifier = Modifier.fillMaxWidth(),
+                            large = true,
+                        )
                         if (!requiresTap) {
-                            TextButton(
-                                onClick = onDismiss,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .heightIn(min = LsSpace.Touch),
-                            ) {
-                                Text("Close", color = LsColor.TextDim, fontSize = 14.sp)
-                            }
+                            AppButton(
+                                "Close",
+                                onDismiss,
+                                modifier = Modifier.fillMaxWidth(),
+                                variant = AppButtonVariant.Text,
+                                large = true,
+                            )
                         }
                     } else {
-                        Button(
-                            onClick = { onAction(InAppMessageAction.None) },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = LsSpace.Touch),
-                            shape = LsShape.Button,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = LsColor.Accent,
-                                contentColor = LsColor.OnAccent,
-                            ),
-                        ) {
-                            Text("Got it", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        }
+                        AppButton(
+                            "Got it",
+                            { onAction(InAppMessageAction.None) },
+                            modifier = Modifier.fillMaxWidth(),
+                            large = true,
+                        )
                     }
                 }
             }

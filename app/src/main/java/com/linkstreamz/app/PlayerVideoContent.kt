@@ -300,23 +300,11 @@ fun PlayerVideoContent(
                     modifier = Modifier.padding(10.dp, 11.dp),
                     textAlign = TextAlign.Center,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = onRetry,
-                        shape = LsShape.Button,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = LsColor.Accent,
-                            contentColor = LsColor.OnAccent,
-                        ),
-                    ) { Text("Try again", fontWeight = FontWeight.Bold) }
-                    if (hasMultipleServers) Button(
-                        onClick = onSwitchServer,
-                        shape = LsShape.Button,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = LsColor.FillSubtle,
-                            contentColor = LsColor.Text,
-                        ),
-                    ) { Text("Switch server", fontWeight = FontWeight.SemiBold) }
+                Row(horizontalArrangement = Arrangement.spacedBy(AppControlSpec.ChipGap)) {
+                    AppButton("Try again", onRetry)
+                    if (hasMultipleServers) {
+                        AppButton("Switch server", onSwitchServer, variant = AppButtonVariant.Secondary)
+                    }
                 }
             }
         }

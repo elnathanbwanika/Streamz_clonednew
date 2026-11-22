@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
@@ -23,11 +22,8 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -172,17 +168,13 @@ fun AppUpdateOverlay(
                     is AppUpdateDownloadState.Downloading -> {
                         DownloadProgressContent(state.progress)
                         Spacer(Modifier.height(0.dp))
-                        Button(
-                            onClick = { AppUpdateDownloader.cancel() },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = LinkColors.CardBg,
-                                contentColor = LinkColors.OrangePrimary,
-                            ),
-                            shape = RoundedCornerShape(12.dp),
-                        ) {
-                            Text("Cancel", fontFamily = BodyFont, fontWeight = FontWeight.SemiBold)
-                        }
+                        AppButton(
+                            "Cancel",
+                            { AppUpdateDownloader.cancel() },
+                            modifier = Modifier.fillMaxWidth(),
+                            variant = AppButtonVariant.Secondary,
+                            large = true,
+                        )
                     }
 
                     AppUpdateDownloadState.Verifying -> {
@@ -304,23 +296,19 @@ private fun DownloadProgressContent(progress: AppUpdateProgress) {
 @Composable
 private fun UpdateButtons(primary: String, onPrimary: () -> Unit, onCloseApp: () -> Unit) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Button(
-            onClick = onPrimary,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = LinkColors.OrangePrimary,
-                contentColor = Color.Black,
-            ),
-            shape = RoundedCornerShape(12.dp),
-        ) {
-            Text(primary, fontFamily = BodyFont, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        }
-        TextButton(
-            onClick = onCloseApp,
-            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-        ) {
-            Text("Close app", color = LinkColors.MutedText, fontFamily = BodyFont, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-        }
+        AppButton(
+            primary,
+            onPrimary,
+            modifier = Modifier.fillMaxWidth(),
+            large = true,
+        )
+        AppButton(
+            "Close app",
+            onCloseApp,
+            modifier = Modifier.fillMaxWidth(),
+            variant = AppButtonVariant.Text,
+            large = true,
+        )
     }
 }
 

@@ -3,6 +3,7 @@ package com.linkstreamz.app
 import androidx.compose.foundation.layout.BoxWithConstraints
 
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.horizontalScroll
 
 import android.widget.Toast
 import android.Manifest
@@ -294,15 +295,13 @@ fun HomeScreen(
             title = { Text("Download over mobile data?", color = LsColor.Text, fontFamily = BodyFont, fontWeight = FontWeight.Bold, fontSize = 18.sp) },
             text = { Text(DownloadConditions.MOBILE_DATA_MESSAGE, color = LinkColors.MutedText) },
             confirmButton = {
-                TextButton(onClick = {
+                AppButton("Download", {
                     mobileConfirmDownload = null
                     requestDownloadPermissions(movie)
-                }) { Text("Download", color = LinkColors.OrangePrimary) }
+                })
             },
             dismissButton = {
-                TextButton(onClick = { mobileConfirmDownload = null }) {
-                    Text("Cancel", color = LinkColors.MutedText)
-                }
+                AppButton("Cancel", { mobileConfirmDownload = null }, variant = AppButtonVariant.Secondary)
             },
         )
     }
@@ -319,7 +318,7 @@ fun HomeScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = {
+                AppButton("Continue", {
                     showDownloadRationale = false
                     val missing = buildList {
                         if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P &&
@@ -335,12 +334,14 @@ fun HomeScreen(
                     } else {
                         downloadPermissionLauncher.launch(missing.toTypedArray())
                     }
-                }) { Text("Continue", color = LinkColors.OrangePrimary) }
+                })
             },
             dismissButton = {
-                TextButton(onClick = { showDownloadRationale = false; pendingDownload = null }) {
-                    Text("Not now", color = LinkColors.MutedText)
-                }
+                AppButton(
+                    "Not now",
+                    { showDownloadRationale = false; pendingDownload = null },
+                    variant = AppButtonVariant.Text,
+                )
             },
         )
     }
@@ -437,29 +438,20 @@ private fun SectionContent(
 @Composable
 private fun MainSectionTabs(selected: MainSection, onSelect: (MainSection) -> Unit) {
     Row(
-        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(AppControlSpec.ChipGap),
     ) {
         MainSection.entries.forEach { item ->
-            val isSelected = selected == item
-            Box(
-                Modifier.weight(1f)
-                    .heightIn(min = 48.dp)
-                    .clip(LsShape.Pill)
-                    .background(if (isSelected) LsColor.Accent else LsColor.Surface)
-                    .clickable { onSelect(item) }
-                    .padding(horizontal = 4.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    item.label,
-                    color = if (isSelected) LsColor.OnAccent else LsColor.TextDim,
-                    fontSize = 12.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    maxLines = 1,
-                    textAlign = TextAlign.Center,
-                )
-            }
+            AppTab(
+                label = item.label,
+                selected = selected == item,
+                onClick = { onSelect(item) },
+                modifier = Modifier.weight(1f, fill = false),
+                contentDescription = item.label,
+            )
         }
     }
 }
@@ -806,31 +798,18 @@ private fun SportsSubTabs(
     onSelect: (SportsTab) -> Unit,
 ) {
     LazyRow(
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(20.dp),
-        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(AppControlSpec.ChipGap),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
     ) {
         items(SportsTab.entries, key = { it.name }) { tab ->
-            val isSelected = selected == tab
-            Column(
-                Modifier.heightIn(min = 48.dp).clickable { onSelect(tab) }.padding(top = 12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    "${tab.label} ${counts[tab] ?: 0}",
-                    color = if (isSelected) LinkColors.OrangePrimary else LinkColors.MutedText,
-                    fontSize = 13.sp,
-                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
-                    maxLines = 1,
-                )
-                Spacer(Modifier.height(8.dp))
-                Box(
-                    Modifier
-                        .height(2.dp)
-                        .width(if (isSelected) 28.dp else 0.dp)
-                        .background(LinkColors.OrangePrimary, RoundedCornerShape(99.dp))
-                )
-            }
+            val label = "${tab.label} ${counts[tab] ?: 0}"
+            AppTab(
+                label = label,
+                selected = selected == tab,
+                onClick = { onSelect(tab) },
+                contentDescription = label,
+            )
         }
     }
 }
@@ -870,18 +849,8 @@ private fun HomeHeader(onSettings: () -> Unit, onDownloads: () -> Unit) {
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(
-                onClick = onDownloads,
-                modifier = Modifier.size(44.dp).clip(CircleShape).background(LsColor.Card),
-            ) {
-                Icon(Icons.Default.Download, "Downloads", tint = LsColor.Accent, modifier = Modifier.size(20.dp))
-            }
-            IconButton(
-                onClick = onSettings,
-                modifier = Modifier.size(44.dp).clip(CircleShape).background(LsColor.Card),
-            ) {
-                Icon(Icons.Default.Settings, "Settings", tint = LsColor.Accent, modifier = Modifier.size(20.dp))
-            }
+            AppIconButton(Icons.Default.Download, "Downloads", onDownloads)
+            AppIconButton(Icons.Default.Settings, "Settings", onSettings)
         }
     }
 }
@@ -930,17 +899,7 @@ private fun ErrorState(onRetry: () -> Unit) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Can't reach the server", color = LinkColors.PrimaryText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
             Text("Check your connection and try again.", color = LinkColors.MutedText, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
-            Button(
-                onClick = onRetry,
-                modifier = Modifier.padding(top = 18.dp).heightIn(min = 48.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = LinkColors.OrangePrimary,
-                    contentColor = Color.Black
-                ),
-                shape = RoundedCornerShape(10.dp),
-            ) {
-                Text("Retry")
-            }
+            AppButton("Retry", onRetry, modifier = Modifier.padding(top = 18.dp))
         }
     }
 }

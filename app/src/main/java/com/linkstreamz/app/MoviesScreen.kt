@@ -4,7 +4,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -16,10 +15,10 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
@@ -170,52 +169,12 @@ fun MoviesScreen(
                     }
                     // Filter trigger — count badge makes active refinements obvious
                     val activeCount = activeFilterCount(filterState)
-                    Box(
-                        Modifier
-                            .heightIn(min = 48.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (activeCount > 0) LsColor.AccentDim else LinkColors.CardBg)
-                            .border(
-                                1.dp,
-                                if (activeCount > 0) LsColor.Accent else LsColor.FillSubtle,
-                                RoundedCornerShape(12.dp)
-                            )
-                            .clickable { showFilter = true }
-                            .padding(horizontal = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            Icon(
-                                Icons.Default.Tune,
-                                null,
-                                tint = if (activeCount > 0) LsColor.Accent else LinkColors.MutedText,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                "Filters",
-                                color = if (activeCount > 0) LsColor.Text else LinkColors.PrimaryText,
-                                fontFamily = MonoFont,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                            )
-                            if (activeCount > 0) {
-                                Box(
-                                    Modifier.size(18.dp).clip(CircleShape).background(LsColor.Accent),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        "$activeCount",
-                                        color = LsColor.OnAccent,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    AppButton(
+                        label = "Filters${if (activeCount > 0) " · $activeCount" else ""}",
+                        onClick = { showFilter = true },
+                        variant = if (activeCount > 0) AppButtonVariant.Primary else AppButtonVariant.Secondary,
+                        contentDescription = "Filters",
+                    )
                 }
             }
 
@@ -360,26 +319,16 @@ private fun TimeLimitedCard(
                 modifier = Modifier.padding(top = 3.dp),
             )
             Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Button(
-                    onClick = onWatch,
-                    colors = ButtonDefaults.buttonColors(containerColor = LinkColors.OrangePrimary),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.heightIn(min = 40.dp).weight(1f),
-                ) {
-                    Text(if (state == TimeLimitedState.LIVE) "Watch" else "Details", color = Color.Black, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(AppControlSpec.ChipGap)) {
+                Box(Modifier.weight(1f)) {
+                    AppButton(
+                        label = if (state == TimeLimitedState.LIVE) "Watch" else "Details",
+                        onClick = onWatch,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
                 if (DownloadSupport.canDownload(movie, nowMs)) {
-                    Box(
-                        Modifier.size(40.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(LinkColors.CardBg)
-                            .clickable(onClick = onDownload),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(Icons.Default.Download, "Download", tint = LinkColors.OrangePrimary, modifier = Modifier.size(15.dp))
-                    }
+                    AppIconButton(Icons.Default.Download, "Download", onDownload)
                 }
             }
         }
@@ -414,16 +363,7 @@ fun ViewAllScreen(title: String, items: List<Any>, onBack: () -> Unit, onWatch: 
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(LinkColors.CardBg)
-                    .clickable(onClick = onBack),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("←", color = LinkColors.OrangePrimary, fontSize = 18.sp)
-            }
+            AppIconButton(Icons.Default.ArrowBack, "Back", onBack)
             Spacer(Modifier.width(12.dp))
             Text(title, color = LinkColors.PrimaryText, fontFamily = BodyFont, fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
             Spacer(Modifier.weight(1f))

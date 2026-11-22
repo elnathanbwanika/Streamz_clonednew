@@ -14,6 +14,9 @@
 - `gradle.properties` must NOT contain `org.gradle.java.home` (it pointed to a local sdkman path and breaks the runner). Keep `org.gradle.jvmargs=-Xmx3g` to avoid OOM.
 - `android-actions/setup-android@v3` FAILS on the runner (tries to install legacy `tools` package → "Failed to find package 'tools'"). Use the preinstalled SDK: set `ANDROID_HOME=/usr/local/lib/android/sdk` and run `yes | sdkmanager --licenses`.
 
+## Shared controls
+- `AppControls.kt` is the single design system: `AppChip`/`AppTab`, `AppButton` (Primary/Secondary/Text), `AppIconButton`, `AppControlShape`. All use one radius constant `AppCornerRadius` (8.dp, from the Season chip). Never add ad-hoc `Button`, `TextButton`, pill/circle chips or outlined buttons in screens — extend the shared components instead. Touch targets are 48dp via `minimumInteractiveComponentSize`.
+
 ## Movies filter
 - `MoviesFilter.kt` owns the filter model, pure helpers (`matchesMoviesFilter`, `filterCatalogue`, `activeFilterCount`, facet builders) and the `MoviesFilterSheet` bottom sheet. `MoviesScreen.kt` only holds `filterState` and calls the helpers — keep the predicate in one place so the sheet's live "Show N results" count matches the catalogue exactly.
 

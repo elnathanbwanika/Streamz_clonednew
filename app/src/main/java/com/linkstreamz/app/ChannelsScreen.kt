@@ -100,27 +100,19 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
         if (!isSearch) {
             Row(
                 Modifier
-                    .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 4.dp)
-                    .clip(LsShape.Pill)
-                    .background(LsColor.Surface)
-                    .padding(4.dp)
+                    .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(AppControlSpec.ChipGap),
             ) {
                 listOf(true to "Local", false to "Abroad").forEach { (local, label) ->
-                    val selected = localFilter == local
-                    Box(
-                        Modifier
-                            .height(44.dp)
-                            .clip(LsShape.Pill)
-                            .background(if (selected) LsColor.Accent else Color.Transparent)
-                            .clickable { localFilter = local; catFilter = null }
-                            .padding(horizontal = 18.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(label, color = if (selected) LsColor.OnAccent else LsColor.TextDim, fontSize = 13.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
-                    }
+                    AppTab(
+                        label = label,
+                        selected = localFilter == local,
+                        onClick = { localFilter = local; catFilter = null },
+                        modifier = Modifier.weight(1f, fill = false),
+                        contentDescription = label,
+                    )
                 }
             }
-            Spacer(Modifier.height(4.dp))
 
             val scopedCategories = allChannels
                 .filter { if (localFilter) it.country == "Uganda" else it.country != "Uganda" }
@@ -287,17 +279,7 @@ private fun SectionHeader(title: String, count: Int, modifier: Modifier = Modifi
 
 @Composable
 private fun CategoryChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier
-            .clip(LsShape.Pill)
-            .height(44.dp)
-            .background(if (selected) LsColor.Accent else LsColor.Card)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(label, color = if (selected) LsColor.OnAccent else LsColor.TextDim, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
-    }
+    AppChip(label, selected, onClick, contentDescription = label)
 }
 
 @Composable

@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -84,13 +85,7 @@ fun DownloadsScreen(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Box(
-                Modifier.size(48.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(LinkColors.CardBg)
-                    .clickable(onClick = { stepBack() }),
-                contentAlignment = Alignment.Center,
-            ) { Text("←", color = LinkColors.OrangePrimary, fontSize = 18.sp) }
+            AppIconButton(Icons.Default.ArrowBack, "Back", { stepBack() })
             Spacer(Modifier.width(12.dp))
             val heading = when (val page = destination) {
                 DownloadsDestination.Root -> "Downloads" to "${items.size} item${if (items.size == 1) "" else "s"} saved"
@@ -201,13 +196,13 @@ fun DownloadsScreen(
                 )
             },
             confirmButton = {
-                TextButton(onClick = {
+                AppButton("Remove", {
                     DownloadManager.remove(context, item)
                     confirmDelete = null
-                }) { Text("Remove", color = LinkColors.OrangePrimary) }
+                })
             },
             dismissButton = {
-                TextButton(onClick = { confirmDelete = null }) { Text("Cancel", color = LinkColors.MutedText) }
+                AppButton("Cancel", { confirmDelete = null }, variant = AppButtonVariant.Secondary)
             },
         )
     }

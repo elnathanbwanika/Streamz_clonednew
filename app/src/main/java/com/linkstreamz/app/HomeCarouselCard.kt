@@ -205,37 +205,13 @@ private fun LiveTag() {
 /** Orange primary button, borderless. */
 @Composable
 private fun CarouselButton(text: String, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        colors = ButtonDefaults.buttonColors(containerColor = LinkColors.OrangePrimary),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp, vertical = 0.dp),
-        shape = LsShape.Button,
-        modifier = Modifier.height(LsSpace.Button),
-    ) {
-        Text(
-            text,
-            color = LsColor.OnAccent,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
+    AppButton(text, onClick)
 }
 
 /** Subtle icon button used for the download action. */
 @Composable
 private fun CarouselIconButton(description: String, onClick: () -> Unit) {
-    IconButton(
-        onClick = onClick,
-        modifier = Modifier
-            .size(LsSpace.Button)
-            .clip(LsShape.Button)
-            .background(LsColor.FillSubtle)
-            .semantics { contentDescription = description },
-    ) {
-        Icon(Icons.Default.Download, null, tint = LinkColors.OrangePrimary, modifier = Modifier.size(18.dp))
-    }
+    AppIconButton(Icons.Default.Download, description, onClick)
 }
 
 /** "Starts in 2h 15m" inside 24 h, otherwise the kickoff day and time in EAT. */
