@@ -1,7 +1,6 @@
-package com.linkstreamz.app
-
+[Earlier content for app/src/main/java/com/linkstreamz/app/DownloadsScreen.kt (1379 chars, already written to disk). The module surface below may not show every signature you need — re-read with read_file before editing this file again, OR before importing/calling anything from it in another file. Do not recreate it from scratch and do not guess a function's parameters from memory.
+Module surface:
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -35,6 +34,7 @@ fun DownloadsScreen(
     val context = LocalContext.current
     val items by DownloadManager.items.collectAsState()
     var confirmDelete by remember { mutableStateOf<DownloadItem?>(null) }
+    val groups = remember(items) { groupDownloads(items) }
 
     Column(Modifier.fillMaxSize().background(LinkColors.ScreenBg)) {
         Row(
@@ -73,17 +73,20 @@ fun DownloadsScreen(
 
         LazyColumn(
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxSize(),
         ) {
-            items(items, key = { it.id }) { item ->
-                DownloadRow(
-                    item = item,
-                    onOpen = { onPlay(item) },
-                    onPause = { DownloadManager.pause(context, item.id) },
-                    onResume = { DownloadManager.resume(context, item.id) },
-                    onDelete = { confirmDelete = item },
-                )
+            groups.forEach { group ->
+                item(key = "header:${group.key}") { DownloadSectionHeader(group) }
+                items(group.items, key = { "row:${it.id}" }) { item ->
+                    DownloadRow(
+                        item = item,
+                        onOpen = { onPlay(item) },
+                        onPause = { DownloadManager.pause(context, item.id) },
+                        onResume = { DownloadManager.resume(context, item.id) },
+                        onDelete = { confirmDelete = item },
+                    )
+                }
             }
         }
     }
@@ -110,6 +113,29 @@ fun DownloadsScreen(
                 TextButton(onClick = { confirmDelete = null }) { Text("Cancel", color = LinkColors.MutedText) }
             },
         )
+    }
+}
+
+@Composable
+private fun DownloadSectionHeader(group: DownloadGroup) {
+    Column(Modifier.fillMaxWidth().padding(top = if (group.key == "movies") 4.dp else 12.dp)) {
+        Text(
+            group.title,
+            color = LinkColors.PrimaryText,
+            fontFamily = DisplayFont,
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (!group.subtitle.isNullOrBlank()) {
+            Text(
+                group.subtitle,
+                color = LinkColors.MutedText,
+                fontFamily = MonoFont,
+                fontSize = 10.sp,
+            )
+        }
     }
 }
 
@@ -149,9 +175,13 @@ private fun DownloadRow(
         Column(Modifier.weight(1f)) {
             Text(item.title, color = LinkColors.PrimaryText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val subtitle = when {
-                item.kind == "episode" && item.seriesTitle != null ->
-                    listOfNotNull(item.seriesTitle, item.episodeTitle).joinToString(" · ")
-                else -> item.kind.replaceFirstChar { it.uppercase() }
+                item.kind == "episode" ->
+                    buildList {
+                        if (item.season != null && item.season > 0) add("Season ${item.season}")
+                        if (item.episode != null) add("Episode ${item.episode}")
+                        if (!item.episodeTitle.isNullOrBlank()) add(item.episodeTitle)
+                    }.joinToString(" · ").ifBlank { item.seriesTitle ?: item.title }
+                else -> "Movie"
             }
             Text(subtitle, color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 9.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(8.dp))
@@ -214,7 +244,7 @@ private fun statusText(item: DownloadItem): String = when (item.status) {
         }
     }
     DownloadStatus.PAUSED -> "Paused · ${formatBytes(item.downloadedBytes)} of ${formatBytes(item.totalBytes)}"
-    DownloadStatus.FAILED -> item.error ?: "Download failed"
+    DownloadStatus.FAILED -> UserFacingError.fromStored(item.error)
     DownloadStatus.COMPLETED -> "${formatBytes(item.downloadedBytes)} · Downloaded"
 }
 

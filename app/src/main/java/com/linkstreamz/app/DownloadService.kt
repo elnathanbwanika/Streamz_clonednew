@@ -180,7 +180,7 @@ class DownloadService : Service() {
                 task.run()
             } catch (e: Exception) {
                 AppLogger.e("DownloadService", "Unhandled download failure for ${item.id}", e)
-                DownloadStore.updateStatus(item.id, DownloadStatus.FAILED, e.message)
+                DownloadStore.updateStatus(item.id, DownloadStatus.FAILED, UserFacingError.message(e))
                 DownloadManager.refresh()
             } finally {
                 tasks.remove(item.id)
@@ -439,7 +439,7 @@ class DownloadService : Service() {
                         DownloadStore.updateStatus(
                             id,
                             DownloadStatus.FAILED,
-                            e.message ?: "Download failed",
+                            UserFacingError.message(e),
                         )
                     }
                 }

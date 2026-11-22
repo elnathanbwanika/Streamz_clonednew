@@ -1,0 +1,66 @@
+[Earlier content for app/src/test/java/com/linkstreamz/app/DownloadGroupsTest.kt (1129 chars, already written to disk). The module surface below may not show every signature you need — re-read with read_file before editing this file again, OR before importing/calling anything from it in another file. Do not recreate it from scratch and do not guess a function's parameters from memory.
+Module surface:
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class DownloadGroupsTest {
+    private fun item(
+        id: String,
+        kind: String = "movie",
+        series: String? = null,
+        season: Int? = null,
+        episode: Int? = null,
+        created: Long = 0L,
+    ) = DownloadItem(
+        id = id, movieId = id, title = series ?: "Movie $id", kind = kind,
+        seriesTitle = series, season = season, episode = episode,
+        episodeTitle = "Episode $episode", tvBadge = null,
+        thumbUrl = "", videoUrl = "", fileUri = null, fileName = "$id.mp4",
+        relativePath = "", mimeType = "video/mp4", totalBytes = 100L,
+        downloadedBytes = 100L, status = DownloadStatus.COMPLETED,
+        error = null, createdAt = created, updatedAt = created,
+    )
+
+    @Test fun emptyListGivesNoGroups() {
+        assertTrue(groupDownloads(emptyList()).isEmpty())
+    }
+
+    @Test fun moviesAreGroupedSeparatelyFromEpisodes() {
+        val groups = groupDownloads(
+            listOf(item("m1"), item("e1", "episode", "Show", 1, 1), item("m2"))
+        )
+        assertEquals("movies", groups.first().key)
+        assertEquals(2, groups.first().items.size)
+        assertTrue(groups.any { it.key == "series:Show" })
+    }
+
+    @Test fun episodesAreGroupedBySeriesAndSeason() {
+        val groups = groupDownloads(
+            listOf(
+                item("e2", "episode", "Show", 1, 2),
+                item("e1", "episode", "Show", 1, 1),
+                item("e3", "episode", "Show", 2, 1),
+            )
+        )
+        val s1 = groups.first { it.key == "series:Show:1" }
+        val s2 = groups.first { it.key == "series:Show:2" }
+        assertEquals("Season 1", s1.title)
+        assertEquals("Season 2", s2.title)
+        assertEquals(listOf("e1", "e2"), s1.items.map { it.id })
+        assertEquals(1, s2.items.size)
+    }
+
+    @Test fun multipleSeriesGetTheirOwnHeaders() {
+        val groups = groupDownloads(
+            listOf(item("a", "episode", "Show A", 1, 1), item("b", "episode", "Show B", 1, 1))
+        )
+        assertTrue(groups.any { it.key == "series:Show A" })
+        assertTrue(groups.any { it.key == "series:Show B" })
+    }
+
+    @Test fun missingSeasonUsesEpisodesLabel() {
+        val groups = groupDownloads(listOf(item("e", "episode", "Show", null, 3)))
+        assertEquals("Episodes", groups.first { it.key == "series:Show:0" }.title)
+    }
+}

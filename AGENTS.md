@@ -23,6 +23,7 @@
 - `@Preview` annotations need `androidx.compose.ui:ui-tooling`; it must be `debugImplementation(...)` (was missing, added) or `:app:compileDebugKotlin` fails with unresolved reference.
 - `app/libs/linktunnel.aar` (15 MB, gomobile WireGuard) is committed on purpose and un-ignored in `.gitignore`; it is a `files(...)` dependency, so it must stay in the repo. Rebuild: `scripts/build-tunnel-aar.sh` (needs Go + gomobile + NDK).
 - `app/google-services.json` is committed; the `com.google.gms.google-services` plugin is applied, so a missing/mismatched file fails the build at `processDebugGoogleServices` (package_name must be `com.linkstreamz.app`).
+- **Never show raw exception messages in the UI.** OkHttp errors contain signed bucket URLs/tokens. Use `UserFacingError.message(e)` when persisting failures and `UserFacingError.fromStored(...)` when rendering stored errors. `LogRedactor` is for logs only, not UI.
 - No git binary and no `.git` dir in the local sandbox — commits/pushes go through the git tools or the user's phone.
 - **Compose's `LocalAccessibilityManager` does not expose `isTouchExplorationEnabled`** on Compose BOM 2024.12.01 (only `isEnabled`) — `:app:compileReleaseKotlin` fails with `Unresolved reference 'isTouchExplorationEnabled'`. To detect TalkBack, get the framework manager from `LocalContext`: `context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? AccessibilityManager` and read/listen on `isTouchExplorationEnabled` / `TouchExplorationStateChangeListener`.
 
