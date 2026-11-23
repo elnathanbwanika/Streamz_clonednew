@@ -40,8 +40,9 @@ import androidx.compose.ui.unit.sp
  * and restarting the animation makes the loop seamless. No thumbnails, no header.
  */
 object ChannelMarqueeSpec {
-    const val LOOP_MS = 22_000
-    const val MAX_CHANNELS = 12
+    /** Each channel gets roughly this much screen time, so speed stays constant as the list grows. */
+    const val MS_PER_CHANNEL = 1_800
+    const val MIN_LOOP_MS = 12_000
     val Height = 48.dp
     val Gap = 20.dp
 }
@@ -52,18 +53,20 @@ fun HomeChannelMarquee(
     onPlay: (Channel) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val items = remember(channels) {
-        channels.distinctBy { it.id }.take(ChannelMarqueeSpec.MAX_CHANNELS)
-    }
+    val items = remember(channels) { channels.distinctBy { it.id } }
     if (items.isEmpty()) return
 
     var stripWidth by remember { mutableFloatStateOf(0f) }
+    val loopMs = remember(items.size) {
+        (items.size * ChannelMarqueeSpec.MS_PER_CHANNEL)
+            .coerceAtLeast(ChannelMarqueeSpec.MIN_LOOP_MS)
+    }
     val transition = rememberInfiniteTransition(label = "channel-marquee")
     val progress by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(ChannelMarqueeSpec.LOOP_MS, easing = LinearEasing),
+            animation = tween(loopMs, easing = LinearEasing),
             repeatMode = RepeatMode.Restart,
         ),
         label = "channel-marquee-progress",
