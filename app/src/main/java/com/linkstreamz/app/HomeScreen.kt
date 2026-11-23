@@ -39,12 +39,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -375,7 +373,6 @@ private fun SectionContent(
             onOpenLimited = { onSectionChange(MainSection.MOVIES) },
             onDownload = onDownload,
             onOpenMovies = { onSectionChange(MainSection.MOVIES) },
-            onOpenChannels = { onSectionChange(MainSection.CHANNELS) },
             onWatchChannel = onWatchChannel,
             onPlayer = onPlayer,
             selectTarget = { target -> selectTarget(target, onPlayer, onDialogTarget, context) },
@@ -453,7 +450,6 @@ private fun HomeSummary(
     onOpenLimited: () -> Unit,
     onDownload: (Movie) -> Unit,
     onOpenMovies: () -> Unit,
-    onOpenChannels: () -> Unit,
     onWatchChannel: (Channel) -> Unit,
     onPlayer: (PlayerTarget) -> Unit,
     selectTarget: (PlayerTarget) -> Unit,
@@ -512,6 +508,16 @@ private fun HomeSummary(
         verticalArrangement = Arrangement.spacedBy(16.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
+        if (channels.isNotEmpty()) {
+            item(key = "home-channel-marquee") {
+                HomeChannelMarquee(
+                    channels = channels,
+                    onPlay = onWatchChannel,
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+            }
+        }
+
         if (carouselSlides.isNotEmpty()) {
             item(key = "home-carousel") {
                 HomeCarousel(
@@ -569,21 +575,6 @@ private fun HomeSummary(
             }
         }
 
-        if (channels.isNotEmpty()) {
-            item(key = "home-channels") {
-                HomeRailHeader(title = "Channels", onViewAll = onOpenChannels)
-                LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    items(channels.take(10), key = { it.id }) { channel ->
-                        Box(Modifier.width(112.dp)) {
-                            ChannelCard(channel = channel, onClick = { onWatchChannel(channel) })
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 
