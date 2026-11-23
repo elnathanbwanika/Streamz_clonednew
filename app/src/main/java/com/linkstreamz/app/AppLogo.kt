@@ -68,9 +68,12 @@ fun AppLogoMark(
                 } else Modifier
             )
             .drawBehind {
-                val scale = size.minDimension / AppLogo.DESIGN_SIZE
-                val dx = (size.width - AppLogo.DESIGN_SIZE * scale) / 2f
-                val dy = (size.height - AppLogo.DESIGN_SIZE * scale) / 2f
+                // `size` here is the composable's Dp parameter — use the DrawScope
+                // size explicitly for pixel geometry.
+                val canvas = this.size
+                val scale = canvas.minDimension / AppLogo.DESIGN_SIZE
+                val dx = (canvas.width - AppLogo.DESIGN_SIZE * scale) / 2f
+                val dy = (canvas.height - AppLogo.DESIGN_SIZE * scale) / 2f
                 val tinted = if (showTile) AppLogo.Ink else AppLogo.Accent
 
                 val stem = Path().apply {
