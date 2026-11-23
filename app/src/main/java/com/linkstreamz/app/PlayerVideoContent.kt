@@ -220,7 +220,7 @@ fun PlayerVideoContent(
                     val delayVal = settings.streamDelaySeconds
                     when {
                         isExtracting -> Text(
-                            "Extracting YouTube stream...",
+                            "Loading...",
                             color = LinkColors.MutedText,
                             fontSize = 12.sp,
                             fontFamily = MonoFont,

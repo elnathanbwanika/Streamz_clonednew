@@ -664,7 +664,7 @@ fun PlayerScreen(
         if (streamUrl != null && YouTubeUrl.isYouTubeUrl(streamUrl)) {
             val videoId = YouTubeUrl.youtubeVideoId(streamUrl)
             if (videoId == null) {
-                error = "Invalid YouTube URL"
+                error = "This link could not be opened."
                 return
             }
             // Signal the LaunchedEffect to begin extraction
@@ -754,14 +754,13 @@ fun PlayerScreen(
             }
             is YtResult.Failure -> {
                 error = when (result.reason) {
-                    YtError.FATAL -> "YouTube could not load this video. It may be unavailable or restricted."
-                    YtError.RECAPTCHA -> "YouTube requires a ReCaptcha solve. Please try again."
-                    YtError.RATE_LIMIT -> "YouTube is rate-limiting. Please try again in a few minutes."
-                    YtError.AGE_RESTRICTED -> "This video has an age restriction and cannot be played here."
-                    YtError.GEO_RESTRICTED -> "This video is not available in your region."
-                    YtError.LIVE_STREAM -> "Live YouTube streams are not supported in this app."
+                    YtError.FATAL, YtError.RECAPTCHA, YtError.UNKNOWN ->
+                        "This video could not be loaded. Please try again."
+                    YtError.RATE_LIMIT -> "Too many requests right now. Please try again in a few minutes."
+                    YtError.AGE_RESTRICTED -> "This video isn't available here."
+                    YtError.GEO_RESTRICTED -> "This video isn't available in your region."
+                    YtError.LIVE_STREAM -> "Live streams aren't supported."
                     YtError.NO_STREAMS -> "Could not load this video. Try another server."
-                    YtError.UNKNOWN -> "Could not load this video. Try another server."
                 }
                 // Try next server before showing error card
                 if (target.servers.size > 1 && target.servers.indexOf(stream) < target.servers.lastIndex) {

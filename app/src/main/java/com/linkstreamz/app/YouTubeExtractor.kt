@@ -1,10 +1,10 @@
 package com.linkstreamz.app
 
-// YT-EXTRACT: On-device YouTube stream extraction using NewPipeExtractor v0.26.5 (pure Java).
+// On-device stream resolution using NewPipeExtractor v0.27.1 (pure Java).
 // No server involvement. URLs are IP-bound and extracted fresh each session.
 // Cache: 30-min LRU, max 20 entries, never persisted to disk.
 //
-// API notes (v0.26.5):
+// API notes (v0.27.1):
 //   - getThumbnails() returns List<Image>, not a String — we grab the first URL.
 //   - Exceptions: ReCaptchaException (not ReCaptchaRequiredException), GeographicRestrictionException.
 //   - VideoStream.isVideoOnly is a field (also accessible via isVideoOnly()).
@@ -76,9 +76,9 @@ object YouTubeExtractor {
                 return@withContext YtResult.Failure(YtError.LIVE_STREAM, "Live streams are not supported")
             }
 
-            val title = runCatching { extractor.name }.getOrElse { "YouTube Video" }
+            val title = runCatching { extractor.name }.getOrElse { "Video" }
             val duration = runCatching { extractor.length }.getOrElse { 0L }
-            // v0.26.5: getThumbnails() returns List<Image>; grab largest URL
+            // getThumbnails() returns List<Image>; grab largest URL
             val thumbnail = runCatching {
                 extractor.thumbnails.maxByOrNull { it.height }?.url
             }.getOrNull()
@@ -145,6 +145,10 @@ object YouTubeExtractor {
             // Network error — do NOT cache so the user can retry
             AppLogger.e("YTExtract", "IOException for $videoId — ${e.message}", e)
             return@withContext YtResult.Failure(YtError.UNKNOWN, e.message ?: "Network error")
+        } catch (e: LinkageError) {
+            // A stale or mismatched library class must never take down playback.
+            AppLogger.e("YTExtract", "Linkage error for $videoId — ${e.message}", e)
+            YtResult.Failure(YtError.FATAL, "Unavailable")
         } catch (e: Exception) {
             AppLogger.e("YTExtract", "Unknown exception for $videoId — ${e.javaClass.simpleName}: ${e.message}", e)
             YtResult.Failure(YtError.UNKNOWN, e.message ?: "Unknown error")

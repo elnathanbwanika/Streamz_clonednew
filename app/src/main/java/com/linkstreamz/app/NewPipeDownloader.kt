@@ -1,6 +1,6 @@
 package com.linkstreamz.app
 
-// YT-EXTRACT: OkHttp-backed Downloader implementation for NewPipeExtractor v0.26.5.
+// OkHttp-backed Downloader implementation for NewPipeExtractor v0.27.1.
 // Replaces NewValve to avoid the Kotlin 2.4.0 binary metadata incompatibility.
 // Uses the same OkHttp client that's already in the project.
 
