@@ -504,13 +504,20 @@ private fun HomeSummary(
     }
 
     // LazyListState is saveable, so rememberSaveableStateHolder would otherwise
-    // restore the scroll offset from the previous app run. Reset it once per
-    // process entry: tab switches within this run still keep the user's spot.
+    // restore the previous run's scroll offset — which hides the channel
+    // marquee above the viewport. Snap to the top once the marquee actually
+    // exists. Waiting for `channels` matters: on a cold launch it is empty, so
+    // an earlier reset would land on the carousel before the marquee is added.
     val homeScroll = rememberLazyListState()
-    LaunchedEffect(Unit) {
-        if (!HomeLaunchScrollReset.consumed) {
-            HomeLaunchScrollReset.consumed = true
-            homeScroll.scrollToItem(0)
+    LaunchedEffect(channels.isNotEmpty()) {
+        if (channels.isNotEmpty()) {
+            val needsReset = !HomeLaunchScrollReset.consumed ||
+                homeScroll.firstVisibleItemIndex > 0 ||
+                homeScroll.firstVisibleItemScrollOffset > 0
+            if (needsReset) {
+                HomeLaunchScrollReset.consumed = true
+                homeScroll.scrollToItem(0)
+            }
         }
     }
 
