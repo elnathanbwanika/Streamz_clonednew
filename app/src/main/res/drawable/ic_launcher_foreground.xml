@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 48dp design grid centered in the 108dp adaptive icon safe zone -->
+    <group android:translateX="30" android:translateY="30">
+        <path
+            android:fillColor="#FFFF6600"
+            android:pathData="M12.48,2H35.52C41.3,2 46,6.7 46,12.48V35.52C46,41.3 41.3,46 35.52,46H12.48C6.7,46 2,41.3 2,35.52V12.48C2,6.7 6.7,2 12.48,2Z" />
+        <path
+            android:fillColor="#00000000"
+            android:pathData="M16,13L16,33L32,33"
+            android:strokeColor="#FF000000"
+            android:strokeWidth="5.5"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round" />
+        <path
+            android:fillColor="#FF000000"
+            android:pathData="M35.5,16A3.5,3.5 0 1,1 28.5,16A3.5,3.5 0 1,1 35.5,16" />
+    </group>
+</vector>

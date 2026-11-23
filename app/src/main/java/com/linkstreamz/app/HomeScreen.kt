@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -736,14 +735,7 @@ private fun HomeHeader(onSettings: () -> Unit, onDownloads: () -> Unit) {
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(
-                Modifier.size(44.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(LsColor.Accent),
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(Icons.Default.PlayArrow, null, tint = LsColor.OnAccent, modifier = Modifier.size(24.dp))
-            }
+            AppLogoMark(size = 44.dp)
             Column {
                 Text("LINK STREAMZ", color = LsColor.Text, fontFamily = DisplayFont, fontSize = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.96.sp)
                 Text("Your Home For Streams", color = LsColor.TextDim, fontFamily = MonoFont, fontSize = 10.sp, modifier = Modifier.padding(top = 5.dp), letterSpacing = .4.sp)

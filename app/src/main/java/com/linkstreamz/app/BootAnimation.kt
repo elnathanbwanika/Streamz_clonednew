@@ -105,37 +105,43 @@ fun LinkEcosystemWelcome() {
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             Box(
-                Modifier
-                    .size(112.dp)
-                    .scale(pulse)
-                    .drawBehind {
-                        val radius = size.minDimension / 2f
-                        val center = Offset(radius, radius)
-                        drawCircle(
-                            brush = Brush.sweepGradient(
-                                0f to LsColor.Accent,
-                                0.5f to LsColor.AccentDim,
-                                1f to LsColor.Accent,
-                            ),
-                            radius = radius,
-                            center = center,
-                            style = Stroke(width = 3.dp.toPx(), cap = StrokeCap.Round),
-                        )
-                        val angle = Math.toRadians(orbit.toDouble())
-                        repeat(3) { i ->
-                            val a = angle + i * (Math.PI * 2 / 3)
-                            val d = radius * 0.72f
+                contentAlignment = Alignment.Center,
+            ) {
+                // Soft halo behind the mark — same orbit motion, now framing the logo.
+                Box(
+                    Modifier
+                        .size(132.dp)
+                        .scale(pulse)
+                        .drawBehind {
+                            val radius = size.minDimension / 2f
+                            val center = Offset(radius, radius)
                             drawCircle(
-                                color = LsColor.Accent,
-                                radius = 4.dp.toPx(),
-                                center = Offset(
-                                    center.x + (cos(a) * d).toFloat(),
-                                    center.y + (sin(a) * d).toFloat(),
+                                brush = Brush.sweepGradient(
+                                    0f to LsColor.Accent,
+                                    0.5f to LsColor.AccentDim,
+                                    1f to LsColor.Accent,
                                 ),
+                                radius = radius,
+                                center = center,
+                                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
                             )
-                        }
-                    },
-            )
+                            val angle = Math.toRadians(orbit.toDouble())
+                            repeat(3) { i ->
+                                val a = angle + i * (Math.PI * 2 / 3)
+                                val d = radius * 0.86f
+                                drawCircle(
+                                    color = LsColor.Accent,
+                                    radius = 3.dp.toPx(),
+                                    center = Offset(
+                                        center.x + (cos(a) * d).toFloat(),
+                                        center.y + (sin(a) * d).toFloat(),
+                                    ),
+                                )
+                            }
+                        },
+                )
+                AppLogoMark(size = 84.dp)
+            }
             Text(
                 "LINK STREAMZ",
                 color = LsColor.Text,
