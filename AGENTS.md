@@ -7,6 +7,11 @@
 - JDK 25 is TOO NEW (Gradle 8.9/AGP 8.5.2 fail with `What went wrong: 25.0.4.1`). Use 17 or 21. CI pins 17 via setup-java; local Codespace defaults to 25 → set `JAVA_HOME` to a 17/21 JDK for local builds.
 - APK lands at `app/build/outputs/apk/release/`.
 
+## Installing the APK
+- **Always install the raw `.apk`**, never the Actions artifact ZIP (installing a renamed ZIP gives "package appears to be invalid/corrupt"). CI publishes a direct APK at `https://github.com/elnathanbwanika/Streamz_clonednew/releases/download/latest/LinkStreamz-<version>.apk`.
+- If an older build is already installed with a different signing key, uninstall it first — Android rejects an update with a different signature and reports it as a corrupt/invalid package.
+- CI verifies every APK with `aapt2 dump badging` (manifest/resource parse), `zipalign -c -P 16` (warning) and `apksigner verify --verbose`. A passing run means the uploaded bytes are a valid signed package; a failure after download means the file was truncated or the ZIP was installed.
+
 ## CI (GitHub Actions)
 - Workflow: `.github/workflows/build-apk.yml` (builds a **signed release** APK, uploads artifact + failure reports).
 - **Versioning:** `app/version.properties` is the single source of truth. CI increments it (`PATCH` rolls 0..9 then `MINOR+1`; `MINOR` rolls 0..9 then `MAJOR+1`; `BUILD` = Android `versionCode`, always +1), passes the values to Gradle as `-PversionMajor/-PversionMinor/-PversionPatch/-PversionCodeOverride`, then commits the file back with `[skip ci]`. A local build never bumps — it reuses the committed values — so dev builds can't consume a version number and collide with CI.

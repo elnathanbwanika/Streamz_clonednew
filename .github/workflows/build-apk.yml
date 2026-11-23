@@ -114,7 +114,7 @@ jobs:
             -PversionPatch=${{ steps.version.outputs.patch }} \
             -PversionCodeOverride=${{ steps.version.outputs.versionCode }}
 
-      - name: Verify APK is signed
+      - name: Verify APK package
         run: |
           set -euo pipefail
           APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
@@ -124,8 +124,24 @@ jobs:
           fi
           echo "APK: $APK"
           BUILD_TOOLS="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
-          "$BUILD_TOOLS/apksigner" verify --print-certs "$APK"
-          echo "Signing verified against: $BUILD_TOOLS/apksigner"
+
+          # aapt2 parses the binary manifest + resource table exactly like the
+          # device installer does. If this fails, the package really is corrupt.
+          "$BUILD_TOOLS/aapt2" dump badging "$APK" > apk-badging.txt
+          sed -n '1,20p' apk-badging.txt
+
+          # Report 16 KB alignment (required by some Android 15+ devices).
+          # Non-fatal: AGP 8.5.1+ aligns automatically, and a failure here must
+          # not block an otherwise valid APK for 4 KB devices.
+          if ! "$BUILD_TOOLS/zipalign" -c -v -P 16 4 "$APK"; then
+            echo "::warning::APK is not 16 KB aligned — install may fail on Android 15+ 16 KB-page devices."
+          fi
+
+          # Full signature verification, including which schemes are present.
+          "$BUILD_TOOLS/apksigner" verify --verbose --print-certs "$APK"
+
+          sha256sum "$APK" | tee apk-sha256.txt
+          echo "Package verified against: $BUILD_TOOLS"
 
       - name: Upload release APK
         uses: actions/upload-artifact@v4
@@ -133,6 +149,28 @@ jobs:
           name: app-release-${{ steps.version.outputs.versionName }}
           path: app/build/outputs/apk/release/*.apk
           retention-days: 30
+
+      # Actions artifacts are always ZIP archives. Installing that ZIP (even
+      # renamed to .apk) produces "package appears to be invalid/corrupt" on
+      # Android. Publish the raw APK as a release asset so there is a direct,
+      # unambiguous download link.
+      - name: Publish direct APK download
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION_NAME: ${{ steps.version.outputs.versionName }}
+        run: |
+          set -euo pipefail
+          APK=$(find app/build/outputs/apk/release -name '*.apk' | head -1)
+          ASSET="LinkStreamz-$VERSION_NAME.apk"
+          cp "$APK" "$ASSET"
+          if gh release view latest >/dev/null 2>&1; then
+            gh release upload latest "$ASSET" --clobber
+          else
+            gh release create latest "$ASSET" \
+              --title "Latest build ($VERSION_NAME)" \
+              --notes "Direct APK download. Verify with the SHA-256 in the workflow log."
+          fi
+          echo "Direct download: https://github.com/${{ github.repository }}/releases/download/latest/$ASSET"
 
       - name: Upload build reports (on failure)
         uses: actions/upload-artifact@v4
