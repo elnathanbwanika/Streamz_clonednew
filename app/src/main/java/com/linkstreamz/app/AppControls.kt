@@ -1,5 +1,11 @@
 package com.linkstreamz.app
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -9,17 +15,29 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -28,6 +46,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -66,6 +86,15 @@ object AppControlSpec {
     val IconButtonSize: Dp = 36.dp
     val IconSize: Dp = 20.dp
     val TouchSize: Dp = 48.dp
+
+    // Dense facets inside the filter popover and the category row. Visual size
+    // stays 26dp; the clickable box is 32dp so fat fingers still hit reliably.
+    val CompactChipHeight: Dp = 26.dp
+    val CompactChipTouchHeight: Dp = 32.dp
+    val CompactChipTextSize: TextUnit = 13.sp
+    val CompactChipPaddingHorizontal: Dp = 10.dp
+    val SegmentedHeight: Dp = 28.dp
+    val SegmentedTextSize: TextUnit = 12.5.sp
 
     val SelectedFill: Color get() = LinkColors.OrangePrimary
     val SelectedText: Color get() = Color.Black
@@ -246,6 +275,227 @@ fun AppIconButton(
             contentAlignment = Alignment.Center,
         ) {
             Icon(icon, null, tint = tint, modifier = Modifier.size(AppControlSpec.IconSize))
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dense variants — same Season-chip language, smaller visual footprint
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * 26dp-tall chip with a 32dp touch target. No outline; orange fill when
+ * selected. Announces its selected state to TalkBack via [stateDescription].
+ */
+@Composable
+fun AppCompactChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    contentDescription: String? = null,
+    trailingIcon: ImageVector? = null,
+    enabled: Boolean = true,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val fill = if (selected) {
+        if (pressed) AppControlSpec.PressedFill else AppControlSpec.SelectedFill
+    } else {
+        if (pressed) LinkColors.CardBg.copy(alpha = 0.78f) else AppControlSpec.UnselectedFill
+    }
+    Box(
+        modifier
+            .defaultMinSize(minHeight = AppControlSpec.CompactChipTouchHeight)
+            .clickable(
+                interactionSource = interaction,
+                indication = LocalIndication.current,
+                enabled = enabled,
+                onClick = onClick,
+            )
+            .semantics(mergeDescendants = true) {
+                role = androidx.compose.ui.semantics.Role.Button
+                this.contentDescription = contentDescription ?: label
+                this.stateDescription = if (selected) "Selected" else "Not selected"
+            }
+            .then(if (enabled) Modifier else Modifier.graphicsLayer { alpha = AppControlSpec.DisabledAlpha }),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            Modifier
+                .clip(AppControlShape)
+                .background(fill)
+                .height(AppControlSpec.CompactChipHeight)
+                .padding(horizontal = AppControlSpec.CompactChipPaddingHorizontal),
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = label,
+                    color = if (selected) AppControlSpec.SelectedText else AppControlSpec.UnselectedText,
+                    fontFamily = BodyFont,
+                    fontSize = AppControlSpec.CompactChipTextSize,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
+                if (trailingIcon != null && selected) {
+                    Spacer(Modifier.width(3.dp))
+                    Icon(
+                        trailingIcon,
+                        contentDescription = null,
+                        tint = AppControlSpec.SelectedText,
+                        modifier = Modifier.size(11.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Two-option segmented toggle, 28dp tall, built from the shared radius. */
+@Composable
+fun <T> AppSegmentedToggle(
+    options: List<T>,
+    selected: T,
+    label: (T) -> String,
+    onSelect: (T) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier
+            .fillMaxWidth()
+            .height(AppControlSpec.SegmentedHeight)
+            .clip(AppControlShape)
+            .background(AppControlSpec.UnselectedFill)
+            .padding(2.dp),
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp),
+    ) {
+        options.forEach { option ->
+            val isSelected = option == selected
+            Box(
+                Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .clip(AppControlShape)
+                    .background(if (isSelected) AppControlSpec.SelectedFill else Color.Transparent)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = LocalIndication.current,
+                        onClick = { onSelect(option) },
+                    )
+                    .semantics(mergeDescendants = true) {
+                        role = androidx.compose.ui.semantics.Role.Button
+                        contentDescription = label(option)
+                        stateDescription = if (isSelected) "Selected" else "Not selected"
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = label(option),
+                    color = if (isSelected) AppControlSpec.SelectedText else AppControlSpec.UnselectedText,
+                    fontFamily = BodyFont,
+                    fontSize = AppControlSpec.SegmentedTextSize,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Shared inline search toolbar. Collapsed: [collapsedLeading] (scope chips or
+ * the screen title) plus a magnifier. Expanded: a focused field plus an "x",
+ * with [trailing] (the Movies filter button) kept visible in both states.
+ *
+ * Back, the "x", or losing focus while empty collapses the field.
+ */
+@Composable
+fun InlineSearchRow(
+    expanded: Boolean,
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onExpand: () -> Unit,
+    onCollapse: () -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    collapsedLeading: (@Composable () -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    BackHandler(enabled = expanded, onCollapse)
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            runCatching { focusRequester.requestFocus() }
+        }
+    }
+
+    AnimatedContent(
+        targetState = expanded,
+        transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(200)) },
+        label = "inline-search",
+    ) { isExpanded ->
+        Row(
+            modifier
+                .fillMaxWidth()
+                .heightIn(min = AppControlSpec.TouchSize),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+        ) {
+            if (isExpanded) {
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .height(AppControlSpec.TouchSize - 4.dp)
+                        .clip(AppControlShape)
+                        .background(AppControlSpec.UnselectedFill)
+                        .padding(horizontal = 10.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Default.Search,
+                            contentDescription = null,
+                            tint = LinkColors.MutedText,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Box(Modifier.weight(1f)) {
+                            if (query.isEmpty()) {
+                                Text(
+                                    placeholder,
+                                    color = LinkColors.MutedText,
+                                    fontFamily = BodyFont,
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                )
+                            }
+                            BasicTextField(
+                                value = query,
+                                onValueChange = onQueryChange,
+                                textStyle = TextStyle(
+                                    color = LinkColors.PrimaryText,
+                                    fontFamily = BodyFont,
+                                    fontSize = 13.sp,
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(focusRequester)
+                                    .onFocusChanged { state ->
+                                        if (!state.isFocused && query.isEmpty()) onCollapse()
+                                    },
+                            )
+                        }
+                    }
+                }
+                if (trailing != null) trailing()
+                AppIconButton(Icons.Default.Close, "Close search", onCollapse)
+            } else {
+                if (collapsedLeading != null) collapsedLeading()
+                Spacer(Modifier.weight(1f))
+                AppIconButton(Icons.Default.Search, "Search", onExpand)
+                if (trailing != null) trailing()
+            }
         }
     }
 }

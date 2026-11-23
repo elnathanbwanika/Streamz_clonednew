@@ -1,32 +1,12 @@
 package com.linkstreamz.app
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.saveable.Saver
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Filter model + pure helpers
+//
+// The popover keeps a draft of this state; the screen owns the applied state.
+// Every count, chip and result is derived here so none of them can drift.
 // ─────────────────────────────────────────────────────────────────────────────
 
 enum class TranslatedFilter(val label: String) {
@@ -66,7 +46,7 @@ private fun descriptorOf(item: Any): FilterDescriptor? = when (item) {
     else -> null
 }
 
-/** Pure predicate shared by the catalogue and the sheet's live count. */
+/** Pure predicate shared by the catalogue and the popover's live count. */
 fun matchesMoviesFilter(item: Any, state: MoviesFilterState): Boolean {
     val d = descriptorOf(item) ?: return false
     val matchTranslated = when (state.translatedFilter) {
@@ -88,15 +68,54 @@ fun filterCatalogue(
     movies.filter { matchesMoviesFilter(it, state) } to
         series.filter { matchesMoviesFilter(it, state) }
 
+/** Live "Show N" count for the selected content type. */
+fun resultCount(movies: List<Movie>, series: List<Series>, state: MoviesFilterState): Int {
+    val (m, s) = filterCatalogue(movies, series, state)
+    return if (state.contentType == MediaContentType.MOVIES) m.size else s.size
+}
+
+/** VJs only exist on translated titles, so the facet is hidden otherwise. */
+fun isVjSectionVisible(state: MoviesFilterState): Boolean =
+    state.translatedFilter == TranslatedFilter.TRANSLATED
+
 /** Number of non-default selections, shown as a badge on the trigger button. */
-fun activeFilterCount(state: MoviesFilterState): Int {
-    var count = 0
-    if (state.contentType != MediaContentType.MOVIES) count++
-    if (state.translatedFilter != TranslatedFilter.TRANSLATED) count++
-    if (state.vjFilter != null) count++
-    count += state.genres.size
-    count += state.years.size
-    return count
+fun activeFilterCount(state: MoviesFilterState): Int = activeFilterChips(state).size
+
+/** One removable toolbar chip per active selection. */
+data class ActiveFilterChip(val id: String, val label: String)
+
+fun activeFilterChips(state: MoviesFilterState): List<ActiveFilterChip> {
+    val chips = mutableListOf<ActiveFilterChip>()
+    if (state.contentType != MediaContentType.MOVIES) {
+        chips += ActiveFilterChip(TYPE_ID, state.contentType.label)
+    }
+    if (state.translatedFilter != TranslatedFilter.TRANSLATED) {
+        chips += ActiveFilterChip(LANGUAGE_ID, state.translatedFilter.label)
+    }
+    state.genres.sortedBy { it.lowercase() }.forEach { chips += ActiveFilterChip("$GENRE_PREFIX$it", it) }
+    state.years.sortedDescending().forEach { chips += ActiveFilterChip("$YEAR_PREFIX$it", it.toString()) }
+    state.vjFilter?.let { chips += ActiveFilterChip(VJ_ID, it) }
+    return chips
+}
+
+private const val TYPE_ID = "type"
+private const val LANGUAGE_ID = "language"
+private const val VJ_ID = "vj"
+private const val GENRE_PREFIX = "genre:"
+private const val YEAR_PREFIX = "year:"
+
+/** Removes one active selection by its chip id. */
+fun removeActiveFilter(state: MoviesFilterState, id: String): MoviesFilterState = when {
+    id == TYPE_ID -> state.copy(contentType = MediaContentType.MOVIES)
+    id == LANGUAGE_ID -> state.copy(translatedFilter = TranslatedFilter.TRANSLATED, vjFilter = null)
+    id == VJ_ID -> state.copy(vjFilter = null)
+    id.startsWith(GENRE_PREFIX) ->
+        state.copy(genres = state.genres - id.removePrefix(GENRE_PREFIX))
+    id.startsWith(YEAR_PREFIX) -> {
+        val year = id.removePrefix(YEAR_PREFIX).toIntOrNull()
+        if (year == null) state else state.copy(years = state.years - year)
+    }
+    else -> state
 }
 
 fun availableGenres(movies: List<Movie>, series: List<Series>): List<String> =
@@ -117,246 +136,33 @@ fun availableVJs(movies: List<Movie>, series: List<Series>): List<String> =
         .distinctBy { it.lowercase() }
         .sortedBy { it.lowercase() }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Filter sheet
-// ─────────────────────────────────────────────────────────────────────────────
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun MoviesFilterSheet(
-    state: MoviesFilterState,
-    movies: List<Movie>,
-    series: List<Series>,
-    onDismiss: () -> Unit,
-    onApply: (MoviesFilterState) -> Unit,
-) {
-    var draft by remember(state) { mutableStateOf(state) }
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    val genres = remember(movies, series) { availableGenres(movies, series) }
-    val years = remember(movies, series) { availableYears(movies, series) }
-    val vjs = remember(movies, series) { availableVJs(movies, series) }
-
-    val resultCount = remember(draft, movies, series) {
-        val (m, s) = filterCatalogue(movies, series, draft)
-        if (draft.contentType == MediaContentType.MOVIES) m.size else s.size
-    }
-    val resultLabel = if (draft.contentType == MediaContentType.MOVIES) "movies" else "series"
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = LsColor.Surface,
-        contentColor = LsColor.Text,
-        shape = LsShape.Sheet,
-        scrimColor = LsColor.Scrim,
-        dragHandle = {
-            Box(
-                Modifier
-                    .padding(vertical = 10.dp)
-                    .size(width = 36.dp, height = 4.dp)
-                    .clip(LsShape.Pill)
-                    .background(LsColor.FillSubtle)
-            )
-        },
-    ) {
-        Column(Modifier.fillMaxWidth()) {
-            // ── Header
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "FILTERS",
-                        color = LsColor.Text,
-                        fontFamily = DisplayFont,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        letterSpacing = 1.5.sp,
-                    )
-                    Text(
-                        "Refine your catalogue",
-                        color = LsColor.TextDim,
-                        fontFamily = BodyFont,
-                        fontSize = 11.sp,
-                        modifier = Modifier.padding(top = 2.dp),
-                    )
-                }
-                AppIconButton(Icons.Default.Close, "Close filters", onDismiss)
-            }
-
-            Spacer(Modifier.height(12.dp))
-            Hairline()
-
-            // ── Scrollable facets
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp, vertical = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
-            ) {
-                FilterSection("SHOW") {
-                    Segment(
-                        options = MediaContentType.entries.toList(),
-                        selected = draft.contentType,
-                        label = { it.label },
-                    ) { draft = draft.copy(contentType = it) }
-                }
-
-                FilterSection("LANGUAGE") {
-                    Segment(
-                        options = TranslatedFilter.entries.toList(),
-                        selected = draft.translatedFilter,
-                        label = { it.label },
-                    ) { language ->
-                        // VJs only exist on translated titles — drop a stale VJ
-                        // selection so it cannot silently empty the results.
-                        draft = if (language == TranslatedFilter.NON_TRANSLATED) {
-                            draft.copy(translatedFilter = language, vjFilter = null)
-                        } else {
-                            draft.copy(translatedFilter = language)
-                        }
-                    }
-                }
-
-                if (genres.isNotEmpty()) {
-                    FilterSection("GENRE", "Pick one or more") {
-                        ChipRow(genres) { genre ->
-                            val selected = genre in draft.genres
-                            FilterChoiceChip(
-                                label = genre,
-                                selected = selected,
-                                onClick = {
-                                    draft = draft.copy(
-                                        genres = if (selected) draft.genres - genre else draft.genres + genre
-                                    )
-                                },
-                            )
-                        }
-                    }
-                }
-
-                if (years.isNotEmpty()) {
-                    FilterSection("RELEASE YEAR") {
-                        ChipRow(years) { year ->
-                            val selected = year in draft.years
-                            FilterChoiceChip(
-                                label = year.toString(),
-                                selected = selected,
-                                onClick = {
-                                    draft = draft.copy(
-                                        years = if (selected) draft.years - year else draft.years + year
-                                    )
-                                },
-                            )
-                        }
-                    }
-                }
-
-                if (draft.translatedFilter == TranslatedFilter.TRANSLATED && vjs.isNotEmpty()) {
-                    FilterSection("VJ", "Translated titles only") {
-                        ChipRow(listOf(null) + vjs) { vj ->
-                            FilterChoiceChip(
-                                label = vj ?: "All",
-                                selected = draft.vjFilter == vj,
-                            ) { draft = draft.copy(vjFilter = vj) }
-                        }
-                    }
-                }
-            }
-
-            Hairline()
-
-            // ── Sticky footer
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                AppButton(
-                    label = "Reset",
-                    onClick = { onApply(MoviesFilterState()) },
-                    variant = AppButtonVariant.Secondary,
+/** Keeps filter selections across tab switches without a Parcelable model. */
+val MoviesFilterStateSaver = Saver<MoviesFilterState, List<String>>(
+    save = { state ->
+        listOf(
+            state.translatedFilter.name,
+            state.contentType.name,
+            state.vjFilter.orEmpty(),
+            state.genres.sorted().joinToString("\u001f"),
+            state.years.sorted().joinToString(","),
+        )
+    },
+    restore = { parts ->
+        if (parts.size != 5) {
+            null
+        } else {
+            runCatching {
+                MoviesFilterState(
+                    translatedFilter = runCatching { TranslatedFilter.valueOf(parts[0]) }
+                        .getOrDefault(TranslatedFilter.TRANSLATED),
+                    contentType = runCatching { MediaContentType.valueOf(parts[1]) }
+                        .getOrDefault(MediaContentType.MOVIES),
+                    vjFilter = parts[2].ifEmpty { null },
+                    genres = if (parts[3].isEmpty()) emptySet() else parts[3].split('\u001f').toSet(),
+                    years = if (parts[4].isEmpty()) emptySet() else parts[4].split(',')
+                        .mapNotNull { it.toIntOrNull() }.toSet(),
                 )
-                Box(Modifier.weight(1f)) {
-                    AppButton(
-                        label = "Show $resultCount $resultLabel",
-                        onClick = { onApply(draft) },
-                        modifier = Modifier.fillMaxWidth(),
-                        large = true,
-                    )
-                }
-            }
+            }.getOrNull()
         }
-    }
-}
-
-@Composable
-private fun Hairline() {
-    Box(Modifier.fillMaxWidth().height(1.dp).background(LsColor.FillSubtle))
-}
-
-@Composable
-private fun FilterSection(title: String, hint: String? = null, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                title,
-                color = LsColor.TextDim,
-                fontFamily = MonoFont,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.8.sp,
-            )
-            if (hint != null) {
-                Text(hint, color = LsColor.TextDim.copy(alpha = 0.6f), fontFamily = BodyFont, fontSize = 10.sp)
-            }
-        }
-        content()
-    }
-}
-
-@Composable
-private fun <T> Segment(
-    options: List<T>,
-    selected: T,
-    label: (T) -> String,
-    onSelect: (T) -> Unit,
-) {
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(AppControlSpec.ChipGap),
-    ) {
-        options.forEach { option ->
-            AppTab(
-                label = label(option),
-                selected = option == selected,
-                onClick = { onSelect(option) },
-                modifier = Modifier.weight(1f, fill = false),
-            )
-        }
-    }
-}
-
-@Composable
-private fun <T> ChipRow(items: List<T>, chip: @Composable (T) -> Unit) {
-    LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        contentPadding = PaddingValues(vertical = 2.dp),
-    ) {
-        items(items) { item -> chip(item) }
-    }
-}
-
-@Composable
-private fun FilterChoiceChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    AppChip(
-        label = label,
-        selected = selected,
-        onClick = onClick,
-        contentDescription = label,
-        trailingIcon = Icons.Default.Check,
-    )
-}
+    },
+)

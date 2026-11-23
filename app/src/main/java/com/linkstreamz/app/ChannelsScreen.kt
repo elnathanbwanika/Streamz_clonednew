@@ -1,9 +1,7 @@
 package com.linkstreamz.app
 
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -16,10 +14,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.*
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -28,8 +23,6 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -43,25 +36,30 @@ import coil.request.ImageRequest
 
 private val CATEGORY_ORDER = listOf("General", "News", "Entertainment", "Music", "Sports", "Kids")
 
-private val CARD_BG            = LsColor.Card
-private val CARD_BORDER_REST   = Color(0xFF3A2617)
-private val CARD_BORDER_PRESS  = Color(0xFFFF6A00)
-private val LIVE_RED           = LsColor.Accent
-private val THUMB_BG           = LsColor.AccentDim
-private val ORANGE_ACCENT      = LsColor.Accent
-private val TEXT_NAME          = LsColor.Text
-private val PILL_BG            = LsColor.Card
-private val PILL_BORDER        = Color(0xFF3A2415)
-private val PILL_TEXT          = LsColor.TextDim
+private val CARD_BG       = LsColor.Card
+private val LIVE_RED      = LsColor.Accent
+private val THUMB_BG      = LsColor.AccentDim
+private val ORANGE_ACCENT = LsColor.Accent
+private val TEXT_NAME     = LsColor.Text
 
 @Composable
 fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
     var searchQuery by remember { mutableStateOf("") }
+    var searchOpen by remember { mutableStateOf(false) }
     val allChannels = channels
     var localFilter by remember { mutableStateOf(true) }   // true = Local, false = Abroad
-    var catFilter   by remember { mutableStateOf<String?>(null) }
+    var catFilter by remember { mutableStateOf<String?>(null) }
 
-    val filtered = remember(searchQuery, localFilter, catFilter, allChannels) {
+    val scoped = remember(allChannels, localFilter) {
+        allChannels.filter { if (localFilter) it.country == "Uganda" else it.country != "Uganda" }
+    }
+    val scopedCategories = remember(scoped) {
+        scoped.map { it.category }.distinct()
+            .sortedBy { CATEGORY_ORDER.indexOf(it).takeIf { i -> i >= 0 } ?: 99 }
+    }
+
+    // Search still scans the whole catalogue, exactly as before.
+    val filtered = remember(searchQuery, allChannels, catFilter) {
         allChannels
             .let { list -> if (searchQuery.length >= 2) list.filter {
                 it.title.contains(searchQuery, true) || it.program.contains(searchQuery, true) || it.category.contains(searchQuery, true)
@@ -72,58 +70,52 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
     val localChannels = allChannels.filter { it.country == "Uganda" }
     val isSearch = searchQuery.length >= 2
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        // ── Search bar (fixed outside scroll area) ─────────────────────────
-        Box(
-            Modifier.fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .height(52.dp)
-                .background(LsColor.Card, LsShape.Button)
-                .padding(horizontal = 14.dp),
-            contentAlignment = Alignment.CenterStart
-        ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Search, null, tint = LinkColors.MutedText, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(8.dp))
-                Box(Modifier.weight(1f)) {
-                    if (searchQuery.isEmpty()) Text("Search channels or categories", color = LinkColors.MutedText, fontSize = 13.sp)
-                    BasicTextField(
-                        value = searchQuery, onValueChange = { searchQuery = it },
-                        textStyle = TextStyle(color = LinkColors.PrimaryText, fontSize = 13.sp, fontFamily = BodyFont),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
-            }
+    fun collapseSearch() {
+        searchQuery = ""
+        searchOpen = false
+    }
+
+    Column(modifier = Modifier.fillMaxSize().imePadding()) {
+        // ── One toolbar row: scope chips left, search right ────────────────
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            InlineSearchRow(
+                expanded = searchOpen,
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                onExpand = { searchOpen = true },
+                onCollapse = { collapseSearch() },
+                placeholder = "Search channels or categories",
+                collapsedLeading = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(AppControlSpec.ChipGap)) {
+                        AppChip(
+                            label = "Local",
+                            selected = localFilter,
+                            onClick = { localFilter = true; catFilter = null },
+                            contentDescription = "Local channels",
+                        )
+                        AppChip(
+                            label = "Abroad",
+                            selected = !localFilter,
+                            onClick = { localFilter = false; catFilter = null },
+                            contentDescription = "Abroad channels",
+                        )
+                    }
+                },
+            )
         }
 
-        // ── Local / Abroad segmented control & category chips (outside scroll area)
+        // ── One compact, horizontally scrolling category row ───────────────
         if (!isSearch) {
-            Row(
-                Modifier
-                    .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(AppControlSpec.ChipGap),
-            ) {
-                listOf(true to "Local", false to "Abroad").forEach { (local, label) ->
-                    AppTab(
-                        label = label,
-                        selected = localFilter == local,
-                        onClick = { localFilter = local; catFilter = null },
-                        modifier = Modifier.weight(1f, fill = false),
-                        contentDescription = label,
-                    )
-                }
-            }
-
-            val scopedCategories = allChannels
-                .filter { if (localFilter) it.country == "Uganda" else it.country != "Uganda" }
-                .map { it.category }.distinct().sortedBy { CATEGORY_ORDER.indexOf(it).takeIf { i -> i >= 0 } ?: 99 }
-
             LazyRow(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 item { CategoryChip("All", catFilter == null) { catFilter = null } }
-                items(scopedCategories) { cat -> CategoryChip(cat, catFilter == cat) { catFilter = if (catFilter == cat) null else cat } }
+                items(scopedCategories) { cat ->
+                    CategoryChip(cat, catFilter == cat) {
+                        catFilter = if (catFilter == cat) null else cat
+                    }
+                }
             }
             Spacer(Modifier.height(4.dp))
         }
@@ -140,13 +132,13 @@ fun ChannelsScreen(channels: List<Channel>, onWatch: (Channel) -> Unit) {
             label = "channels_live_alpha"
         )
 
-        // ── Vertical 4-column Grid ─────────────────────────────────────────
+        // ── Three-column grid with 8dp gaps ───────────────────────────────
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 76.dp),
+            columns = GridCells.Fixed(3),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-            modifier = Modifier.fillMaxSize()
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.weight(1f)
         ) {
             if (isSearch) {
                 item(span = { GridItemSpan(maxLineSpan) }) {
@@ -239,47 +231,31 @@ private fun SectionHeader(title: String, count: Int, modifier: Modifier = Modifi
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 14.dp, bottom = 9.dp),
+            .padding(top = 12.dp, bottom = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Box(
-                Modifier
-                    .size(width = 3.dp, height = 15.dp)
-                    .clip(RoundedCornerShape(1.5.dp))
-                    .background(ORANGE_ACCENT)
-            )
-            Text(
-                text = title,
-                color = Color.White,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-            )
-        }
-        Box(
-            modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
-                .background(PILL_BG)
-                .padding(horizontal = 8.dp, vertical = 2.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = count.toString(),
-                color = PILL_TEXT,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Normal,
-            )
-        }
+        Text(
+            text = title,
+            color = LinkColors.PrimaryText,
+            fontFamily = DisplayFont,
+            fontWeight = FontWeight.Bold,
+            fontSize = 16.sp,
+            maxLines = 1,
+        )
+        Text(
+            text = count.toString(),
+            color = LinkColors.OrangePrimary,
+            fontFamily = MonoFont,
+            fontSize = 11.sp,
+            maxLines = 1,
+        )
     }
 }
 
 @Composable
 private fun CategoryChip(label: String, selected: Boolean, onClick: () -> Unit) {
-    AppChip(label, selected, onClick, contentDescription = label)
+    AppCompactChip(label, selected, onClick, contentDescription = label)
 }
 
 @Composable
@@ -321,7 +297,7 @@ fun ChannelCard(channel: Channel, onClick: () -> Unit, liveAlpha: Float = 1f) {
             .build()
     }
 
-    val cardShape = LsShape.Card
+    val cardShape = RoundedCornerShape(12.dp)
 
     Column(
         modifier = Modifier

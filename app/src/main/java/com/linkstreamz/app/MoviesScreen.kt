@@ -15,15 +15,15 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,7 +58,10 @@ fun MoviesScreen(
     var searchQuery by remember { mutableStateOf("") }
     var showSearch by remember { mutableStateOf(false) }
     var showFilter by remember { mutableStateOf(false) }
-    var filterState by remember { mutableStateOf(MoviesFilterState()) }
+    var filterState by rememberSaveable(stateSaver = MoviesFilterStateSaver) {
+        mutableStateOf(MoviesFilterState())
+    }
+    val activeChips = remember(filterState) { activeFilterChips(filterState) }
     var viewAllRow by remember { mutableStateOf<String?>(null) }
     var nowMs by remember { mutableLongStateOf(ServerClock.now()) }
 
@@ -132,51 +135,94 @@ fun MoviesScreen(
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
-        LazyColumn(
-            contentPadding = PaddingValues(bottom = 96.dp),
-            state = listState,
-            modifier = Modifier.fillMaxSize()
-        ) {
-            // ── Action row (search + filter)
-            item {
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Search bar
-                    Box(
-                        Modifier.weight(1f)
-                            .heightIn(min = 48.dp)
-                            .background(LinkColors.CardBg, RoundedCornerShape(12.dp))
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Search, null, tint = LinkColors.MutedText, modifier = Modifier.size(16.dp))
-                            Spacer(Modifier.width(8.dp))
-                            Box {
-                                if (searchQuery.isEmpty()) Text("Search movies, series or VJs", color = LinkColors.MutedText, fontSize = 13.sp)
-                                BasicTextField(
-                                    value = searchQuery,
-                                    onValueChange = { searchQuery = it },
-                                    textStyle = TextStyle(color = LinkColors.PrimaryText, fontSize = 13.sp, fontFamily = BodyFont),
-                                    modifier = Modifier.fillMaxWidth()
+    Column(Modifier.fillMaxSize().imePadding()) {
+        // ── Toolbar: title + inline search + filter icon ───────────────────
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            InlineSearchRow(
+                expanded = showSearch,
+                query = searchQuery,
+                onQueryChange = { searchQuery = it },
+                onExpand = { showFilter = false; showSearch = true },
+                onCollapse = { searchQuery = ""; showSearch = false },
+                placeholder = "Search movies, series or VJs",
+                collapsedLeading = {
+                    Text(
+                        "Movies",
+                        color = LinkColors.PrimaryText,
+                        fontFamily = DisplayFont,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp,
+                        maxLines = 1,
+                    )
+                },
+                trailing = {
+                    Box {
+                        AppIconButton(
+                            icon = Icons.Default.Tune,
+                            contentDescription = if (activeChips.isEmpty()) "Filters" else
+                                "Filters, ${activeChips.size} active",
+                            onClick = {
+                                // Only one Back-driven layer at a time.
+                                showSearch = false
+                                searchQuery = ""
+                                showFilter = !showFilter
+                            },
+                        )
+                        if (activeChips.isNotEmpty()) {
+                            Box(
+                                Modifier
+                                    .align(Alignment.TopEnd)
+                                    .size(16.dp)
+                                    .clip(CircleShape)
+                                    .background(LinkColors.OrangePrimary),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    activeChips.size.toString(),
+                                    color = Color.Black,
+                                    fontFamily = MonoFont,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
                                 )
                             }
                         }
                     }
-                    // Filter trigger — count badge makes active refinements obvious
-                    val activeCount = activeFilterCount(filterState)
+                },
+            )
+        }
+
+        // ── Removable active-filter chips ──────────────────────────────────
+        if (activeChips.isNotEmpty()) {
+            LazyRow(
+                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                items(activeChips) { chip ->
+                    AppCompactChip(
+                        label = "${chip.label} ×",
+                        selected = false,
+                        onClick = { filterState = removeActiveFilter(filterState, chip.id) },
+                        contentDescription = "Remove ${chip.label} filter",
+                    )
+                }
+                item {
                     AppButton(
-                        label = "Filters${if (activeCount > 0) " · $activeCount" else ""}",
-                        onClick = { showFilter = true },
-                        variant = if (activeCount > 0) AppButtonVariant.Primary else AppButtonVariant.Secondary,
-                        contentDescription = "Filters",
+                        label = "Clear all",
+                        onClick = { filterState = MoviesFilterState() },
+                        variant = AppButtonVariant.Text,
+                        contentDescription = "Clear all filters",
                     )
                 }
             }
+        }
+
+        Box(Modifier.weight(1f)) {
+            LazyColumn(
+                contentPadding = PaddingValues(bottom = 96.dp),
+                state = listState,
+                modifier = Modifier.fillMaxSize()
+            ) {
 
             // ── Time-limited rail (always near the top)
             if (limitedMovies.isNotEmpty() && searchQuery.length < 2) {
@@ -227,7 +273,7 @@ fun MoviesScreen(
                         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(newlyAdded) { item -> MediaCard(item = item, onClick = { onWatch(item) }) }
                         }
-                        Spacer(Modifier.height(24.dp))
+                        Spacer(Modifier.height(18.dp))
                     }
                 }
 
@@ -238,7 +284,7 @@ fun MoviesScreen(
                         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(trendingMovies) { item -> MediaCard(item = item, onClick = { onWatch(item) }) }
                         }
-                        Spacer(Modifier.height(24.dp))
+                        Spacer(Modifier.height(18.dp))
                     }
                 }
 
@@ -249,23 +295,25 @@ fun MoviesScreen(
                         LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             items(trendingSeries) { item -> MediaCard(item = item, onClick = { onWatch(item) }) }
                         }
-                        Spacer(Modifier.height(24.dp))
+                        Spacer(Modifier.height(18.dp))
                     }
-                }
+            }
             }
         }
 
         if (showFilter) {
-            MoviesFilterSheet(
+            MoviesFilterPopover(
                 state = filterState,
                 movies = visibleMovies,
                 series = series,
                 onDismiss = { showFilter = false },
-                onApply = { newState -> filterState = newState; showFilter = false }
+                onApply = { newState -> filterState = newState; showFilter = false },
             )
+        }
         }
     }
 }
+
 
 @Composable
 private fun TimeLimitedCard(
@@ -336,8 +384,9 @@ private fun TimeLimitedCard(
 }
 
 @Composable
-private fun MoviesRowHeader(title: String, onViewAll: () -> Unit) {    Row(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+private fun MoviesRowHeader(title: String, onViewAll: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
