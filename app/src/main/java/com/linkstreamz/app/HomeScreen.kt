@@ -42,6 +42,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -502,7 +503,19 @@ private fun HomeSummary(
         events.sortedByDescending { it.startMs ?: Long.MIN_VALUE }
     }
 
+    // LazyListState is saveable, so rememberSaveableStateHolder would otherwise
+    // restore the scroll offset from the previous app run. Reset it once per
+    // process entry: tab switches within this run still keep the user's spot.
+    val homeScroll = rememberLazyListState()
+    LaunchedEffect(Unit) {
+        if (!HomeLaunchScrollReset.consumed) {
+            HomeLaunchScrollReset.consumed = true
+            homeScroll.scrollToItem(0)
+        }
+    }
+
     LazyColumn(
+        state = homeScroll,
         contentPadding = PaddingValues(bottom = 96.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
         modifier = Modifier.fillMaxSize(),

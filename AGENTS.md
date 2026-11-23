@@ -26,6 +26,9 @@
 ## Home channel marquee
 - The bottom "Channels" rail was removed from Home. `HomeChannelMarquee.kt` now renders a label-free, endlessly scrolling strip of channel **names only** (no thumbnails) as the first item in the Home feed, directly below the main tabs and above the carousel. Tapping a name plays that channel. All channels are shown (dedup by id only — never cap the list); loop duration scales with count via `ChannelMarqueeSpec.MS_PER_CHANNEL` (1.8s per channel, min `MIN_LOOP_MS` 12s) so scroll speed stays constant. The two-strip + `wrapContentWidth(unbounded = true)` pattern is what makes the loop seamless — don't constrain the scrolling Row to the parent width. The Channels tab still has the full grid with artwork.
 
+## Home initial scroll
+- The Home feed must open at the very top on a cold launch. `LazyListState` is saveable and `rememberSaveableStateHolder` restores it across runs, so `HomeLaunchScrollReset.kt` gates a one-shot `scrollToItem(0)` in `HomeSummary`. Don't remove the gate or switch to `rememberSaveable` for `homeScroll` — tab switches within a session should still preserve the user's scroll position.
+
 ## Brand mark
 - The L-with-dot logo is defined once: `AppLogo.kt` (`AppLogoMark` composable + `AppLogo.drawGlyph`) for Compose, mirrored by `res/drawable/ic_app_logo.xml`, `ic_launcher_foreground.xml` + `mipmap-anydpi-v26/ic_launcher.xml`/`ic_launcher_round.xml` (adaptive launcher, referenced as `@mipmap/ic_launcher` in the manifest), and `ic_notification.xml` (white small-icon silhouette). All use a 48x48 grid: black rounded-cap L at (16,13)→(16,33)→(32,33), dot at (32,16), orange #FF6600 tile. Keep them in sync — never draw an ad-hoc brand icon again. Used on the welcome screen and Home header.
 
