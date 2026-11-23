@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
@@ -69,14 +68,30 @@ fun AppLogoMark(
                 } else Modifier
             )
             .drawBehind {
-                val scale = this.size.minDimension / AppLogo.DESIGN_SIZE
-                translate(
-                    (this@drawBehind.size.width - AppLogo.DESIGN_SIZE * scale) / 2f,
-                    (this@drawBehind.size.height - AppLogo.DESIGN_SIZE * scale) / 2f,
+                val scale = size.minDimension / AppLogo.DESIGN_SIZE
+                val dx = (size.width - AppLogo.DESIGN_SIZE * scale) / 2f
+                val dy = (size.height - AppLogo.DESIGN_SIZE * scale) / 2f
+                val tinted = if (showTile) AppLogo.Ink else AppLogo.Accent
+
+                val stem = Path().apply {
+                    moveTo(dx + 16f * scale, dy + 13f * scale)
+                    lineTo(dx + 16f * scale, dy + 33f * scale)
+                    lineTo(dx + 32f * scale, dy + 33f * scale)
+                }
+                drawPath(
+                    path = stem,
+                    color = tinted,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(
+                        width = 5.5f * scale,
+                        cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                        join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                    ),
                 )
-                scale(scale)
-                AppLogo.drawGlyph(this, if (showTile) AppLogo.Ink else AppLogo.Accent)
+                drawCircle(
+                    center = Offset(dx + 32f * scale, dy + 16f * scale),
+                    radius = 3.5f * scale,
+                    color = tinted,
+                )
             },
-        contentAlignment = Alignment.Center,
     )
 }
