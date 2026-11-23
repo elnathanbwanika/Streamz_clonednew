@@ -13,6 +13,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,11 +38,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 
 /** Pure ranking + timing rules for the spotlight strip. */
 object EventSpotlight {
@@ -50,6 +53,9 @@ object EventSpotlight {
 
     /** Cap so the dots stay readable and the timer never walks a huge list. */
     const val MAX_EVENTS = 8
+
+    /** Minimum horizontal travel (px) that counts as a deliberate swipe. */
+    const val SWIPE_THRESHOLD_PX = 40f
 
     /**
      * Live first (soonest kickoff first), then upcoming (soonest first), then
@@ -82,10 +88,11 @@ fun HomeEventSpotlightCard(
 ) {
     val ranked = remember(events) { EventSpotlight.rank(events) }
     var page by remember(ranked) { mutableIntStateOf(0) }
+    var manualChange by remember { mutableIntStateOf(0) }
 
-    // One timer per ranked list. A feed refresh rebuilds `ranked` and restarts
-    // the loop from the current page, so rotation never drifts across feeds.
-    LaunchedEffect(ranked) {
+    // A feed refresh or a manual swipe restarts the timer, so a card the user
+    // picked always gets the full five seconds before auto-rotation resumes.
+    LaunchedEffect(ranked, manualChange) {
         if (ranked.size < 2) return@LaunchedEffect
         while (true) {
             delay(EventSpotlight.ROTATE_MS)
@@ -123,6 +130,25 @@ fun HomeEventSpotlightCard(
                 .heightIn(min = 72.dp)
                 .clip(RoundedCornerShape(14.dp))
                 .background(LinkColors.CardBg)
+                .pointerInput(ranked.size) {
+                    var totalDrag = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { totalDrag = 0f },
+                        onHorizontalDrag = { change, dragAmount ->
+                            totalDrag += dragAmount
+                            if (abs(dragAmount) > 1f) change.consume()
+                        },
+                        onDragEnd = {
+                            if (ranked.size > 1 && abs(totalDrag) >= EventSpotlight.SWIPE_THRESHOLD_PX) {
+                                val step = if (totalDrag < 0) 1 else -1
+                                page = (page + step + ranked.size) % ranked.size
+                                manualChange++
+                            }
+                            totalDrag = 0f
+                        },
+                        onDragCancel = { totalDrag = 0f },
+                    )
+                }
                 .clickable { onClick(event) }
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,

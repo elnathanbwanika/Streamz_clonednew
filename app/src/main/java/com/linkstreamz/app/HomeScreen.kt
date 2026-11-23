@@ -1,8 +1,6 @@
 package com.linkstreamz.app
 
-import androidx.compose.foundation.layout.BoxWithConstraints
 
-import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 
@@ -46,7 +44,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -379,7 +376,6 @@ private fun SectionContent(
             onDownload = onDownload,
             onOpenMovies = { onSectionChange(MainSection.MOVIES) },
             onOpenChannels = { onSectionChange(MainSection.CHANNELS) },
-            onOpenSports = { onSectionChange(MainSection.SPORTS) },
             onWatchChannel = onWatchChannel,
             onPlayer = onPlayer,
             selectTarget = { target -> selectTarget(target, onPlayer, onDialogTarget, context) },
@@ -458,7 +454,6 @@ private fun HomeSummary(
     onDownload: (Movie) -> Unit,
     onOpenMovies: () -> Unit,
     onOpenChannels: () -> Unit,
-    onOpenSports: () -> Unit,
     onWatchChannel: (Channel) -> Unit,
     onPlayer: (PlayerTarget) -> Unit,
     selectTarget: (PlayerTarget) -> Unit,
@@ -562,15 +557,7 @@ private fun HomeSummary(
             }
         }
 
-        if (homeSportsEvents.isNotEmpty()) {
-            item(key = "home-sports-rail") {
-                HomeRailHeader(title = "Sports Events", onViewAll = onOpenSports)
-                HomeSportsRail(
-                    events = homeSportsEvents,
-                    onWatch = { event -> selectTarget(EventTarget(event)) },
-                )
-            }
-        }
+
 
         if (trending.isNotEmpty()) {
             item(key = "home-trending") {
@@ -636,29 +623,6 @@ private fun HomeMovieRail(movies: List<Movie>, onWatch: (Movie) -> Unit) {
     ) {
         items(movies, key = { it.id }) { movie ->
             MediaCard(item = movie, onClick = { onWatch(movie) })
-        }
-    }
-}
-
-@Composable
-private fun HomeSportsRail(
-    events: List<Event>,
-    onWatch: (Event) -> Unit,
-) {
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val pageWidth = (maxWidth - 16.dp - 16.dp - 12.dp).coerceAtLeast(220.dp)
-        val state = rememberLazyListState()
-        LazyRow(
-            state = state,
-            contentPadding = PaddingValues(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            flingBehavior = rememberSnapFlingBehavior(state),
-        ) {
-            items(events, key = { it.id }) { event ->
-                Box(Modifier.width(pageWidth)) {
-                    EventCard(event = event) { onWatch(event) }
-                }
-            }
         }
     }
 }
