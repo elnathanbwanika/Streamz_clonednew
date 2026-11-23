@@ -20,6 +20,9 @@
 ## Movies filter
 - `MoviesFilter.kt` owns the filter model, pure helpers (`matchesMoviesFilter`, `filterCatalogue`, `activeFilterCount`, facet builders) and the `MoviesFilterSheet` bottom sheet. `MoviesScreen.kt` only holds `filterState` and calls the helpers — keep the predicate in one place so the sheet's live "Show N results" count matches the catalogue exactly.
 
+## Home spotlight
+- The "Recently downloaded" summary strip on Home was removed. Its slot (right after the carousel) now holds `HomeEventSpotlightCard` from `HomeEventSpotlight.kt`: one event card at a time, rotating every `EventSpotlight.ROTATE_MS` (5s) with a Crossfade. `EventSpotlight.rank()` is the pure ordering helper (live → upcoming → finished, dedup by id, cap 8) — keep ranking logic there, not in the composable.
+
 ## Player / PiP / images
 - Downloads UI is hierarchical: Movies/Series tabs at root → series card → season card → episode rows. `DownloadGroups.kt` supplies pure helpers (`downloadMovies`, `downloadSeries`, `downloadSeasons`, `downloadEpisodes`); each page renders one flat list so LazyColumn keys never collide. `BackHandler` steps back through the in-screen stack before leaving the screen.
 - Related content for local playback: `DownloadedTarget.from(item)` carries the source `DownloadItem`; `DownloadedRelatedContent` in `PlayerScreen.kt` then shows other completed movie downloads, or all downloaded episodes of the same series with season chips. Keep building downloaded targets through the factory so `sourceItem` is never lost.

@@ -118,7 +118,6 @@ fun HomeScreen(
     val state by repository.state.collectAsState()
     val mediaState  by moviesRepo.state.collectAsState()
     val channelState by channelsRepo.state.collectAsState()
-    val downloads by DownloadManager.items.collectAsState()
 
     // Derive live lists; empty until fetched from server
     val movies   = (mediaState  as? MediaFeedState.Ready)?.movies   ?: emptyList()
@@ -257,7 +256,6 @@ fun HomeScreen(
                         series = series,
                         channels = channels,
                         events = events,
-                        downloads = downloads,
                         state = state,
                         mediaState = mediaState,
                         channelState = channelState,
@@ -269,7 +267,6 @@ fun HomeScreen(
                         onSportsTabChange = onSportsTabChange,
                         onRetry = { scope.launch { repository.load() } },
                         onDownload = ::requestDownload,
-                        onOpenDownloads = onDownloads,
                         onWatchChannel = playChannel,
                         onPlayer = onPlayer,
                         onDialogTarget = { dialogTarget = it },
@@ -355,7 +352,6 @@ private fun SectionContent(
     series: List<Series>,
     channels: List<Channel>,
     events: List<Event>,
-    downloads: List<DownloadItem>,
     state: FeedState,
     mediaState: MediaFeedState,
     channelState: ChannelFeedState,
@@ -367,7 +363,6 @@ private fun SectionContent(
     onSportsTabChange: (SportsTab) -> Unit,
     onRetry: () -> Unit,
     onDownload: (Movie) -> Unit,
-    onOpenDownloads: () -> Unit,
     onWatchChannel: (Channel) -> Unit,
     onPlayer: (PlayerTarget) -> Unit,
     onDialogTarget: (PlayerTarget) -> Unit,
@@ -380,10 +375,8 @@ private fun SectionContent(
             movies = movies,
             channels = channels,
             events = events,
-            downloads = downloads,
             onOpenLimited = { onSectionChange(MainSection.MOVIES) },
             onDownload = onDownload,
-            onOpenDownloads = onOpenDownloads,
             onOpenMovies = { onSectionChange(MainSection.MOVIES) },
             onOpenChannels = { onSectionChange(MainSection.CHANNELS) },
             onOpenSports = { onSectionChange(MainSection.SPORTS) },
@@ -461,10 +454,8 @@ private fun HomeSummary(
     movies: List<Movie>,
     channels: List<Channel>,
     events: List<Event>,
-    downloads: List<DownloadItem>,
     onOpenLimited: () -> Unit,
     onDownload: (Movie) -> Unit,
-    onOpenDownloads: () -> Unit,
     onOpenMovies: () -> Unit,
     onOpenChannels: () -> Unit,
     onOpenSports: () -> Unit,
@@ -520,12 +511,6 @@ private fun HomeSummary(
     val homeSportsEvents = remember(events) {
         events.sortedByDescending { it.startMs ?: Long.MIN_VALUE }
     }
-    val recentDownloads = remember(downloads) {
-        val weekAgo = ServerClock.now() - 7L * 24L * 60L * 60L * 1000L
-        downloads.filter {
-            it.isActive || (it.status == DownloadStatus.COMPLETED && it.updatedAt >= weekAgo)
-        }.take(3)
-    }
 
     LazyColumn(
         contentPadding = PaddingValues(bottom = 96.dp),
@@ -547,11 +532,11 @@ private fun HomeSummary(
             }
         }
 
-        if (recentDownloads.isNotEmpty()) {
-            item(key = "home-downloads") {
-                HomeDownloadsSummary(
-                    items = recentDownloads,
-                    onClick = onOpenDownloads,
+        if (homeSportsEvents.isNotEmpty()) {
+            item(key = "home-event-spotlight") {
+                HomeEventSpotlightCard(
+                    events = homeSportsEvents,
+                    onClick = { event -> selectTarget(EventTarget(event)) },
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
             }
@@ -675,45 +660,6 @@ private fun HomeSportsRail(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun HomeDownloadsSummary(
-    items: List<DownloadItem>,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val active = items.count { it.isActive }
-    val title = if (active > 0) "$active download${if (active == 1) "" else "s"} in progress" else "Recently downloaded"
-    val subtitle = buildString {
-        append(items.first().title)
-        if (items.size > 1) append(" +${items.size - 1} more")
-    }
-    Row(
-        modifier
-            .fillMaxWidth()
-            .heightIn(min = 60.dp)
-            .clip(RoundedCornerShape(14.dp))
-            .background(LinkColors.CardBg)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Box(
-            Modifier.size(40.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(LinkColors.OrangePrimary.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(Icons.Default.Download, null, tint = LinkColors.OrangePrimary, modifier = Modifier.size(19.dp))
-        }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text(title, color = LinkColors.PrimaryText, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(subtitle, color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        Text("Open", color = LinkColors.OrangePrimary, fontFamily = MonoFont, fontSize = 11.sp)
     }
 }
 
