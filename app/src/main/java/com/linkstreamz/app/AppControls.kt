@@ -1,10 +1,7 @@
 package com.linkstreamz.app
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
@@ -424,78 +421,87 @@ fun InlineSearchRow(
 ) {
     BackHandler(enabled = expanded, onCollapse)
     val focusRequester = remember { FocusRequester() }
+    // Guard against the initial "not focused" event that fires before the
+    // field receives focus — without this, expanding collapsed the field again
+    // instantly and left only the keyboard visible.
+    val focusSeen = remember { booleanArrayOf(false) }
+    val fieldAlpha by animateFloatAsState(
+        targetValue = if (expanded) 1f else 0f,
+        animationSpec = tween(200),
+        label = "inline-search-field-alpha",
+    )
     LaunchedEffect(expanded) {
-        if (expanded) {
-            runCatching { focusRequester.requestFocus() }
-        }
+        focusSeen[0] = false
+        if (expanded) runCatching { focusRequester.requestFocus() }
     }
 
-    AnimatedContent(
-        targetState = expanded,
-        transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(200)) },
-        label = "inline-search",
-    ) { isExpanded ->
-        Row(
-            modifier
-                .fillMaxWidth()
-                .heightIn(min = AppControlSpec.TouchSize),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
-        ) {
-            if (isExpanded) {
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .height(AppControlSpec.TouchSize - 4.dp)
-                        .clip(AppControlShape)
-                        .background(AppControlSpec.UnselectedFill)
-                        .padding(horizontal = 10.dp),
-                    contentAlignment = Alignment.CenterStart,
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.Search,
-                            contentDescription = null,
-                            tint = LinkColors.MutedText,
-                            modifier = Modifier.size(16.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Box(Modifier.weight(1f)) {
-                            if (query.isEmpty()) {
-                                Text(
-                                    placeholder,
-                                    color = LinkColors.MutedText,
-                                    fontFamily = BodyFont,
-                                    fontSize = 13.sp,
-                                    maxLines = 1,
-                                )
-                            }
-                            BasicTextField(
-                                value = query,
-                                onValueChange = onQueryChange,
-                                textStyle = TextStyle(
-                                    color = LinkColors.PrimaryText,
-                                    fontFamily = BodyFont,
-                                    fontSize = 13.sp,
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .focusRequester(focusRequester)
-                                    .onFocusChanged { state ->
-                                        if (!state.isFocused && query.isEmpty()) onCollapse()
-                                    },
+    // The field is composed directly (not inside AnimatedContent): a delayed
+    // composition made requestFocus() run before the field was attached.
+    Row(
+        modifier
+            .fillMaxWidth()
+            .heightIn(min = AppControlSpec.TouchSize),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+    ) {
+        if (expanded) {
+            Box(
+                Modifier
+                    .weight(1f)
+                    .height(AppControlSpec.TouchSize - 4.dp)
+                    .graphicsLayer(alpha = fieldAlpha)
+                    .clip(AppControlShape)
+                    .background(AppControlSpec.UnselectedFill)
+                    .padding(horizontal = 10.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        tint = LinkColors.MutedText,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Box(Modifier.weight(1f)) {
+                        if (query.isEmpty()) {
+                            Text(
+                                placeholder,
+                                color = LinkColors.MutedText,
+                                fontFamily = BodyFont,
+                                fontSize = 13.sp,
+                                maxLines = 1,
                             )
                         }
+                        BasicTextField(
+                            value = query,
+                            onValueChange = onQueryChange,
+                            textStyle = TextStyle(
+                                color = LinkColors.PrimaryText,
+                                fontFamily = BodyFont,
+                                fontSize = 13.sp,
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .focusRequester(focusRequester)
+                                .onFocusChanged { state ->
+                                    if (state.isFocused) {
+                                        focusSeen[0] = true
+                                    } else if (focusSeen[0] && query.isEmpty()) {
+                                        onCollapse()
+                                    }
+                                },
+                        )
                     }
                 }
-                if (trailing != null) trailing()
-                AppIconButton(Icons.Default.Close, "Close search", onCollapse)
-            } else {
-                if (collapsedLeading != null) collapsedLeading()
-                Spacer(Modifier.weight(1f))
-                AppIconButton(Icons.Default.Search, "Search", onExpand)
-                if (trailing != null) trailing()
             }
+            if (trailing != null) trailing()
+            AppIconButton(Icons.Default.Close, "Close search", onCollapse)
+        } else {
+            if (collapsedLeading != null) collapsedLeading()
+            Spacer(Modifier.weight(1f))
+            AppIconButton(Icons.Default.Search, "Search", onExpand)
+            if (trailing != null) trailing()
         }
     }
 }
