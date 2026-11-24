@@ -770,6 +770,9 @@ class MainActivity : ComponentActivity() {
                     if (welcomeVisible) {
                         LinkEcosystemWelcome()
                     }
+
+                    // Covers the app whenever the device has no Internet.
+                    OfflineGate()
                 }
             }
         }

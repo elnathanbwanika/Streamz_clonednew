@@ -66,9 +66,12 @@ import coil.compose.SubcomposeAsyncImageContent
 // ─────────────────────────────────────────────────────────────────────────────
 
 private val MatchCardRadius = 14.dp
+// Vertical padding/gaps are tightened so the third (date + countdown) line
+// fits without changing the card's overall height.
 private val MatchCardPadding = 12.dp
+private val MatchCardVerticalPadding = 5.dp
+private val MatchCardGap = 3.dp
 private val MatchLeagueSize = 11.5.sp
-private val MatchFooterSize = 11.sp
 
 @Composable
 fun EventCard(
@@ -109,6 +112,24 @@ fun EventCard(
             away = event.away,
             status = { MatchCenter(event, status, effectiveNow) },
         )
+        // Always render the footer slot so live/finished cards keep the exact
+        // same height as upcoming ones; only upcoming has text in it.
+        CardFooter {
+            if (status == "upcoming") {
+                val date = displayWhen(event.startMs)
+                val countdown = countdownText(event.startMs, effectiveNow)
+                Text(
+                    listOf(date, countdown?.let { "Starts in $it" })
+                        .filter { !it.isNullOrBlank() }
+                        .joinToString(" · "),
+                    color = LinkColors.MutedText,
+                    fontFamily = MonoFont,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 
@@ -135,6 +156,8 @@ fun HighlightCard(
                 )
             },
         )
+        // Empty footer slot keeps highlight cards the same height as events.
+        CardFooter { }
     }
 }
 
@@ -168,17 +191,9 @@ fun SingleItemCard(
             },
             imageLoader = imageLoader,
         )
-        if (!statusText.isNullOrBlank()) {
-            CardFooter {
-                Text(
-                    statusText,
-                    color = if (isLive) Color(0xFFFF3B30) else LinkColors.MutedText,
-                    fontFamily = MonoFont,
-                    fontSize = MatchFooterSize,
-                    maxLines = 1,
-                )
-            }
-        }
+        // Always render the footer slot (empty) so this card matches the
+        // height of events/highlights; the status is already in the middle.
+        CardFooter { }
     }
 }
 
@@ -208,8 +223,8 @@ private fun CardFrame(
             .background(LinkColors.CardBg)
             .border(1.dp, LinkColors.OrangePrimary.copy(alpha = borderAlpha), RoundedCornerShape(MatchCardRadius))
             .clickable(interactionSource = interactionSource, indication = LocalIndication.current, onClick = onClick)
-            .padding(MatchCardPadding),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        .padding(horizontal = MatchCardPadding, vertical = MatchCardVerticalPadding),
+    verticalArrangement = Arrangement.spacedBy(MatchCardGap),
     ) {
         content()
     }
@@ -250,7 +265,7 @@ private fun CardFooter(content: @Composable () -> Unit) {
     Row(
         Modifier
             .fillMaxWidth()
-            .height(22.dp),
+            .height(16.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -336,12 +351,11 @@ private fun MatchCenter(event: Event, status: String, nowMs: Long) {
             }
         }
         "upcoming" -> Text(
-            // Compact countdown in the centre keeps every card two lines tall.
-            countdownText(event.startMs, nowMs) ?: "vs",
-            color = LinkColors.OrangePrimary,
+            // The date + "Starts in" live in the footer; keep the middle short.
+            "vs",
+            color = LinkColors.MutedText,
             fontFamily = MonoFont,
             fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )

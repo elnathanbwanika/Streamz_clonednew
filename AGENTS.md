@@ -70,6 +70,10 @@
 - `LinkColors.ScreenBg` is `#000000` and `LinkColors.CardBg` is `#0F0F0F`; `LsColor.Card` is `#141414`. Don't mix them inside one component or you get a visible seam.
 - Restyling is presentational only: never touch click handlers, view ids, labels, or data classes. TV badge placement/size logic (`TvBadge.kt`, `TvBadgeView.kt`) is explicitly out of scope.
 
+## Offline gate
+- `NetworkGate.kt` owns connectivity: `OfflineGate()` is the last child of MainActivity's root Box and renders `OfflineScreen` over all app content whenever the device has no Internet. The exact message is "Seems you're not connected to the Internet. Please check your Internet and try again" with a `Retry` button.
+- `rememberNetworkStatus()` uses `ConnectivityManager.registerDefaultNetworkCallback` (minSdk 24); `NET_CAPABILITY_INTERNET` is the online test. Retry re-registers the callback via `refreshToken`, so it re-checks immediately. `ACCESS_NETWORK_STATE` is already declared in the manifest — don't add a second permission.
+
 ## Picture-in-Picture (player)
 - Uses the **platform PiP API only** (`enterPictureInPictureMode`). Never `SYSTEM_ALERT_WINDOW` / "display over other apps" — the old `FloatingOverlayManager` overlay window is what produced the app-drawn curved-arrow/X/pause/zoom chrome and the black bars; it is no longer used by the PiP button (the file is left in place, unreferenced by `onFloatWindow`).
 - `PipSpec.kt` is framework-free (ratio clamp + action list) so it unit-tests on the JVM without Robolectric. `PipController.kt` is the Android plumbing. `MainActivity` owns the single session; `PlayerScreen` attaches the *same* `engine.player`, so expand never rebuffers.
@@ -92,10 +96,11 @@
 - Admin fields are parsed in `EventsRepository.normalizeEvent`: `minute` (number or numeric string), `minuteText`, `kickoff`/`start` ISO UTC, `addedFirst`/`addedSecond` clamped 0..5 / 0..10. Bad values never drop an event. `Event.hasKickoff` distinguishes a published kickoff from legacy fixtures that only set `startMs`. HT stays live; FT moves to finished even when the admin status is still live.
 
 ## Match / highlight card layout
-[Earlier new_content for AGENTS.md (1049 chars, already written to disk). The module surface below may not show every signature you need — re-read with read_file before editing this file again, OR before importing/calling anything from it in another file. Do not recreate it from scratch and do not guess a function's parameters from memory.]
-
+- `Cards.kt` cards use a compact three-line structure: SPORT | LEAGUE header, crest–home–status–away–crest (`TeamRow`), then a centred footer. Keep the app palette: colours from `LinkColors`/`LsColor`, fonts from `MonoFont`/`DisplayFont`/`BodyFont`.
+- `CardFooter` must stay a `Row` with a real fixed height (16.dp), never a zero-height `Box` — that made the footer paint over the team row. One text line per footer.
 - Card header leading icon is always a static sport glyph from `sportIconFor()` in `Cards.kt` (soccer/basketball/baseball/football/cricket/tennis/hockey/volleyball/golf/mma, generic `Sports` fallback) — never a blinking dot. The live pulse stays only in the middle status slot. Highlight duration must NOT be shown on cards.
-- All `EventCard` and `HighlightCard` instances are exactly two lines (header + `TeamRow`), no footer. Live/FT/upcoming status lives in the middle slot; upcoming uses a compact `countdownText()` there. Highlight cards use `sportIconFor(highlight.sport)` in both header and middle instead of a play icon — `Highlight.sport` is parsed from the highlight's `sport`/`category` field, falling back to its parent event's sport.
+- All cards keep the SAME height (~82dp) via a fixed-height `CardFooter` slot that every card renders, even when empty. To fit the footer without growing the card, vertical padding is 5dp and gaps are 3dp (`MatchCardVerticalPadding`/`MatchCardGap`); horizontal padding stays 12dp and badge size stays 36dp.
+- Upcoming cards show `displayWhen(startMs)` + "Starts in <countdownText>" on ONE footer line, with `vs` in the middle slot — never the countdown in both places. Live/FT status lives only in the middle slot. Highlight cards use `sportIconFor(highlight.sport)` in both header and middle instead of a play icon — `Highlight.sport` is parsed from the highlight's `sport`/`category` field, falling back to its parent event's sport.
 
 ## Performance rules (learned the hard way — don't regress these)
 - **Never pass a clock `Long` down into list items.** `nowMs` as a parameter invalidates every card on each tick. Read `ServerClock.now()` inside the leaf composable, or give the composable a defaulted param (`nowMs: Long = ServerClock.now()`) and precompute any *derived* value (e.g. `downloadSupport: Boolean`) at the call site. `HomeScreen`/`MoviesScreen` tickers were removed for exactly this. `EventCard` is the exception: it owns its own adaptive ticker (minute boundary, 1s near changes) and stops when the lifecycle is not STARTED/RESUMED; callers pass `nowMs` only when they need a pinned time (e.g. player related cards).
