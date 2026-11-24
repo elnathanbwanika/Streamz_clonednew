@@ -16,11 +16,18 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CatchingPokemon
-import androidx.compose.material.icons.filled.Circle
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.compose.material.icons.filled.Sports
+import androidx.compose.material.icons.filled.SportsBaseball
 import androidx.compose.material.icons.filled.SportsBasketball
+import androidx.compose.material.icons.filled.SportsCricket
+import androidx.compose.material.icons.filled.SportsFootball
+import androidx.compose.material.icons.filled.SportsGolf
+import androidx.compose.material.icons.filled.SportsHockey
+import androidx.compose.material.icons.filled.SportsMma
+import androidx.compose.material.icons.filled.SportsSoccer
+import androidx.compose.material.icons.filled.SportsTennis
+import androidx.compose.material.icons.filled.SportsVolleyball
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,7 +60,7 @@ import coil.compose.SubcomposeAsyncImageContent
 // Every card is three stacked lines:
 //   1. SPORT | LEAGUE                       (small, uppercase)
 //   2. [crest] HOME   centre status   AWAY [crest]
-//   3. footer: live minute / date + countdown / duration
+//   3. footer: date + countdown for upcoming cards only (live/FT are in the middle)
 //
 // Only layout, spacing and typography are restyled here. All colours come from
 // LinkColors / LsColor and all fonts from MonoFont / DisplayFont / BodyFont —
@@ -96,7 +103,7 @@ fun EventCard(
 
     CardFrame(onClick = onClick) {
         CardLeague(
-            icon = { SportIcon(event.sport, status) },
+            icon = { SportIcon(event.sport) },
             label = listOf(event.sport, event.league).filter { it.isNotBlank() }.joinToString(" | "),
         )
         TeamRow(
@@ -144,7 +151,7 @@ fun HighlightCard(
                 )
             },
             label = highlight.title,
-            trailing = highlight.duration.takeIf { it.isNotBlank() }?.let { { QualityChip(it) } },
+            trailing = null,
         )
         TeamRow(
             home = highlight.home,
@@ -164,7 +171,7 @@ fun HighlightCard(
         )
         CardFooter {
             Text(
-                highlight.duration.takeIf { it.isNotBlank() } ?: "Watch now",
+                "Watch now",
                 color = LinkColors.MutedText,
                 fontFamily = MonoFont,
                 fontSize = MatchFooterSize,
@@ -185,18 +192,7 @@ fun SingleItemCard(
 ) {
     CardFrame(onClick = onClick) {
         CardLeague(
-            icon = {
-                if (isLive) {
-                    Box(Modifier.size(7.dp).background(Color(0xFFFF3B30), CircleShape))
-                } else {
-                    Icon(
-                        Icons.Default.PlayArrow,
-                        null,
-                        tint = LinkColors.OrangePrimary,
-                        modifier = Modifier.size(13.dp),
-                    )
-                }
-            },
+            icon = { SportIcon(categoryLine) },
             label = categoryLine,
         )
         TeamRowSingle(
@@ -445,66 +441,27 @@ fun LiveIndicatorRadar(text: String) {
 }
 
 @Composable
-private fun QualityChip(text: String) {
-    Text(
-        text,
-        color = LinkColors.OrangePrimary,
-        fontFamily = MonoFont,
-        fontSize = 9.5.sp,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier
-            .background(LinkColors.OrangePrimary.copy(alpha = 0.14f), RoundedCornerShape(6.dp))
-            .padding(horizontal = 8.dp, vertical = 3.dp),
-    )
+private fun SportIcon(sport: String) {
+    // Static, sport-specific leading icon. No blinking here — the live state
+    // is already signalled by the pulsing dot in the middle of the card.
+    val icon = sportIconFor(sport)
+
+    Icon(icon, null, tint = LinkColors.OrangePrimary, modifier = Modifier.size(14.dp))
 }
 
-@Composable
-private fun SportIcon(sport: String, status: String = "") {
-    val isLive = status == "live"
-    val isUpcoming = status == "upcoming"
-
-    val icon = if (isUpcoming) {
-        Icons.Default.RadioButtonUnchecked
-    } else {
-        when (sport.lowercase()) {
-            "basketball" -> Icons.Default.SportsBasketball
-            "cricket" -> Icons.Default.CatchingPokemon
-            else -> Icons.Default.Circle
-        }
-    }
-
-    if (isLive) {
-        val infiniteTransition = rememberInfiniteTransition(label = "sport_radar")
-
-        val scale by infiniteTransition.animateFloat(
-            initialValue = 1f,
-            targetValue = 2.5f,
-            animationSpec = infiniteRepeatable(animation = tween(1500), repeatMode = RepeatMode.Restart),
-            label = "radar_scale",
-        )
-        val alpha by infiniteTransition.animateFloat(
-            initialValue = 0.8f,
-            targetValue = 0f,
-            animationSpec = infiniteRepeatable(animation = tween(1500), repeatMode = RepeatMode.Restart),
-            label = "radar_alpha",
-        )
-
-        Box(Modifier.size(13.dp), contentAlignment = Alignment.Center) {
-            Box(
-                Modifier
-                    .matchParentSize()
-                    .graphicsLayer {
-                        scaleX = scale
-                        scaleY = scale
-                        this.alpha = alpha
-                    }
-                    .background(LinkColors.OrangePrimary, CircleShape),
-            )
-            Icon(icon, null, tint = LinkColors.OrangePrimary, modifier = Modifier.matchParentSize())
-        }
-    } else {
-        Icon(icon, null, tint = LinkColors.OrangePrimary, modifier = Modifier.size(13.dp))
-    }
+/** Maps the feed's sport string to a Material sport icon. Never throws. */
+private fun sportIconFor(sport: String) = when (sport.trim().lowercase()) {
+    "football", "soccer", "futbol" -> Icons.Default.SportsSoccer
+    "american football", "nfl", "rugby" -> Icons.Default.SportsFootball
+    "basketball", "nba" -> Icons.Default.SportsBasketball
+    "baseball", "mlb" -> Icons.Default.SportsBaseball
+    "cricket" -> Icons.Default.SportsCricket
+    "tennis" -> Icons.Default.SportsTennis
+    "golf" -> Icons.Default.SportsGolf
+    "hockey", "ice hockey" -> Icons.Default.SportsHockey
+    "volleyball" -> Icons.Default.SportsVolleyball
+    "boxing", "mma", "ufc", "wrestling" -> Icons.Default.SportsMma
+    else -> Icons.Default.Sports
 }
 
 @Composable
