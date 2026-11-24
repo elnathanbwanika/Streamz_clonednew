@@ -125,18 +125,20 @@ object MatchClock {
             secondStart + SECOND_HALF_MINUTES.toLong(),
             fullTime.toLong(),
         )
-        val t = (nowMs - kickoffMs) / 60_000.0
+        val elapsedMs = nowMs - kickoffMs
+        val t = elapsedMs / 60_000.0
         // Near a boundary (within 2s) check every second so the label flips
         // promptly even with a little clock skew; otherwise sleep to the next
         // whole minute inside the current phase.
         val near = boundaries.any { kotlin.math.abs(t - it) < 0.05 }
         if (near) return 1_000L
-        val nextWholeMinute = (floor(t) + 1) * 60_000L
-        val nextBoundary = boundaries
+        val nextWholeMinuteMs = (floor(t) + 1).toLong() * 60_000L
+        val nextBoundaryMs = boundaries
             .map { it * 60_000L }
-            .firstOrNull { it > (nowMs - kickoffMs) }
-            ?: Long.MAX_VALUE
-        return maxOf(1_000L, minOf(nextWholeMinute - (nowMs - kickoffMs), nextBoundary - (nowMs - kickoffMs)))
+            .firstOrNull { it > elapsedMs }
+        val untilMinute = (nextWholeMinuteMs - elapsedMs).coerceAtLeast(1_000L)
+        val untilBoundary = nextBoundaryMs?.let { (it - elapsedMs).coerceAtLeast(1_000L) }
+        return minOf(untilMinute, untilBoundary ?: untilMinute)
     }
 }
 

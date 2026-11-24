@@ -85,7 +85,7 @@ fun EventCard(
         TeamRow(
             home = event.home,
             away = event.away,
-            status = { MatchCenter(event, status, nowMs) },
+            status = { MatchCenter(event, status, effectiveNow) },
         )
     }
 }
