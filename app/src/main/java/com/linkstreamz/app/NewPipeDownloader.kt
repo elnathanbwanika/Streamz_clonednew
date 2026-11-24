@@ -12,13 +12,29 @@ import org.schabi.newpipe.extractor.downloader.Response as NpResponse
 
 class NewPipeDownloader(private val client: OkHttpClient) : Downloader() {
 
-    override fun execute(request: NpRequest): NpResponse {
-        val requestBuilder = Request.Builder()
-            .url(request.url())
-            .addHeader("User-Agent", "Mozilla/5.0 (Android) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36")
+    companion object {
+        // Only used when NewPipe does not supply a UA (it normally does).
+        private const val DEFAULT_USER_AGENT =
+            "Mozilla/5.0 (Android) AppleWebKit/537.36 Chrome/120 Mobile Safari/537.36"
+    }
 
+    override fun execute(request: NpRequest): NpResponse {
+        // NewPipe's contract says its headers OVERRIDE downloader defaults.
+        // Sending our UA *in addition* to NewPipe's produced two User-Agent
+        // lines; YouTube then saw a client/UA mismatch and returned a player
+        // response with no streams. Build a case-insensitive map so NewPipe's
+        // value replaces ours instead of being appended to it.
+        val headers = java.util.LinkedHashMap<String, MutableList<String>>(
+            String.CASE_INSENSITIVE_ORDER
+        )
+        headers["User-Agent"] = mutableListOf(DEFAULT_USER_AGENT)
         request.headers().forEach { (key, values) ->
-            values.forEach { v -> requestBuilder.addHeader(key, v) }
+            headers[key] = values.toMutableList()
+        }
+
+        val requestBuilder = Request.Builder().url(request.url())
+        headers.forEach { (key, values) ->
+            values.forEach { value -> requestBuilder.addHeader(key, value) }
         }
 
         val body = request.dataToSend()
@@ -36,15 +52,15 @@ class NewPipeDownloader(private val client: OkHttpClient) : Downloader() {
         val response = client.newCall(built).execute()
         val responseBody = response.body?.string() ?: ""
 
-        val headers = mutableMapOf<String, MutableList<String>>()
+        val responseHeaders = mutableMapOf<String, MutableList<String>>()
         response.headers.forEach { (k, v) ->
-            headers.getOrPut(k) { mutableListOf() }.add(v)
+            responseHeaders.getOrPut(k) { mutableListOf() }.add(v)
         }
 
         return NpResponse(
             response.code,
             response.message,
-            headers,
+            responseHeaders,
             responseBody,
             request.url()
         )

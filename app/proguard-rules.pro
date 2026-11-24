@@ -42,7 +42,12 @@
 -dontwarn linktunnel.**
 -dontwarn go.**
 
-# ── NewPipeExtractor / Rhino optional classes (not used on Android) ───────────
+# ── NewPipeExtractor ──────────────────────────────────────────────────────────
+# Its JSON/protobuf models are populated reflectively. R8 renaming or dropping
+# them makes the release APK report "no streams" while a debug build works.
+-keep class org.schabi.newpipe.extractor.** { *; }
+-keep class com.google.gson.** { *; }
+-dontwarn org.schabi.newpipe.extractor.**
 -dontwarn java.beans.**
 -dontwarn javax.script.**
 -dontwarn org.slf4j.impl.**

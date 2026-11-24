@@ -342,9 +342,12 @@ fun PlayerScreen(
     var seekMessage by remember { mutableStateOf<String?>(null) }
     var isExtracting by remember { mutableStateOf(false) }
     var isBuffering by remember { mutableStateOf(false) }
-    // YT-EXTRACT: Set by loadStream to signal LaunchedEffect to run extraction
+    // Set by loadStream to signal LaunchedEffect to run extraction. The attempt
+    // counter is part of the effect key: retries keep the same video id, so a
+    // key based on the id alone would never re-extract after a failure.
     var ytExtractId by remember { mutableStateOf<String?>(null) }
     var ytExtractStream by remember { mutableStateOf<StreamServer?>(null) }
+    var ytExtractAttempt by remember { mutableIntStateOf(0) }
 
     // ── Playback resume (everything except live TV / live events) ─────────────
     // The key comes from PlaybackResume.keyFor so the resume policy lives in one
@@ -670,6 +673,7 @@ fun PlayerScreen(
             // Signal the LaunchedEffect to begin extraction
             ytExtractStream = stream
             ytExtractId = videoId
+            ytExtractAttempt++
         } else {
             // YT-EXTRACT: Normal (non-YouTube) playback path — unchanged
             ytExtractId = null
@@ -724,7 +728,7 @@ fun PlayerScreen(
     // YT-EXTRACT: Async extraction — runs when ytExtractId changes (set by loadStream).
     // This LaunchedEffect is inside the composable scope so scope/launch are available.
     // Cancels automatically if ytExtractId changes (user switches video) or composable leaves.
-    LaunchedEffect(ytExtractId, bypassTunnel) {
+    LaunchedEffect(ytExtractId, ytExtractAttempt, bypassTunnel) {
         val videoId = ytExtractId ?: return@LaunchedEffect
         val stream = ytExtractStream ?: return@LaunchedEffect
         val isCustom = target is CustomTarget
@@ -753,15 +757,19 @@ fun PlayerScreen(
                 engine.player.volume = if (muted) 0f else 1f
             }
             is YtResult.Failure -> {
+                // Generic codes let support identify the failure stage without
+                // exposing any provider name in the player UI.
                 error = when (result.reason) {
-                    YtError.FATAL, YtError.RECAPTCHA, YtError.UNKNOWN ->
-                        "This video could not be loaded. Please try again."
-                    YtError.RATE_LIMIT -> "Too many requests right now. Please try again in a few minutes."
-                    YtError.AGE_RESTRICTED -> "This video isn't available here."
-                    YtError.GEO_RESTRICTED -> "This video isn't available in your region."
-                    YtError.LIVE_STREAM -> "Live streams aren't supported."
-                    YtError.NO_STREAMS -> "Could not load this video. Try another server."
+                    YtError.FATAL -> "This video could not be loaded. Please try again. (E1)"
+                    YtError.UNKNOWN -> "This video could not be loaded. Please try again. (E2)"
+                    YtError.RECAPTCHA -> "This video could not be loaded. Please try again. (E3)"
+                    YtError.RATE_LIMIT -> "Too many requests right now. Please try again in a few minutes. (E4)"
+                    YtError.AGE_RESTRICTED -> "This video isn't available here. (E5)"
+                    YtError.GEO_RESTRICTED -> "This video isn't available in your region. (E6)"
+                    YtError.LIVE_STREAM -> "Live streams aren't supported. (E7)"
+                    YtError.NO_STREAMS -> "Could not load this video. Try another server. (E8)"
                 }
+                AppLogger.e("Playback", "Resolve failed: ${result.reason} — ${result.message}")
                 // Try next server before showing error card
                 if (target.servers.size > 1 && target.servers.indexOf(stream) < target.servers.lastIndex) {
                     error = null
