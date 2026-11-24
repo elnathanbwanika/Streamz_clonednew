@@ -6,6 +6,7 @@ package com.linkstreamz.app
 
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
 import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request as NpRequest
 import org.schabi.newpipe.extractor.downloader.Response as NpResponse
@@ -22,39 +23,42 @@ class NewPipeDownloader(private val client: OkHttpClient) : Downloader() {
         // NewPipe's contract says its headers OVERRIDE downloader defaults.
         // Sending our UA *in addition* to NewPipe's produced two User-Agent
         // lines; YouTube then saw a client/UA mismatch and returned a player
-        // response with no streams. Build a case-insensitive map so NewPipe's
+        // response with no streams. Normalise keys to lower case so NewPipe's
         // value replaces ours instead of being appended to it.
-        val headers = java.util.LinkedHashMap<String, MutableList<String>>(
-            String.CASE_INSENSITIVE_ORDER
-        )
-        headers["User-Agent"] = mutableListOf(DEFAULT_USER_AGENT)
-        request.headers().forEach { (key, values) ->
-            headers[key] = values.toMutableList()
+        val headers = LinkedHashMap<String, MutableList<String>>()
+        headers["user-agent"] = mutableListOf(DEFAULT_USER_AGENT)
+        for (entry in request.headers().entries) {
+            headers[entry.key.lowercase()] = entry.value.toMutableList()
         }
 
         val requestBuilder = Request.Builder().url(request.url())
-        headers.forEach { (key, values) ->
-            values.forEach { value -> requestBuilder.addHeader(key, value) }
+        for (entry in headers.entries) {
+            for (value in entry.value) {
+                requestBuilder.addHeader(entry.key, value)
+            }
         }
 
         val body = request.dataToSend()
-        val okBody: okhttp3.RequestBody? = if (body != null) {
-            okhttp3.RequestBody.create(null, body)
-        } else null
+        val okBody: RequestBody? = if (body != null) {
+            RequestBody.create(null, body)
+        } else {
+            null
+        }
 
         val method = request.httpMethod()
         val built = when (method) {
-            "GET"  -> requestBuilder.get()
-            "POST" -> requestBuilder.post(okBody ?: okhttp3.RequestBody.create(null, ByteArray(0)))
-            else   -> requestBuilder.method(method, okBody)
+            "GET" -> requestBuilder.get()
+            "POST" -> requestBuilder.post(okBody ?: RequestBody.create(null, ByteArray(0)))
+            else -> requestBuilder.method(method, okBody)
         }.build()
 
         val response = client.newCall(built).execute()
         val responseBody = response.body?.string() ?: ""
 
-        val responseHeaders = mutableMapOf<String, MutableList<String>>()
-        response.headers.forEach { (k, v) ->
-            responseHeaders.getOrPut(k) { mutableListOf() }.add(v)
+        // OkHttp's Headers is an Iterable<Pair<String, String>>, not a Map.
+        val responseHeaders = LinkedHashMap<String, MutableList<String>>()
+        for (pair in response.headers) {
+            responseHeaders.getOrPut(pair.first) { mutableListOf() }.add(pair.second)
         }
 
         return NpResponse(
