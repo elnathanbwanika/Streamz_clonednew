@@ -73,7 +73,13 @@ data class EventTarget(
 ) : PlayerTarget {
     override val servers: List<StreamServer> = event.servers
     override val title: String = "${event.home.name} vs ${event.away.name}"
-    override val subtitle: String = listOf(event.sport, event.league).filter { it.isNotBlank() }.joinToString(" | ")
+    override val subtitle: String = listOf(event.sport, event.league)
+        .filter { it.isNotBlank() }
+        .joinToString(" | ")
+        .let { base ->
+            val minute = MatchClock.eventLabel(event)
+            if (minute != null && MatchClock.status(event) == "live") "$base · $minute" else base
+        }
     override fun withServer(server: StreamServer) = copy(selectedServer = server)
 }
 
@@ -1407,7 +1413,7 @@ private fun RelatedContent(
             is EventTarget -> {
                 val feed = (eventsState as? FeedState.Ready)?.feed ?: return@Column
                 val now = System.currentTimeMillis()
-                feed.events.filter { effectiveStatus(it.startMs, it.status) == "live" && it.id != target.event.id }.map { RelatedCardModel.Event(it, now) { onTarget(EventTarget(it)) } }
+                feed.events.filter { MatchClock.status(it) == "live" && it.id != target.event.id }.map { RelatedCardModel.Event(it, now) { onTarget(EventTarget(it)) } }
             }
             is ChannelTarget -> {
                 channels.filter { it.id != target.channel.id }.sortedBy { it.category != target.channel.category }.map {

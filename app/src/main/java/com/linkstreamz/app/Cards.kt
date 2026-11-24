@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,6 +36,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -46,10 +51,32 @@ import coil.compose.SubcomposeAsyncImageContent
 @Composable
 fun EventCard(
     event: Event,
-    nowMs: Long = ServerClock.now(),
+    nowMs: Long? = null,
     onClick: () -> Unit,
 ) {
-    val status = effectiveStatus(event.startMs, event.status, nowMs)
+    // Self-ticking only while this card is composed (on screen). The delay is
+    // adaptive: minute boundaries normally, 1s checks only close to a change.
+    // A caller may still pin nowMs (e.g. related cards in the player).
+    val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    val visible by lifecycle.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
+    val isVisible = visible == Lifecycle.State.STARTED || visible == Lifecycle.State.RESUMED
+    val tick by produceState(
+        initialValue = nowMs ?: ServerClock.now(),
+        event.id,
+        event.kickoffMs,
+        event.addedFirst,
+        event.addedSecond,
+        isVisible,
+    ) {
+        if (nowMs != null || !isVisible) return@produceState
+        while (true) {
+            val current = ServerClock.now()
+            value = current
+            delay(MatchClock.nextTickMs(MatchClock.kickoffOf(event), event.addedFirst, event.addedSecond, current))
+        }
+    }
+    val effectiveNow = nowMs ?: tick
+    val status = MatchClock.status(event, effectiveNow)
     CardFrame(onClick = onClick) {
         CardLeague(
             icon = { SportIcon(event.sport, status) },
@@ -257,7 +284,20 @@ private fun BadgeFallback(text: String, size: androidx.compose.ui.unit.Dp) {
 private fun MatchCenter(event: Event, status: String, nowMs: Long) {
     when (status) {
         "live" -> {
-            LiveIndicatorRadar(text = currentMinute(event.startMs, nowMs) ?: "LIVE")
+            val label = MatchClock.eventLabel(event, nowMs) ?: "LIVE"
+            val halfTime = label == "HT" || label.equals("Half time", ignoreCase = true)
+            if (halfTime) {
+                Text(
+                    text = "HT",
+                    color = LinkColors.OrangePrimary.copy(alpha = 0.7f),
+                    fontFamily = MonoFont,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                )
+            } else {
+                LiveIndicatorRadar(text = label)
+            }
         }
         "upcoming" -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("STARTS IN", color = LinkColors.OrangePrimary, fontFamily = MonoFont, fontSize = 8.sp, letterSpacing = 0.3.sp, maxLines = 1, softWrap = false, textAlign = TextAlign.Center)

@@ -660,9 +660,9 @@ private fun SportsContent(
     }
     val counts = remember(events, highlights, countsNowMs) {
         mapOf(
-            SportsTab.LIVE to events.count { effectiveStatus(it.startMs, it.status, countsNowMs) == "live" },
-            SportsTab.UPCOMING to events.count { effectiveStatus(it.startMs, it.status, countsNowMs) == "upcoming" },
-            SportsTab.FINISHED to events.count { effectiveStatus(it.startMs, it.status, countsNowMs) == "finished" },
+            SportsTab.LIVE to events.count { MatchClock.status(it, countsNowMs) == "live" },
+            SportsTab.UPCOMING to events.count { MatchClock.status(it, countsNowMs) == "upcoming" },
+            SportsTab.FINISHED to events.count { MatchClock.status(it, countsNowMs) == "finished" },
             SportsTab.HIGHLIGHTS to highlights.size,
         )
     }
@@ -680,7 +680,7 @@ private fun SportsContent(
                         val list: List<Any> = when (selectedTab) {
                             SportsTab.HIGHLIGHTS -> highlights.map { it as Any }
                             else -> events.filter {
-                                effectiveStatus(it.startMs, it.status, ServerClock.now()) == selectedTab.name.lowercase()
+                                MatchClock.status(it, ServerClock.now()) == selectedTab.name.lowercase()
                             }.map { it as Any }
                         }
                         if (list.isEmpty()) {
@@ -741,7 +741,7 @@ private fun selectTarget(
     context: android.content.Context,
 ) {
     when {
-        target.servers.isEmpty() -> Toast.makeText(context, if (target is EventTarget && effectiveStatus(target.event.startMs, target.event.status) == "upcoming") "This event hasn't started yet" else "No streams available yet", Toast.LENGTH_SHORT).show()
+        target.servers.isEmpty() -> Toast.makeText(context, if (target is EventTarget && MatchClock.status(target.event) == "upcoming") "This event hasn't started yet" else "No streams available yet", Toast.LENGTH_SHORT).show()
         target.servers.size == 1 -> onPlayer(target.withServer(target.servers.first()))
         else -> onDialog(target)
     }

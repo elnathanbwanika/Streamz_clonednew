@@ -76,7 +76,7 @@ object HomeCarousel {
         if (maxSlides <= 0) return emptyList()
 
         val liveEvents = events
-            .filter { effectiveStatus(it.startMs, it.status, nowMs) == "live" }
+            .filter { MatchClock.status(it, nowMs) == "live" }
             .sortedBy { it.startMs ?: Long.MAX_VALUE }
             .map { CarouselSlide.LiveEvent(it) }
 
@@ -100,7 +100,7 @@ object HomeCarousel {
         val timeLimited = liveLimited + upcomingLimited
 
         val upcomingEvents = events
-            .filter { effectiveStatus(it.startMs, it.status, nowMs) == "upcoming" }
+            .filter { MatchClock.status(it, nowMs) == "upcoming" }
             .sortedBy { it.startMs ?: Long.MAX_VALUE }
             .map { CarouselSlide.UpcomingEvent(it) }
 

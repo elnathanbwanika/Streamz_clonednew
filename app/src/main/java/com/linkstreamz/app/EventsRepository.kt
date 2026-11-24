@@ -98,6 +98,16 @@ data class Event(
     val away: Team,
     val servers: List<StreamServer>,
     val tvBadge: TvBadge? = null,
+    // Admin live-match fields. Parsed tolerantly; all nullable/defaulted so a
+    // bad value never drops the event. The clock uses kickoffMs when present.
+    val minute: Int? = null,
+    val minuteText: String? = null,
+    val kickoffMs: Long? = null,
+    // True when the feed supplied a kickoff. startMs alone is kept for legacy
+    // callers whose fixtures only set startMs; they still get a computed clock.
+    val hasKickoff: Boolean = false,
+    val addedFirst: Int = MatchClock.DEFAULT_ADDED_FIRST,
+    val addedSecond: Int = MatchClock.DEFAULT_ADDED_SECOND,
 )
 
 data class Highlight(
@@ -286,6 +296,20 @@ class EventsRepository(private val preview: Boolean = false) {
     private fun normalizeEvent(value: JsonElement, index: Int, teamMap: Map<String, Team>): Event {
         val obj = value as? JsonObject ?: JsonObject(emptyMap())
         val start = obj.pick("start", "startTime", "kickoff", "startsAt", "date")
+        val kickoff = obj.pick("kickoff", "start", "startTime", "startsAt", "date")
+        val kickoffMs = parseDate(kickoff)
+        val rawMinute = obj.pick("minute", "min", "matchMinute")
+        val minute = parseTolerantMinute(rawMinute)
+        val minuteText = obj.pick("minuteText", "minute_text", "clock", "matchClock")
+            ?.stringValue()?.trim()?.takeIf { it.isNotBlank() }
+        val addedFirst = parseClampedAdded(obj.pick("addedFirst", "added_first", "stoppageFirst"), 5, 0, 5)
+        val addedSecond = parseClampedAdded(obj.pick("addedSecond", "added_second", "stoppageSecond"), 10, 0, 10)
+        AppLogger.d(
+            "EventClock",
+            "${obj.pick("id", "_id", "eventId")?.stringValue() ?: index}: " +
+                "minute=$minute text=$minuteText kickoff=$kickoffMs " +
+                "a1=$addedFirst a2=$addedSecond",
+        )
         val status = normalizeStatus(obj.pick("status", "state")?.stringValue())
         return Event(
             // FEED: id field from JSON (int or string); fall back to list index as string.
@@ -302,7 +326,35 @@ class EventsRepository(private val preview: Boolean = false) {
             away = resolveTeam(obj.pick("away", "awayTeam", "team2"), teamMap),
             servers = streams(obj),
             tvBadge = TvBadgeParser.parse(obj["tvBadge"]),
+            minute = minute,
+            minuteText = minuteText,
+            kickoffMs = kickoffMs,
+            hasKickoff = kickoffMs != null,
+            addedFirst = addedFirst,
+            addedSecond = addedSecond,
         )
+    }
+
+    // FEED: minute may be a JSON number, a numeric string ("37", "0"), or
+    // absent/null/garbage. "45+3" is left to minuteText. Never throws.
+    internal fun parseTolerantMinute(value: JsonElement?): Int? {
+        val primitive = value as? JsonPrimitive ?: return null
+        return primitive.longOrNull?.toInt()
+            ?: primitive.contentOrNull?.trim()?.toIntOrNull()
+    }
+
+    // FEED: added-time values are numbers, clamped to their legal ranges.
+    internal fun parseClampedAdded(
+        value: JsonElement?,
+        default: Int,
+        min: Int,
+        max: Int,
+    ): Int {
+        val primitive = value as? JsonPrimitive ?: return default
+        val parsed = primitive.longOrNull?.toInt()
+            ?: primitive.contentOrNull?.trim()?.toIntOrNull()
+            ?: return default
+        return parsed.coerceIn(min, max)
     }
 
     // ─────────────────────────────────────────────────────────────────────────

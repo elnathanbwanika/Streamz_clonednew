@@ -311,7 +311,7 @@ private fun SportsSlideCard(
             away = event.away,
             status = {
                 Text(
-                    if (isLive) "LIVE" else when_,
+                    if (isLive) (MatchClock.eventLabel(event, nowMs) ?: "LIVE") else when_,
                     color = LsColor.TextDim,
                     fontFamily = MonoFont,
                     fontSize = 12.sp,

@@ -62,7 +62,7 @@ object EventSpotlight {
      * finished (newest first). De-duplicates by id and caps the result.
      */
     fun rank(events: List<Event>, nowMs: Long = ServerClock.now()): List<Event> {
-        fun bucket(event: Event): Int = when (effectiveStatus(event.startMs, event.status, nowMs)) {
+        fun bucket(event: Event): Int = when (MatchClock.status(event, nowMs)) {
             "live" -> 0
             "upcoming" -> 1
             else -> 2
@@ -108,7 +108,7 @@ fun HomeEventSpotlightCard(
         label = "event-spotlight",
     ) { index ->
         val event = ranked[index]
-        val status = effectiveStatus(event.startMs, event.status, ServerClock.now())
+        val status = MatchClock.status(event, ServerClock.now())
         val accent = if (status == "live") Color(0xFFFF3B30) else LinkColors.OrangePrimary
         val headline = when (status) {
             "live" -> "LIVE NOW"
@@ -119,7 +119,7 @@ fun HomeEventSpotlightCard(
             .filter { it.isNotBlank() }
             .joinToString(" | ")
         val detail = when (status) {
-            "live" -> "In progress"
+            "live" -> MatchClock.eventLabel(event, ServerClock.now())?.let { "In progress · $it" } ?: "In progress"
             "upcoming" -> displayWhen(event.startMs)
             else -> "Full time"
         }
