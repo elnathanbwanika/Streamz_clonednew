@@ -5,7 +5,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -30,7 +29,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -48,6 +46,24 @@ import androidx.compose.ui.unit.sp
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Compact match cards.
+//
+// Every card is three stacked lines:
+//   1. SPORT | LEAGUE                       (small, uppercase)
+//   2. [crest] HOME   centre status   AWAY [crest]
+//   3. footer: live minute / date + countdown / duration
+//
+// Only layout, spacing and typography are restyled here. All colours come from
+// LinkColors / LsColor and all fonts from MonoFont / DisplayFont / BodyFont —
+// no new palette values are introduced.
+// ─────────────────────────────────────────────────────────────────────────────
+
+private val MatchCardRadius = 14.dp
+private val MatchCardPadding = 12.dp
+private val MatchLeagueSize = 11.5.sp
+private val MatchFooterSize = 11.sp
+
 @Composable
 fun EventCard(
     event: Event,
@@ -56,8 +72,7 @@ fun EventCard(
 ) {
     // Self-ticking only while this card is composed (on screen). The delay is
     // adaptive: minute boundaries normally, 1s checks only close to a change.
-    // A caller may still pin nowMs (e.g. related cards in the player).
-    val lifecycle = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    val lifecycle = LocalLifecycleOwner.current
     val visible by lifecycle.lifecycle.currentStateFlow.collectAsStateWithLifecycle()
     val isVisible = visible == Lifecycle.State.STARTED || visible == Lifecycle.State.RESUMED
     val tick by produceState(
@@ -77,6 +92,7 @@ fun EventCard(
     }
     val effectiveNow = nowMs ?: tick
     val status = MatchClock.status(event, effectiveNow)
+
     CardFrame(onClick = onClick) {
         CardLeague(
             icon = { SportIcon(event.sport, status) },
@@ -86,6 +102,64 @@ fun EventCard(
             home = event.home,
             away = event.away,
             status = { MatchCenter(event, status, effectiveNow) },
+        )
+        CardFooter(
+            content = {
+                when (status) {
+                    "live" -> {
+                        val label = MatchClock.eventLabel(event, effectiveNow) ?: "LIVE"
+                        if (label == "HT" || label.equals("Half time", ignoreCase = true)) {
+                            Text(
+                                "Half time",
+                                color = LinkColors.OrangePrimary.copy(alpha = 0.7f),
+                                fontFamily = MonoFont,
+                                fontSize = MatchFooterSize,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                            )
+                        } else {
+                            Text(
+                                label,
+                                color = LinkColors.OrangePrimary,
+                                fontFamily = MonoFont,
+                                fontSize = MatchFooterSize,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    "upcoming" -> {
+                        val date = displayWhen(event.startMs)
+                        val countdown = countdownText(event.startMs, effectiveNow)
+                        if (date.isNotBlank()) {
+                            Text(
+                                date,
+                                color = LinkColors.OrangePrimary,
+                                fontFamily = MonoFont,
+                                fontSize = MatchFooterSize,
+                                maxLines = 1,
+                            )
+                        }
+                        if (!countdown.isNullOrBlank()) {
+                            Text(
+                                "Starts in $countdown",
+                                color = LinkColors.PrimaryText,
+                                fontFamily = MonoFont,
+                                fontSize = MatchFooterSize,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                            )
+                        }
+                    }
+                    else -> Text(
+                        "Full time",
+                        color = LinkColors.MutedText,
+                        fontFamily = MonoFont,
+                        fontSize = MatchFooterSize,
+                        maxLines = 1,
+                    )
+                }
+            },
         )
     }
 }
@@ -97,32 +171,42 @@ fun HighlightCard(
 ) {
     CardFrame(onClick = onClick) {
         CardLeague(
-            icon = { Icon(Icons.Default.PlayArrow, null, tint = LinkColors.OrangePrimary, modifier = Modifier.size(13.dp)) },
-            label = highlight.title,
-            trailing = highlight.duration.takeIf { it.isNotBlank() }?.let {
-                { QualityChip(it) }
+            icon = {
+                Icon(
+                    Icons.Default.PlayArrow,
+                    null,
+                    tint = LinkColors.OrangePrimary,
+                    modifier = Modifier.size(13.dp),
+                )
             },
+            label = highlight.title,
+            trailing = highlight.duration.takeIf { it.isNotBlank() }?.let { { QualityChip(it) } },
         )
         TeamRow(
             home = highlight.home,
             away = highlight.away,
             status = {
                 Box(
-                    Modifier.size(34.dp).shadow(
-                        elevation = 8.dp,
-                        shape = CircleShape,
-                        ambientColor = LinkColors.OrangePrimary.copy(alpha = 0.35f),
-                        spotColor = LinkColors.OrangePrimary.copy(alpha = 0.35f)
-                    ).background(
-                        Brush.verticalGradient(listOf(LinkColors.OrangeLight, LinkColors.OrangePrimary)),
-                        CircleShape
-                    ),
+                    Modifier.size(34.dp)
+                        .background(
+                            Brush.verticalGradient(listOf(LinkColors.OrangeLight, LinkColors.OrangePrimary)),
+                            CircleShape,
+                        ),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(18.dp))
                 }
             },
         )
+        CardFooter {
+            Text(
+                highlight.duration.takeIf { it.isNotBlank() } ?: "Watch now",
+                color = LinkColors.MutedText,
+                fontFamily = MonoFont,
+                fontSize = MatchFooterSize,
+                maxLines = 1,
+            )
+        }
     }
 }
 
@@ -137,9 +221,17 @@ fun SingleItemCard(
 ) {
     CardFrame(onClick = onClick) {
         CardLeague(
-            icon = { 
-                if (isLive) Box(Modifier.size(7.dp).background(Color(0xFFFF3B30), CircleShape)) 
-                else Icon(Icons.Default.PlayArrow, null, tint = LinkColors.OrangePrimary, modifier = Modifier.size(13.dp))
+            icon = {
+                if (isLive) {
+                    Box(Modifier.size(7.dp).background(Color(0xFFFF3B30), CircleShape))
+                } else {
+                    Icon(
+                        Icons.Default.PlayArrow,
+                        null,
+                        tint = LinkColors.OrangePrimary,
+                        modifier = Modifier.size(13.dp),
+                    )
+                }
             },
             label = categoryLine,
         )
@@ -159,6 +251,17 @@ fun SingleItemCard(
             },
             imageLoader = imageLoader,
         )
+        if (!statusText.isNullOrBlank()) {
+            CardFooter {
+                Text(
+                    statusText,
+                    color = if (isLive) Color(0xFFFF3B30) else LinkColors.MutedText,
+                    fontFamily = MonoFont,
+                    fontSize = MatchFooterSize,
+                    maxLines = 1,
+                )
+            }
+        }
     }
 }
 
@@ -170,8 +273,11 @@ private fun CardFrame(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    
-    val borderAlpha by animateFloatAsState(targetValue = if (isPressed) 0.12f else 0.08f, label = "borderAlpha")
+
+    val borderAlpha by animateFloatAsState(
+        targetValue = if (isPressed) 0.12f else 0.08f,
+        label = "borderAlpha",
+    )
     val scale by animateFloatAsState(targetValue = if (isPressed) 0.99f else 1f, label = "scale")
 
     Column(
@@ -181,16 +287,12 @@ private fun CardFrame(
                 scaleX = scale
                 scaleY = scale
             }
-            .clip(RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(MatchCardRadius))
             .background(LinkColors.CardBg)
-            .border(1.dp, LinkColors.OrangePrimary.copy(alpha = borderAlpha), RoundedCornerShape(18.dp))
-            .clickable(
-                interactionSource = interactionSource, 
-                indication = LocalIndication.current, 
-                onClick = onClick
-            )
-            .then(Modifier.padding(12.dp)),
-        verticalArrangement = Arrangement.spacedBy(0.dp),
+            .border(1.dp, LinkColors.OrangePrimary.copy(alpha = borderAlpha), RoundedCornerShape(MatchCardRadius))
+            .clickable(interactionSource = interactionSource, indication = LocalIndication.current, onClick = onClick)
+            .padding(MatchCardPadding),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         content()
     }
@@ -203,7 +305,7 @@ private fun CardLeague(
     trailing: (@Composable () -> Unit)? = null,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(7.dp),
     ) {
@@ -211,7 +313,7 @@ private fun CardLeague(
         Text(
             text = label.ifBlank { "Sports" }.uppercase(),
             color = Color(0xFFE3D3C4),
-            fontSize = 11.5.sp,
+            fontSize = MatchLeagueSize,
             fontWeight = FontWeight.Bold,
             letterSpacing = .4.sp,
             maxLines = 1,
@@ -219,6 +321,17 @@ private fun CardLeague(
             modifier = Modifier.weight(1f),
         )
         trailing?.invoke()
+    }
+}
+
+/** Centred footer line; its content is supplied by each card type. */
+@Composable
+private fun CardFooter(content: @Composable () -> Unit) {
+    Box(
+        Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center,
+    ) {
+        content()
     }
 }
 
@@ -245,7 +358,7 @@ fun Crest(
                 }
             }
 
-            coil.compose.SubcomposeAsyncImage(
+            SubcomposeAsyncImage(
                 model = coil.request.ImageRequest.Builder(LocalContext.current)
                     .data(modelData)
                     .crossfade(true)
@@ -299,11 +412,15 @@ private fun MatchCenter(event: Event, status: String, nowMs: Long) {
                 LiveIndicatorRadar(text = label)
             }
         }
-        "upcoming" -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("STARTS IN", color = LinkColors.OrangePrimary, fontFamily = MonoFont, fontSize = 8.sp, letterSpacing = 0.3.sp, maxLines = 1, softWrap = false, textAlign = TextAlign.Center)
-            Text(countdownText(event.startMs, nowMs) ?: event.at.ifBlank { "Soon" }, color = LinkColors.OrangePrimary, fontFamily = MonoFont, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        else -> Text("Ended", color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 12.sp, maxLines = 1)
+        "upcoming" -> Text(
+            displayWhen(event.startMs).ifBlank { "Soon" },
+            color = LinkColors.MutedText,
+            fontFamily = MonoFont,
+            fontSize = 11.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        else -> Text("FT", color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 12.sp, maxLines = 1)
     }
 }
 
@@ -311,53 +428,39 @@ private fun MatchCenter(event: Event, status: String, nowMs: Long) {
 fun LiveIndicatorRadar(text: String) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(3.dp)
+        verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         val infiniteTransition = rememberInfiniteTransition(label = "radar")
-        
+
         val scale by infiniteTransition.animateFloat(
             initialValue = 1f,
             targetValue = 2.5f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(1500),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "radar_scale"
+            animationSpec = infiniteRepeatable(animation = tween(1500), repeatMode = RepeatMode.Restart),
+            label = "radar_scale",
         )
-        
         val alpha by infiniteTransition.animateFloat(
             initialValue = 0.8f,
             targetValue = 0f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(1500),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "radar_alpha"
+            animationSpec = infiniteRepeatable(animation = tween(1500), repeatMode = RepeatMode.Restart),
+            label = "radar_alpha",
         )
 
-        Box(
-            modifier = Modifier.size(8.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            // Expanding outer ring
+        Box(Modifier.size(8.dp), contentAlignment = Alignment.Center) {
             Box(
-                modifier = Modifier
+                Modifier
                     .matchParentSize()
                     .graphicsLayer {
                         scaleX = scale
                         scaleY = scale
                         this.alpha = alpha
                     }
-                    .background(LinkColors.OrangePrimary, CircleShape)
+                    .background(LinkColors.OrangePrimary, CircleShape),
             )
-            // Static central dot
             Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(LinkColors.OrangePrimary, CircleShape)
+                Modifier.matchParentSize().background(LinkColors.OrangePrimary, CircleShape),
             )
         }
-        
+
         Text(
             text = text.uppercase(),
             color = LinkColors.OrangePrimary,
@@ -377,7 +480,9 @@ private fun QualityChip(text: String) {
         fontFamily = MonoFont,
         fontSize = 9.5.sp,
         fontWeight = FontWeight.Bold,
-        modifier = Modifier.background(LinkColors.OrangePrimary.copy(alpha = 0.14f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 3.dp),
+        modifier = Modifier
+            .background(LinkColors.OrangePrimary.copy(alpha = 0.14f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
     )
 }
 
@@ -398,43 +503,31 @@ private fun SportIcon(sport: String, status: String = "") {
 
     if (isLive) {
         val infiniteTransition = rememberInfiniteTransition(label = "sport_radar")
-        
+
         val scale by infiniteTransition.animateFloat(
             initialValue = 1f,
             targetValue = 2.5f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(1500),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "radar_scale"
+            animationSpec = infiniteRepeatable(animation = tween(1500), repeatMode = RepeatMode.Restart),
+            label = "radar_scale",
         )
-        
         val alpha by infiniteTransition.animateFloat(
             initialValue = 0.8f,
             targetValue = 0f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(1500),
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "radar_alpha"
+            animationSpec = infiniteRepeatable(animation = tween(1500), repeatMode = RepeatMode.Restart),
+            label = "radar_alpha",
         )
 
-        Box(
-            modifier = Modifier.size(13.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            // Expanding outer ring
+        Box(Modifier.size(13.dp), contentAlignment = Alignment.Center) {
             Box(
-                modifier = Modifier
+                Modifier
                     .matchParentSize()
                     .graphicsLayer {
                         scaleX = scale
                         scaleY = scale
                         this.alpha = alpha
                     }
-                    .background(LinkColors.OrangePrimary, CircleShape)
+                    .background(LinkColors.OrangePrimary, CircleShape),
             )
-            // Static central sport icon
             Icon(icon, null, tint = LinkColors.OrangePrimary, modifier = Modifier.matchParentSize())
         }
     } else {
@@ -454,7 +547,7 @@ fun MiniCard(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    
+
     val borderAlpha by animateFloatAsState(targetValue = if (isPressed) 0.12f else 0.08f, label = "border")
     val scale by animateFloatAsState(targetValue = if (isPressed) 0.99f else 1f, label = "scale")
 
@@ -464,9 +557,9 @@ fun MiniCard(
                 scaleX = scale
                 scaleY = scale
             }
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(MatchCardRadius))
             .background(if (current) LinkColors.OrangePrimary.copy(alpha = 0.14f) else LinkColors.CardBg)
-            .border(1.dp, LinkColors.OrangePrimary.copy(alpha = borderAlpha), RoundedCornerShape(14.dp))
+            .border(1.dp, LinkColors.OrangePrimary.copy(alpha = borderAlpha), RoundedCornerShape(MatchCardRadius))
             .clickable(interactionSource = interactionSource, indication = LocalIndication.current, onClick = onClick)
             .padding(10.dp, 10.dp, 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -476,11 +569,23 @@ fun MiniCard(
             home = home,
             away = away,
             status = {
-                androidx.compose.foundation.layout.Column(
-                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(2.dp),
-                ) {
-                    Text(title, color = LinkColors.PrimaryText, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(subtitle, color = LinkColors.MutedText, fontFamily = MonoFont, fontSize = 9.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        title,
+                        color = LinkColors.PrimaryText,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        subtitle,
+                        color = LinkColors.MutedText,
+                        fontFamily = MonoFont,
+                        fontSize = 9.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                     trailing()
                 }
             },
