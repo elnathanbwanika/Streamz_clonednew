@@ -130,27 +130,22 @@ fun EventCard(
                         }
                     }
                     "upcoming" -> {
+                        // One line only. Two Text children in the footer would
+                        // overlap each other (and the team row) on narrow cards.
                         val date = displayWhen(event.startMs)
                         val countdown = countdownText(event.startMs, effectiveNow)
-                        if (date.isNotBlank()) {
-                            Text(
-                                date,
-                                color = LinkColors.OrangePrimary,
-                                fontFamily = MonoFont,
-                                fontSize = MatchFooterSize,
-                                maxLines = 1,
-                            )
-                        }
-                        if (!countdown.isNullOrBlank()) {
-                            Text(
-                                "Starts in $countdown",
-                                color = LinkColors.PrimaryText,
-                                fontFamily = MonoFont,
-                                fontSize = MatchFooterSize,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                            )
-                        }
+                        val footer = listOf(date, countdown?.let { "Starts in $it" })
+                            .filter { !it.isNullOrBlank() }
+                            .joinToString(" · ")
+                        Text(
+                            footer.ifBlank { "Upcoming" },
+                            color = LinkColors.OrangePrimary,
+                            fontFamily = MonoFont,
+                            fontSize = MatchFooterSize,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                     else -> Text(
                         "Full time",
@@ -328,9 +323,15 @@ private fun CardLeague(
 /** Centred footer line; its content is supplied by each card type. */
 @Composable
 private fun CardFooter(content: @Composable () -> Unit) {
-    Box(
-        Modifier.fillMaxWidth(),
-        contentAlignment = Alignment.Center,
+    // A Box around a single Text reports zero height to Column's spacedBy, so
+    // the footer used to paint on top of the team row. A Row with a real height
+    // keeps the three card lines apart.
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .height(22.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         content()
     }
@@ -414,7 +415,9 @@ private fun MatchCenter(event: Event, status: String, nowMs: Long) {
             }
         }
         "upcoming" -> Text(
-            displayWhen(event.startMs).ifBlank { "Soon" },
+            // Short token only. The full date + countdown lives in the footer;
+            // repeating it here collides with both team names.
+            when_short(event.startMs).ifBlank { "vs" },
             color = LinkColors.MutedText,
             fontFamily = MonoFont,
             fontSize = 11.sp,
