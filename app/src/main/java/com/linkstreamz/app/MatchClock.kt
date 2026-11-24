@@ -194,14 +194,6 @@ fun displayWhen(startMs: Long?): String {
     return "$label · ${instant.format(DateTimeFormatter.ofPattern("HH:mm"))}"
 }
 
-/** Time-only token for the middle slot of a compact match card. */
-fun when_short(startMs: Long?): String {
-    if (startMs == null) return ""
-    return Instant.ofEpochMilli(startMs)
-        .atZone(ZoneId.systemDefault())
-        .format(DateTimeFormatter.ofPattern("HH:mm"))
-}
-
 fun relativeTime(dateMs: Long?): String {
     if (dateMs == null) return ""
     val minutes = ((ServerClock.now() - dateMs) / 60_000).toInt()

@@ -415,9 +415,9 @@ private fun MatchCenter(event: Event, status: String, nowMs: Long) {
             }
         }
         "upcoming" -> Text(
-            // Short token only. The full date + countdown lives in the footer;
-            // repeating it here collides with both team names.
-            when_short(event.startMs).ifBlank { "vs" },
+            // Time lives in the footer only ("Today · 23:00 · Starts in …").
+            // Repeating it here crowds the two team names.
+            "vs",
             color = LinkColors.MutedText,
             fontFamily = MonoFont,
             fontSize = 11.sp,
