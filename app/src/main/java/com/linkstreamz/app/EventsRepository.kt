@@ -121,6 +121,7 @@ data class Highlight(
     val away: Team?,
     val servers: List<StreamServer>,
     val tvBadge: TvBadge? = null,
+    val sport: String = "",
 )
 
 // FEED: Feed now also carries the reference lists parsed from content.json.
@@ -389,6 +390,9 @@ class EventsRepository(private val preview: Boolean = false) {
             away = away,
             servers = streams(obj),
             tvBadge = TvBadgeParser.parse(obj["tvBadge"]),
+            sport = obj.pick("sport", "category")?.stringValue()
+                ?.takeIf { it.isNotBlank() }
+                ?: event?.sport.orEmpty(),
         )
     }
 

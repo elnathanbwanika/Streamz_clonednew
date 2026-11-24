@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Sports
 import androidx.compose.material.icons.filled.SportsBaseball
 import androidx.compose.material.icons.filled.SportsBasketball
@@ -37,7 +36,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -111,27 +109,6 @@ fun EventCard(
             away = event.away,
             status = { MatchCenter(event, status, effectiveNow) },
         )
-        // Only upcoming events need a footer (date + countdown). Live events
-        // already show their minute in MatchCenter, and finished events show
-        // "FT" there — repeating either in the footer duplicates the text.
-        if (status == "upcoming") {
-            CardFooter {
-                val date = displayWhen(event.startMs)
-                val countdown = countdownText(event.startMs, effectiveNow)
-                val footer = listOf(date, countdown?.let { "Starts in $it" })
-                    .filter { !it.isNullOrBlank() }
-                    .joinToString(" · ")
-                Text(
-                    footer.ifBlank { "Upcoming" },
-                    color = LinkColors.OrangePrimary,
-                    fontFamily = MonoFont,
-                    fontSize = MatchFooterSize,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
     }
 }
 
@@ -142,14 +119,7 @@ fun HighlightCard(
 ) {
     CardFrame(onClick = onClick) {
         CardLeague(
-            icon = {
-                Icon(
-                    Icons.Default.PlayArrow,
-                    null,
-                    tint = LinkColors.OrangePrimary,
-                    modifier = Modifier.size(13.dp),
-                )
-            },
+            icon = { SportIcon(highlight.sport) },
             label = highlight.title,
             trailing = null,
         )
@@ -157,27 +127,14 @@ fun HighlightCard(
             home = highlight.home,
             away = highlight.away,
             status = {
-                Box(
-                    Modifier.size(34.dp)
-                        .background(
-                            Brush.verticalGradient(listOf(LinkColors.OrangeLight, LinkColors.OrangePrimary)),
-                            CircleShape,
-                        ),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(Icons.Default.PlayArrow, null, tint = Color.Black, modifier = Modifier.size(18.dp))
-                }
+                Icon(
+                    sportIconFor(highlight.sport),
+                    null,
+                    tint = LinkColors.OrangePrimary,
+                    modifier = Modifier.size(20.dp),
+                )
             },
         )
-        CardFooter {
-            Text(
-                "Watch now",
-                color = LinkColors.MutedText,
-                fontFamily = MonoFont,
-                fontSize = MatchFooterSize,
-                maxLines = 1,
-            )
-        }
     }
 }
 
@@ -379,12 +336,12 @@ private fun MatchCenter(event: Event, status: String, nowMs: Long) {
             }
         }
         "upcoming" -> Text(
-            // Time lives in the footer only ("Today · 23:00 · Starts in …").
-            // Repeating it here crowds the two team names.
-            "vs",
-            color = LinkColors.MutedText,
+            // Compact countdown in the centre keeps every card two lines tall.
+            countdownText(event.startMs, nowMs) ?: "vs",
+            color = LinkColors.OrangePrimary,
             fontFamily = MonoFont,
             fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
