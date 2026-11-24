@@ -104,59 +104,27 @@ fun EventCard(
             away = event.away,
             status = { MatchCenter(event, status, effectiveNow) },
         )
-        CardFooter(
-            content = {
-                when (status) {
-                    "live" -> {
-                        val label = MatchClock.eventLabel(event, effectiveNow) ?: "LIVE"
-                        if (label == "HT" || label.equals("Half time", ignoreCase = true)) {
-                            Text(
-                                "Half time",
-                                color = LinkColors.OrangePrimary.copy(alpha = 0.7f),
-                                fontFamily = MonoFont,
-                                fontSize = MatchFooterSize,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                            )
-                        } else {
-                            Text(
-                                label,
-                                color = LinkColors.OrangePrimary,
-                                fontFamily = MonoFont,
-                                fontSize = MatchFooterSize,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                            )
-                        }
-                    }
-                    "upcoming" -> {
-                        // One line only. Two Text children in the footer would
-                        // overlap each other (and the team row) on narrow cards.
-                        val date = displayWhen(event.startMs)
-                        val countdown = countdownText(event.startMs, effectiveNow)
-                        val footer = listOf(date, countdown?.let { "Starts in $it" })
-                            .filter { !it.isNullOrBlank() }
-                            .joinToString(" · ")
-                        Text(
-                            footer.ifBlank { "Upcoming" },
-                            color = LinkColors.OrangePrimary,
-                            fontFamily = MonoFont,
-                            fontSize = MatchFooterSize,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    else -> Text(
-                        "Full time",
-                        color = LinkColors.MutedText,
-                        fontFamily = MonoFont,
-                        fontSize = MatchFooterSize,
-                        maxLines = 1,
-                    )
-                }
-            },
-        )
+        // Only upcoming events need a footer (date + countdown). Live events
+        // already show their minute in MatchCenter, and finished events show
+        // "FT" there — repeating either in the footer duplicates the text.
+        if (status == "upcoming") {
+            CardFooter {
+                val date = displayWhen(event.startMs)
+                val countdown = countdownText(event.startMs, effectiveNow)
+                val footer = listOf(date, countdown?.let { "Starts in $it" })
+                    .filter { !it.isNullOrBlank() }
+                    .joinToString(" · ")
+                Text(
+                    footer.ifBlank { "Upcoming" },
+                    color = LinkColors.OrangePrimary,
+                    fontFamily = MonoFont,
+                    fontSize = MatchFooterSize,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 
