@@ -210,9 +210,9 @@ class PlayerEngine(
                 // ── MODE: muxed ───────────────────────────────────────────────────
                 // Single URL carries both video and audio — existing behaviour.
                 "muxed" -> {
-                    // Preserve the admin-console URL byte-for-byte. Percent-encoded
-                    // spaces/brackets in bucket object names must reach OkHttp as-is.
-                    val muxedUrl = DirectFileUrls.exact(server.url!!) // non-null guaranteed by serverMode()
+                    // Preserve the source byte-for-byte: remote bucket URLs keep their
+                    // percent escapes, and downloaded movies keep their local URI.
+                    val muxedUrl = DirectFileUrls.forPlayback(server.url!!) // non-null guaranteed by serverMode()
                     val useProxy = if (isCustom) false else server.useProxy
                     val effectiveDelay = server.delaySeconds ?: globalDelaySeconds
                     // Only proxy when explicitly requested by the server config OR a server-specific
@@ -275,7 +275,7 @@ class PlayerEngine(
 
                     fun buildSource(url: String): androidx.media3.exoplayer.source.MediaSource {
                         val dsf = createDataSourceFactory(context, server.headers, dataClient)
-                        return directSource(DirectFileUrls.exact(url), dsf)
+                        return directSource(DirectFileUrls.forPlayback(url), dsf)
                     }
 
                     val videoSource = buildSource(videoSrc)
@@ -298,7 +298,7 @@ class PlayerEngine(
                 // Only an audio track is available. The PlayerView will show the shutter
                 // (black frame / last frame) as a placeholder — no additional UI needed.
                 "audio-only" -> {
-                    val audioSrc = DirectFileUrls.exact(server.audioUrl!!) // non-null guaranteed by serverMode()
+                    val audioSrc = DirectFileUrls.forPlayback(server.audioUrl!!) // non-null guaranteed by serverMode()
                     isSyncing.value = false
 
                     val dataSourceFactory = createDataSourceFactory(context, server.headers, dataClient)

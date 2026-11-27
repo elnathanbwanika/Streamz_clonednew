@@ -23,6 +23,22 @@ class DirectFileUrlTest {
     }
 
     @Test
+    fun downloadedLocalUriIsNeverHttpValidated() {
+        val contentUri = "content://com.android.providers.downloads.documents/document/42"
+        val fileUri = "file:///storage/emulated/0/Movies/Hope%20(2026)%20%5BVJ%20Ulio%5D.mkv"
+
+        assertEquals(contentUri, DirectFileUrls.forPlayback(contentUri))
+        assertEquals(fileUri, DirectFileUrls.forPlayback(fileUri))
+        assertEquals(bucketUrl, DirectFileUrls.forPlayback(bucketUrl))
+
+        // Downloads stay strict; only the playback path is permissive.
+        assertTrue(
+            runCatching { DirectFileUrls.exact(contentUri) }
+                .exceptionOrNull() is IllegalArgumentException,
+        )
+    }
+
+    @Test
     fun okHttpRequestKeepsEncodedSpacesBracketsAndParentheses() {
         val request = Request.Builder()
             .url(DirectFileUrls.exact(bucketUrl))

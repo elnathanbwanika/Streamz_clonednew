@@ -22,6 +22,17 @@ object DirectFileUrls {
         return url
     }
 
+    /**
+     * Pass-through for ExoPlayer. Downloaded movies are local `file://` or
+     * `content://` URIs, so HTTP validation must NOT run on the playback path —
+     * doing so threw "Invalid HTTP(S) URL" before ExoPlayer ever opened the file.
+     *
+     * Remote bucket URLs are also returned byte-for-byte. Malformed values are
+     * left to ExoPlayer's normal error overlay instead of crashing the player
+     * coroutine. Downloads keep using [exact], which stays strict.
+     */
+    fun forPlayback(source: String): String = source
+
     /** Encoded path as seen on the wire, without decoding percent escapes. */
     fun encodedPath(url: String): String = url.toHttpUrl().encodedPath
 

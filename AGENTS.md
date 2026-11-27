@@ -16,6 +16,7 @@
 ## Direct bucket files
 - Admin-console URLs are passed through unchanged. `DirectFileUrls.exact()` validates with OkHttp but returns the original string, so `%20`, `%5B`, `%5D` and parentheses are never decoded or double-encoded. `DownloadService` uses it for probe, segment and single-stream requests.
 - OkHttp `HttpUrl` exposes `scheme` (not `protocol`) and a nullable `fragment`; use `parsed.scheme` and `parsed.fragment.isNullOrEmpty()` in URL helpers.
+- `DirectFileUrls.exact()` is STRICT and only for download requests. Playback must use `DirectFileUrls.forPlayback()`, which returns the source unchanged: downloaded movies arrive as local `file://` / `content://` URIs and validating them as HTTP crashes with `IllegalArgumentException: Invalid HTTP(S) URL`.
 - Playback uses `ProgressiveMediaSource` explicitly for direct files (muxed/split/audio-only); HLS proxy still uses `HlsMediaSource`. No dependency on file extension or server `Content-Type`; seeking relies on the server's HTTP Range support.
 - `PlaybackErrorMessage` maps Media3 error codes to short, URL-free themed messages for the existing player error overlay + Retry button. Codec/container errors short-circuit server fallback and show immediately. Never put raw exception messages or URLs into player errors.
 
