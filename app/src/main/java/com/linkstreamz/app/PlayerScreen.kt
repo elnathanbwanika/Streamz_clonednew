@@ -455,7 +455,7 @@ fun PlayerScreen(
     // LaunchedEffect(retryTrigger) below watches this and does the delayed reload.
     var retryTrigger by remember { mutableIntStateOf(0) }
 
-    fun triggerFallback(httpCode: Int = 0) {
+    fun triggerFallback(httpCode: Int = 0, playbackErrorCode: Int = 0) {
         if (allServersFailed) return
 
         // Don't blindly retry client errors:
@@ -481,13 +481,7 @@ fun PlayerScreen(
         if (nextIndex == -1 || fallbackIndex >= fallbackOrder.size - 1) {
             allServersFailed = true
             AppLogger.e("Engine", "All servers failed. Last HTTP code: $httpCode")
-            error = when (httpCode) {
-                403 -> "Stream not available in your location. Try either connecting VPN or using proxy in settings"
-                404 -> "This event has ended"
-                410 -> "Link expired (410). Please reload the app."
-                in 500..599 -> "Server error ($httpCode). Try again later."
-                else -> "All servers failed. Please try again later."
-            }
+            error = PlaybackErrorMessage.forCode(playbackErrorCode, httpCode)
             return
         }
         fallbackIndex++
@@ -523,7 +517,15 @@ fun PlayerScreen(
                     }
                     cause = cause.cause
                 }
-                fallbackRef.value.invoke(httpCode)
+                if (PlaybackErrorMessage.isDeviceFormatError(err.errorCode)) {
+                    // Codec/container failures won't be fixed by reloading the same
+                    // object. Show the themed overlay immediately; its Retry button
+                    // still lets the user try again after switching servers.
+                    allServersFailed = true
+                    error = PlaybackErrorMessage.forCode(err.errorCode, httpCode)
+                } else {
+                    fallbackRef.value.invoke(httpCode, err.errorCode)
+                }
             }
         }
     }

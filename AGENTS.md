@@ -13,6 +13,11 @@
 - Engine publishes every 250 ms from the **sum of all segment counters** (not the stale post-download aggregate) with a ~3 s moving speed average; `AppUpdateNotificationService` observes the same state and posts at most once per second. The old bug was `downloadSegmented()` incrementing `SegmentState.done` while `publish()` read a separate `downloaded` AtomicLong that was only set at the end.
 - Completion hand-off lives in `AppUpdateCompletionController`: foreground launches the system installer immediately; background leaves only the "Tap to install" notification. A handled-file marker prevents duplicate launches after recomposition.
 
+## Direct bucket files
+- Admin-console URLs are passed through unchanged. `DirectFileUrls.exact()` validates with OkHttp but returns the original string, so `%20`, `%5B`, `%5D` and parentheses are never decoded or double-encoded. `DownloadService` uses it for probe, segment and single-stream requests.
+- Playback uses `ProgressiveMediaSource` explicitly for direct files (muxed/split/audio-only); HLS proxy still uses `HlsMediaSource`. No dependency on file extension or server `Content-Type`; seeking relies on the server's HTTP Range support.
+- `PlaybackErrorMessage` maps Media3 error codes to short, URL-free themed messages for the existing player error overlay + Retry button. Codec/container errors short-circuit server fallback and show immediately. Never put raw exception messages or URLs into player errors.
+
 ## Installing the APK
 - **Always install the raw `.apk`**, never the Actions artifact ZIP (installing a renamed ZIP gives "package appears to be invalid/corrupt"). CI publishes a direct APK at `https://github.com/elnathanbwanika/Streamz_clonednew/releases/download/latest/LinkStreamz-<version>.apk`.
 - If an older build is already installed with a different signing key, uninstall it first — Android rejects an update with a different signature and reports it as a corrupt/invalid package.

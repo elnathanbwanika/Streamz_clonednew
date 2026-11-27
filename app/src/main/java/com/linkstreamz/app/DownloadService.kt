@@ -327,6 +327,9 @@ class DownloadService : Service() {
         private var currentSegments: List<DownloadSegment>? = null
         private val speedEstimator = TransferSpeedEstimator()
 
+        /** Validated but byte-for-byte unchanged: percent escapes stay intact. */
+        private val sourceUrl: String by lazy { DirectFileUrls.exact(item.videoUrl) }
+
         @Volatile private var speedBytesPerSecond: Long = 0L
         @Volatile private var etaSeconds: Long = -1L
 
@@ -485,7 +488,7 @@ class DownloadService : Service() {
                 checkInterrupted()
                 val call = client.newCall(
                     Request.Builder()
-                        .url(item.videoUrl)
+                        .url(sourceUrl)
                         .header("User-Agent", USER_AGENT)
                         .header("Accept", "*/*")
                         .header("Range", "bytes=0-0")
@@ -592,7 +595,7 @@ class DownloadService : Service() {
                 val rangeStart = seg.nextByte
                 val call = client.newCall(
                     Request.Builder()
-                        .url(item.videoUrl)
+                        .url(sourceUrl)
                         .header("User-Agent", USER_AGENT)
                         .header("Accept", "*/*")
                         .header("Range", "bytes=$rangeStart-${seg.end}")
@@ -669,7 +672,7 @@ class DownloadService : Service() {
 
                             val call = client.newCall(
                                 Request.Builder()
-                                    .url(item.videoUrl)
+                                    .url(sourceUrl)
                                     .header("User-Agent", USER_AGENT)
                                     .header("Accept", "*/*")
                                     .get()
