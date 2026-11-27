@@ -16,7 +16,7 @@ object DirectFileUrls {
     fun exact(url: String): String {
         val parsed = runCatching { url.toHttpUrl() }.getOrNull()
             ?: throw IllegalArgumentException("Invalid HTTP(S) URL")
-        if (parsed.protocol !in setOf("http", "https")) {
+        if (parsed.scheme !in setOf("http", "https")) {
             throw IllegalArgumentException("Only HTTP(S) URLs are supported")
         }
         return url
@@ -28,6 +28,6 @@ object DirectFileUrls {
     /** True for a plain HTTP(S) URL with no fragment that we can pass through safely. */
     fun isSafePassthrough(url: String): Boolean = runCatching {
         val parsed = exact(url).toHttpUrl()
-        parsed.fragment.isEmpty()
+        parsed.fragment.isNullOrEmpty()
     }.getOrDefault(false)
 }
