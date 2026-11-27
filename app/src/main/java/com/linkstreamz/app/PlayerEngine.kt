@@ -5,9 +5,8 @@ import android.net.Uri
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MergingMediaSource
-import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -247,14 +246,15 @@ class PlayerEngine(
                     }
 
                     val dataSourceFactory = createDataSourceFactory(context, server.headers, dataClient)
-                    // Direct files go through ProgressiveMediaSource explicitly: no
-                    // reliance on the file extension or the server's Content-Type.
-                    // ExoPlayer will use HTTP Range requests for seeking.
-                    val source = if (needsProxy) {
-                        hlsSource(playUrl, dataSourceFactory)
-                    } else {
-                        directSource(playUrl, dataSourceFactory)
-                    }
+                    // DefaultMediaSourceFactory auto-detects HLS/DASH/progressive from the
+                    // MediaItem and falls back to ProgressiveMediaSource for direct files
+                    // (.mp4/.mkv, extension-less, octet-stream). Forcing Progressive for
+                    // every source broke ordinary HLS streams, so keep auto-detection.
+                    val mediaItem = androidx.media3.common.MediaItem.fromUri(playUrl)
+                    val source = DefaultMediaSourceFactory(context)
+                        .setDataSourceFactory(dataSourceFactory)
+                        .setLoadErrorHandlingPolicy(PlayerRetryPolicy())
+                        .createMediaSource(mediaItem)
 
                     AppLogger.d("Engine", "Before setMediaSource (muxed): pwr=${player.playWhenReady} state=${player.playbackState}")
                     player.setMediaSource(source)
@@ -275,7 +275,11 @@ class PlayerEngine(
 
                     fun buildSource(url: String): androidx.media3.exoplayer.source.MediaSource {
                         val dsf = createDataSourceFactory(context, server.headers, dataClient)
-                        return directSource(DirectFileUrls.forPlayback(url), dsf)
+                        val item = androidx.media3.common.MediaItem.fromUri(DirectFileUrls.forPlayback(url))
+                        return DefaultMediaSourceFactory(context)
+                            .setDataSourceFactory(dsf)
+                            .setLoadErrorHandlingPolicy(PlayerRetryPolicy())
+                            .createMediaSource(item)
                     }
 
                     val videoSource = buildSource(videoSrc)
@@ -302,7 +306,11 @@ class PlayerEngine(
                     isSyncing.value = false
 
                     val dataSourceFactory = createDataSourceFactory(context, server.headers, dataClient)
-                    val source = directSource(audioSrc, dataSourceFactory)
+                    val item = androidx.media3.common.MediaItem.fromUri(audioSrc)
+                    val source = DefaultMediaSourceFactory(context)
+                        .setDataSourceFactory(dataSourceFactory)
+                        .setLoadErrorHandlingPolicy(PlayerRetryPolicy())
+                        .createMediaSource(item)
 
                     AppLogger.d("Engine", "Audio-only: loading audio source")
                     AppLogger.d("Engine", "Before setMediaSource (audio-only): pwr=${player.playWhenReady} state=${player.playbackState}")
@@ -390,29 +398,6 @@ class PlayerEngine(
     }
 
     // ── private ─────────────────────────────────────────────────────────────
-
-    /**
-     * Progressive source for direct bucket files. This deliberately bypasses
-     * Media3's extension/MIME inference: a `.mkv`, an extension-less object, or
-     * an `application/octet-stream` response all use the same Range-capable
-     * OkHttp data source.
-     */
-    private fun directSource(
-        url: String,
-        factory: DefaultDataSource.Factory,
-    ): androidx.media3.exoplayer.source.MediaSource =
-        ProgressiveMediaSource.Factory(factory)
-            .setLoadErrorHandlingPolicy(PlayerRetryPolicy())
-            .createMediaSource(androidx.media3.common.MediaItem.fromUri(url))
-
-    /** HLS source for the local delayed-playback proxy only. */
-    private fun hlsSource(
-        url: String,
-        factory: DefaultDataSource.Factory,
-    ): androidx.media3.exoplayer.source.MediaSource =
-        HlsMediaSource.Factory(factory)
-            .setLoadErrorHandlingPolicy(PlayerRetryPolicy())
-            .createMediaSource(androidx.media3.common.MediaItem.fromUri(url))
 
     private fun stopProxy() {
         syncingJob?.cancel()

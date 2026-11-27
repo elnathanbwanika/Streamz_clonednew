@@ -39,6 +39,15 @@ class DirectFileUrlTest {
     }
 
     @Test
+    fun hlsStreamUrlIsAlsoPassedThroughUnchanged() {
+        val hls = "https://cdn.example.com/live/master.m3u8?token=abc%2Fdef&expires=123"
+
+        assertEquals(hls, DirectFileUrls.forPlayback(hls))
+        assertTrue(DirectFileUrls.isSafePassthrough(hls))
+        assertFalse(DirectFileUrls.forPlayback(hls).contains("%252F"))
+    }
+
+    @Test
     fun okHttpRequestKeepsEncodedSpacesBracketsAndParentheses() {
         val request = Request.Builder()
             .url(DirectFileUrls.exact(bucketUrl))

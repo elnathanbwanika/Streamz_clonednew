@@ -517,15 +517,12 @@ fun PlayerScreen(
                     }
                     cause = cause.cause
                 }
-                if (PlaybackErrorMessage.isDeviceFormatError(err.errorCode)) {
-                    // Codec/container failures won't be fixed by reloading the same
-                    // object. Show the themed overlay immediately; its Retry button
-                    // still lets the user try again after switching servers.
-                    allServersFailed = true
-                    error = PlaybackErrorMessage.forCode(err.errorCode, httpCode)
-                } else {
-                    fallbackRef.value.invoke(httpCode, err.errorCode)
-                }
+                // Every error goes through the normal fallback chain: retry the
+                // current server, then advance to the next one. Only when all
+                // servers are exhausted does triggerFallback show the themed,
+                // URL-free error card with Retry. Short-circuiting here used to
+                // abandon live streams on the first codec/container error.
+                fallbackRef.value.invoke(httpCode, err.errorCode)
             }
         }
     }

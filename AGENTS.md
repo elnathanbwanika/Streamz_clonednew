@@ -17,8 +17,9 @@
 - Admin-console URLs are passed through unchanged. `DirectFileUrls.exact()` validates with OkHttp but returns the original string, so `%20`, `%5B`, `%5D` and parentheses are never decoded or double-encoded. `DownloadService` uses it for probe, segment and single-stream requests.
 - OkHttp `HttpUrl` exposes `scheme` (not `protocol`) and a nullable `fragment`; use `parsed.scheme` and `parsed.fragment.isNullOrEmpty()` in URL helpers.
 - `DirectFileUrls.exact()` is STRICT and only for download requests. Playback must use `DirectFileUrls.forPlayback()`, which returns the source unchanged: downloaded movies arrive as local `file://` / `content://` URIs and validating them as HTTP crashes with `IllegalArgumentException: Invalid HTTP(S) URL`.
-- Playback uses `ProgressiveMediaSource` explicitly for direct files (muxed/split/audio-only); HLS proxy still uses `HlsMediaSource`. No dependency on file extension or server `Content-Type`; seeking relies on the server's HTTP Range support.
-- `PlaybackErrorMessage` maps Media3 error codes to short, URL-free themed messages for the existing player error overlay + Retry button. Codec/container errors short-circuit server fallback and show immediately. Never put raw exception messages or URLs into player errors.
+- Playback uses `DefaultMediaSourceFactory` for ALL modes (muxed/split/audio-only). It auto-detects HLS/DASH and falls back to progressive for direct files (`.mp4`/`.mkv`/extension-less/octet-stream). Do NOT force `ProgressiveMediaSource` for every source — that broke ordinary HLS streams. Seeking relies on the server's HTTP Range support.
+- Every player error goes through `triggerFallback` (retry current server → next server → themed error card). Never short-circuit on codec/container errors by setting `allServersFailed`; that abandons streams that could have played on another server.
+- `PlaybackErrorMessage` maps Media3 error codes to short, URL-free themed messages for the existing player error overlay + Retry button. Never put raw exception messages or URLs into player errors.
 
 ## Installing the APK
 - **Always install the raw `.apk`**, never the Actions artifact ZIP (installing a renamed ZIP gives "package appears to be invalid/corrupt"). CI publishes a direct APK at `https://github.com/elnathanbwanika/Streamz_clonednew/releases/download/latest/LinkStreamz-<version>.apk`.
