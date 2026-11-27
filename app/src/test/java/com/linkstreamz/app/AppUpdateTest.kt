@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicLong
 
 class AppUpdateTest {
     @Test
@@ -82,5 +83,40 @@ class AppUpdateTest {
         assertEquals(25L, snapshot.bytesPerSecond)
         assertEquals(3L, snapshot.etaSeconds)
         assertEquals(0.25f, snapshot.fraction, 0.0001f)
+    }
+
+    @Test
+    fun `root cause segment counters advance while published aggregate stays stale`() {
+        // Models the original segmented path: bytes land in each segment's own
+        // counter, but publish() read a separate aggregate that was only set at
+        // the end. These are the exact URL-free lines added to logcat.
+        val totalBytes = 35_861_299L // 34.2 MB
+        val segmentDone = AtomicLong(0L)
+        val legacyAggregate = AtomicLong(0L)
+        segmentDone.addAndGet(1_048_576L)
+        AppLogger.d(
+            "UpdateProgress",
+            "update segment: index=0 segmentBytes=${segmentDone.get()} aggregateBytes=${legacyAggregate.get()}",
+        )
+        val stale = AppUpdateMetrics.snapshot(legacyAggregate.get(), totalBytes, 0L, 1_000L)
+        AppLogger.d(
+            "UpdateProgress",
+            "update progress: ${stale.downloadedBytes}/${stale.totalBytes}, speed=${stale.bytesPerSecond}",
+        )
+
+        assertEquals(1_048_576L, segmentDone.get())
+        assertEquals(0L, legacyAggregate.get())
+        assertEquals(0L, stale.downloadedBytes)
+        assertEquals(0L, stale.bytesPerSecond)
+        assertTrue(
+            AppLogger.logs.value.any {
+                it.contains("update segment: index=0 segmentBytes=1048576 aggregateBytes=0")
+            },
+        )
+        assertTrue(
+            AppLogger.logs.value.any {
+                it.contains("update progress: 0/35861299, speed=0")
+            },
+        )
     }
 }

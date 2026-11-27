@@ -8,6 +8,7 @@ class LinkStreamzApp : Application() {
         super.onCreate()
         NetworkBootstrap.init(this)
         NotificationChannels.ensure(this)
+        AppUpdateForegroundTracker.install(this)
         DownloadManager.init(this)
         FirebaseMessaging.getInstance().subscribeToTopic("all")
     }

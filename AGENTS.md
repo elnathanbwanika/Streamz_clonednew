@@ -4,8 +4,14 @@
 - Native Android app (Kotlin + Compose), module `app/` at repo root (not `android/app/`). No Capacitor/Cordova/RN wrapper.
 - AGP 8.5.2, Gradle wrapper 8.9, Kotlin 2.0.21, compileSdk 36 / targetSdk 34 / minSdk 24, applicationId `com.linkstreamz.app`.
 - Requires JDK 17+ (AGP 8.x). Release build command: `./gradlew assembleRelease --no-daemon`.
-- JDK 25 is TOO NEW (Gradle 8.9/AGP 8.5.2 fail with `What went wrong: 25.0.4.1`). Use 17 or 21. CI pins 17 via setup-java; local Codespace defaults to 25 → set `JAVA_HOME` to a 17/21 JDK for local builds.
+- JDK 25 is TOO NEW (Gradle 8.9/AGP 8.5.2 fail with `What went wrong: 25.0.4.1`). CI pins 17 via setup-java; don't install a local JDK in the mobile sandbox (see below).
 - APK lands at `app/build/outputs/apk/release/`.
+- **Mobile sandbox (4 GB phone): never run Gradle, tests or JDK/toolchain installs locally.** The agent only writes code/tests and updates notes; the user pushes to GitHub Actions, which builds and signs the release APK with secrets. CI is the only verification path.
+
+## Mandatory update progress
+- `AppUpdateDownloadRepository` is the single process-wide `StateFlow` for the update download (`Idle`/`Connecting`/`Downloading`/`Completed`/`Failed` + bytes, nullable total, speed, ETA). `AppUpdateDownloader` is the only writer; popup and notification only observe. State survives rotation/recreation/background-return because the flow replays.
+- Engine publishes every 250 ms from the **sum of all segment counters** (not the stale post-download aggregate) with a ~3 s moving speed average; `AppUpdateNotificationService` observes the same state and posts at most once per second. The old bug was `downloadSegmented()` incrementing `SegmentState.done` while `publish()` read a separate `downloaded` AtomicLong that was only set at the end.
+- Completion hand-off lives in `AppUpdateCompletionController`: foreground launches the system installer immediately; background leaves only the "Tap to install" notification. A handled-file marker prevents duplicate launches after recomposition.
 
 ## Installing the APK
 - **Always install the raw `.apk`**, never the Actions artifact ZIP (installing a renamed ZIP gives "package appears to be invalid/corrupt"). CI publishes a direct APK at `https://github.com/elnathanbwanika/Streamz_clonednew/releases/download/latest/LinkStreamz-<version>.apk`.

@@ -7,13 +7,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -32,9 +28,12 @@ import java.util.Collections
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
-import kotlin.math.max
 import kotlin.math.min
 
+/**
+ * Legacy immutable progress value kept for the existing progress tests. Live
+ * UI state uses [UpdateProgressSnapshot], which supports an unknown total.
+ */
 data class AppUpdateProgress(
     val downloadedBytes: Long,
     val totalBytes: Long,
@@ -80,28 +79,22 @@ object AppUpdateMetrics {
     }
 }
 
-sealed interface AppUpdateDownloadState {
-    data object Idle : AppUpdateDownloadState
-    data class Downloading(val progress: AppUpdateProgress) : AppUpdateDownloadState
-    data object Verifying : AppUpdateDownloadState
-    data class Ready(val file: File) : AppUpdateDownloadState
-    data class Failed(val message: String) : AppUpdateDownloadState
-}
-
+/** The download engine. It is the only writer of [AppUpdateDownloadRepository]. */
 object AppUpdateDownloader {
     private const val DIR_NAME = "app_update"
     private const val PART_NAME = "link-streamz-update.apk.part"
     private const val APK_NAME = "link-streamz-update.apk"
     private const val MANIFEST_NAME = "link-streamz-update.json"
     private const val BUFFER_BYTES = 64 * 1024
-    private const val PROGRESS_INTERVAL_MS = 500L
+    private const val PROGRESS_INTERVAL_MS = 250L
     private const val MAX_RETRIES = 5
     private const val USER_AGENT =
         "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val _state = MutableStateFlow<AppUpdateDownloadState>(AppUpdateDownloadState.Idle)
-    val state: StateFlow<AppUpdateDownloadState> = _state.asStateFlow()
+
+    /** Read-only alias of the one process-wide state holder. */
+    val state: StateFlow<AppUpdateDownloadState> get() = AppUpdateDownloadRepository.state
 
     private val generation = AtomicInteger(0)
     private val calls = Collections.synchronizedSet(mutableSetOf<Call>())
@@ -122,6 +115,7 @@ object AppUpdateDownloader {
 
     fun init(context: Context) {
         appContext = context.applicationContext
+        AppUpdateDownloadRepository.setCancelHandler(::cancel)
     }
 
     fun onAppStart(context: Context, requirement: AppUpdateRequirement?) {
@@ -136,7 +130,7 @@ object AppUpdateDownloader {
         val finalFile = File(dir, APK_NAME)
         if (finalFile.exists()) {
             if (finalFile.length() > 0L && verifyApk(ctx, finalFile, requirement)) {
-                _state.value = AppUpdateDownloadState.Ready(finalFile)
+                publishCompleted(finalFile, finalFile.length(), 0L, autoLaunch = false)
             } else {
                 finalFile.delete()
             }
@@ -146,18 +140,22 @@ object AppUpdateDownloader {
     fun start(context: Context, requirement: AppUpdateRequirement) {
         if (job?.isActive == true) return
         init(context)
+        AppUpdateCompletionController.reset(context)
         val gen = generation.incrementAndGet()
         cancelRequested = false
-        _state.value = AppUpdateDownloadState.Downloading(AppUpdateProgress(0L, 0L, 0L, -1L))
+        AppUpdateDownloadRepository.publish(AppUpdateDownloadState.Connecting())
+        AppUpdateNotificationService.start(context.applicationContext)
         job = scope.launch {
             try {
                 download(context.applicationContext, requirement)
             } catch (_: CancellationException) {
-                if (gen == generation.get()) _state.value = AppUpdateDownloadState.Idle
+                if (gen == generation.get()) AppUpdateDownloadRepository.clear()
             } catch (e: Exception) {
                 if (e is BadUpdateFile) clearPartial(context)
                 if (gen == generation.get()) {
-                    _state.value = AppUpdateDownloadState.Failed(friendlyError(e))
+                    AppUpdateDownloadRepository.publish(
+                        AppUpdateDownloadState.Failed(friendlyError(e)),
+                    )
                 }
             } finally {
                 if (gen == generation.get()) job = null
@@ -171,17 +169,20 @@ object AppUpdateDownloader {
         job?.cancel()
         job = null
         abortCalls()
-        _state.value = AppUpdateDownloadState.Idle
+        activeSegments = emptyList()
+        AppUpdateDownloadRepository.clear()
     }
 
     fun markFailed(message: String) {
-        _state.value = AppUpdateDownloadState.Failed(message)
+        AppUpdateDownloadRepository.publish(AppUpdateDownloadState.Failed(message))
     }
 
     fun installationNotCompleted() {
-        val current = _state.value
-        if (current is AppUpdateDownloadState.Ready) {
-            _state.value = AppUpdateDownloadState.Failed("Installation was not completed. Please try again.")
+        val current = AppUpdateDownloadRepository.current()
+        if (current is AppUpdateDownloadState.Completed) {
+            AppUpdateDownloadRepository.publish(
+                AppUpdateDownloadState.Failed("Installation was not completed. Please try again."),
+            )
         }
     }
 
@@ -193,17 +194,22 @@ object AppUpdateDownloader {
 
         if (finalFile.exists()) {
             if (finalFile.length() > 0L && verifyApk(context, finalFile, requirement)) {
-                _state.value = AppUpdateDownloadState.Ready(finalFile)
+                publishCompleted(finalFile, finalFile.length(), 0L, autoLaunch = false)
                 return
             }
             finalFile.delete()
         }
 
-        _state.value = AppUpdateDownloadState.Downloading(AppUpdateProgress(0L, 0L, 0L, -1L))
+        AppUpdateDownloadRepository.publish(AppUpdateDownloadState.Connecting())
         val probe = probe(requirement.apkUrl)
         if (probe.totalBytes <= 0L) throw BadUpdateFile()
         val total = probe.totalBytes
-        val sessionStart = if (probe.rangeSupported) resumePosition(part, manifestFile, total, requirement.apkUrl) else 0L
+        AppUpdateDownloadRepository.publish(AppUpdateDownloadState.Connecting(total))
+        val sessionStart = if (probe.rangeSupported) {
+            resumePosition(part, manifestFile, total, requirement.apkUrl)
+        } else {
+            0L
+        }
         if (!probe.rangeSupported) {
             part.delete()
             manifestFile.delete()
@@ -211,12 +217,12 @@ object AppUpdateDownloader {
 
         RandomAccessFile(part, "rw").use { it.setLength(total) }
         val downloaded = AtomicLong(sessionStart)
-        val startedAt = System.currentTimeMillis()
+        val speedTracker = AppUpdateSpeedTracker()
         val monitor = scope.launch {
             while (isActive && !cancelRequested) {
                 delay(PROGRESS_INTERVAL_MS)
                 if (!isActive || cancelRequested) break
-                publish(downloaded.get(), total, sessionStart, startedAt)
+                publish(aggregateBytes(downloaded), total, speedTracker)
                 if (probe.rangeSupported && activeSegments.isNotEmpty()) {
                     saveManifest(manifestFile, total, requirement.apkUrl, part, activeSegments.map { it.done.get() })
                 }
@@ -238,9 +244,11 @@ object AppUpdateDownloader {
                 downloadSingle(requirement.apkUrl, total, part, downloaded)
             }
             monitor.cancel()
-            publish(downloaded.get(), total, sessionStart, startedAt)
+            publish(aggregateBytes(downloaded), total, speedTracker)
             if (part.length() != total) throw BadUpdateFile()
-            _state.value = AppUpdateDownloadState.Verifying
+            AppUpdateDownloadRepository.publish(
+                AppUpdateDownloadState.Connecting(total, "Verifying update..."),
+            )
             finalFile.delete()
             if (!part.renameTo(finalFile)) throw IOException("Could not finish the update file")
             manifestFile.delete()
@@ -248,11 +256,35 @@ object AppUpdateDownloader {
                 finalFile.delete()
                 throw BadUpdateFile()
             }
-            _state.value = AppUpdateDownloadState.Ready(finalFile)
+            publishCompleted(finalFile, total, speedTracker.current(System.currentTimeMillis()))
         } finally {
             monitor.cancel()
             activeSegments = emptyList()
             if (part.exists() && finalFile.exists()) part.delete()
+        }
+    }
+
+    private fun publishCompleted(
+        file: File,
+        total: Long,
+        speed: Long,
+        autoLaunch: Boolean = true,
+    ) {
+        val progress = AppUpdateProgressCalculator.snapshot(total, total, speed)
+        val completed = AppUpdateDownloadState.Completed(file, progress)
+        AppUpdateDownloadRepository.publish(completed)
+        if (autoLaunch) {
+            appContext?.let { AppUpdateCompletionController.ensureHandled(it, completed) }
+        }
+    }
+
+    /** Progress always comes from all segment counters combined. */
+    private fun aggregateBytes(fallback: AtomicLong): Long {
+        val segments = activeSegments
+        return if (segments.isNotEmpty()) {
+            segments.sumOf { it.done.get().coerceAtLeast(0L) }
+        } else {
+            fallback.get().coerceAtLeast(0L)
         }
     }
 
@@ -278,7 +310,7 @@ object AppUpdateDownloader {
             val channel = raf.channel
             coroutineScope {
                 val jobs = segments.map { seg ->
-                    launch { downloadSegment(url, seg, channel) }
+                    launch { downloadSegment(url, seg, channel, downloaded) }
                 }
                 jobs.joinAll()
             }
@@ -288,7 +320,12 @@ object AppUpdateDownloader {
         saveManifest(manifestFile, total, url, part, segments.map { it.done.get() })
     }
 
-    private suspend fun downloadSegment(url: String, seg: SegmentState, channel: java.nio.channels.FileChannel) {
+    private suspend fun downloadSegment(
+        url: String,
+        seg: SegmentState,
+        channel: java.nio.channels.FileChannel,
+        downloaded: AtomicLong,
+    ) {
         var attempt = 0
         while (seg.done.get() < seg.length) {
             val startAt = seg.done.get()
@@ -325,6 +362,11 @@ object AppUpdateDownloader {
                                 offset += wrote
                             }
                             seg.done.addAndGet(toWrite.toLong())
+                            AppLogger.d(
+                                "UpdateProgress",
+                                "update segment: index=${seg.index} segmentBytes=${seg.done.get()} " +
+                                    "combinedBytes=${aggregateBytes(downloaded)}",
+                            )
                             position += toWrite
                         }
                     }
@@ -440,15 +482,15 @@ object AppUpdateDownloader {
         throw last ?: IOException("Could not reach the update server")
     }
 
-    private fun publish(downloaded: Long, total: Long, sessionStart: Long, startedAt: Long) {
-        _state.value = AppUpdateDownloadState.Downloading(
-            AppUpdateMetrics.snapshot(
-                downloadedBytes = downloaded,
-                totalBytes = total,
-                sessionStartBytes = sessionStart,
-                elapsedMs = System.currentTimeMillis() - startedAt,
-            )
+    private fun publish(done: Long, total: Long, speedTracker: AppUpdateSpeedTracker) {
+        val speed = speedTracker.record(System.currentTimeMillis(), done)
+        val progress = AppUpdateProgressCalculator.snapshot(done, total, speed)
+        AppLogger.d(
+            "UpdateProgress",
+            "update progress: ${progress.downloadedBytes}/${progress.totalBytes ?: -1L}, " +
+                "speed=${progress.bytesPerSecond}",
         )
+        AppUpdateDownloadRepository.publish(AppUpdateDownloadState.Downloading(progress))
     }
 
     private fun resumePosition(part: File, manifestFile: File, total: Long, url: String): Long {
@@ -475,17 +517,17 @@ object AppUpdateDownloader {
     private fun saveManifest(file: File, total: Long, url: String, part: File, segments: List<Long>) {
         if (!part.exists()) return
         synchronized(this) {
-        runCatching {
-            val array = JSONArray()
-            segments.forEach { array.put(it) }
-            file.writeText(
-                JSONObject()
-                    .put("total", total)
-                    .put("urlHash", url.hashCode())
-                    .put("segments", array)
-                    .toString()
-            )
-        }
+            runCatching {
+                val array = JSONArray()
+                segments.forEach { array.put(it) }
+                file.writeText(
+                    JSONObject()
+                        .put("total", total)
+                        .put("urlHash", url.hashCode())
+                        .put("segments", array)
+                        .toString()
+                )
+            }
         }
     }
 
