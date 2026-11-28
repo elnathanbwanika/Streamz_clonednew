@@ -235,4 +235,38 @@ class InAppMessageTest {
         )
         assertEquals(7L, next?.id)
     }
+
+    @Test
+    fun contentGateWaitsForWelcomeAndEveryFeed() {
+        assertTrue(InAppMessageContentGate.isReady(
+            welcomeVisible = false,
+            feedLoading = false,
+            moviesLoading = false,
+            channelsLoading = false,
+        ))
+        assertFalse(InAppMessageContentGate.isReady(
+            welcomeVisible = true,
+            feedLoading = false,
+            moviesLoading = false,
+            channelsLoading = false,
+        ))
+        assertFalse(InAppMessageContentGate.isReady(
+            welcomeVisible = false,
+            feedLoading = true,
+            moviesLoading = false,
+            channelsLoading = false,
+        ))
+        assertFalse(InAppMessageContentGate.isReady(
+            welcomeVisible = false,
+            feedLoading = false,
+            moviesLoading = true,
+            channelsLoading = false,
+        ))
+        assertFalse(InAppMessageContentGate.isReady(
+            welcomeVisible = false,
+            feedLoading = false,
+            moviesLoading = false,
+            channelsLoading = true,
+        ))
+    }
 }

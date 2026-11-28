@@ -17,11 +17,14 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -214,28 +217,33 @@ private fun InAppMessageDialog(
                         textAlign = TextAlign.Start,
                     )
 
-                    if (message.buttonLabel != null) {
-                        AppButton(
-                            message.buttonLabel,
-                            { onAction(message.action) },
-                            modifier = Modifier.fillMaxWidth(),
-                            large = true,
-                        )
+                    // Dialog buttons use the app's standard 40dp size and sit
+                    // end-aligned like the other AlertDialogs. Full-width 48dp
+                    // buttons made this popup feel oversized on small phones.
+                    val primaryLabel = message.buttonLabel ?: "Got it"
+                    val primaryAction = if (message.buttonLabel == null) {
+                        InAppMessageAction.None
+                    } else {
+                        message.action
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         if (!requiresTap) {
                             AppButton(
                                 "Close",
                                 onDismiss,
-                                modifier = Modifier.fillMaxWidth(),
                                 variant = AppButtonVariant.Text,
-                                large = true,
                             )
+                            Spacer(Modifier.width(8.dp))
                         }
-                    } else {
                         AppButton(
-                            "Got it",
-                            { onAction(InAppMessageAction.None) },
-                            modifier = Modifier.fillMaxWidth(),
-                            large = true,
+                            label = primaryLabel,
+                            onClick = { onAction(primaryAction) },
                         )
                     }
                 }

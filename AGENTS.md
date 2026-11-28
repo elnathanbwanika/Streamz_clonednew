@@ -21,6 +21,11 @@
 - Every player error goes through `triggerFallback` (retry current server → next server → themed error card). Never short-circuit on codec/container errors by setting `allServersFailed`; that abandons streams that could have played on another server.
 - `PlaybackErrorMessage` maps Media3 error codes to short, URL-free themed messages for the existing player error overlay + Retry button. Never put raw exception messages or URLs into player errors.
 
+## In-app messages
+- Popups stay blocked until `InAppMessageContentGate.isReady()` is true: welcome animation gone and all three feeds (events, movies/series, channels) out of `Loading`. `Error` counts as settled so offline users still see cached messages.
+- Do not call `messageController.onAppStart()` on composition; it used to show cached messages before content loaded. `setBlocked(false)` opens the gate and runs `check()` once everything is ready.
+- Message-dialog buttons use the shared standard `AppButton` size (40dp) end-aligned in a Row, matching the other dialogs. Do not use full-width `large = true` buttons here; they overflowed small screens.
+
 ## Installing the APK
 - **Always install the raw `.apk`**, never the Actions artifact ZIP (installing a renamed ZIP gives "package appears to be invalid/corrupt"). CI publishes a direct APK at `https://github.com/elnathanbwanika/Streamz_clonednew/releases/download/latest/LinkStreamz-<version>.apk`.
 - If an older build is already installed with a different signing key, uninstall it first — Android rejects an update with a different signature and reports it as a corrupt/invalid package.

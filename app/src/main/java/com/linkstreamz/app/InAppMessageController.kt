@@ -64,3 +64,19 @@ class InAppMessageController(
         check()
     }
 }
+
+/**
+ * Decides when it is safe to show an in-app message.
+ *
+ * "Fully loaded" means the welcome animation has finished and every feed has
+ * left Loading. An Error state is settled too: offline users must still be
+ * able to see cached messages rather than being blocked forever.
+ */
+object InAppMessageContentGate {
+    fun isReady(
+        welcomeVisible: Boolean,
+        feedLoading: Boolean,
+        moviesLoading: Boolean,
+        channelsLoading: Boolean,
+    ): Boolean = !welcomeVisible && !feedLoading && !moviesLoading && !channelsLoading
+}

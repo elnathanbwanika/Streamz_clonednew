@@ -597,15 +597,25 @@ class MainActivity : ComponentActivity() {
                 }
 
                 // IN-APP MESSAGES: never over the update/permission dialogs, the
-                // full-screen player, or PiP. Everything else is a normal screen.
+                // full-screen player, PiP, or the boot/welcome screen. They also
+                // wait until every feed has settled so a cached message cannot
+                // cover a half-loaded home screen.
                 val currentEntry by navController.currentBackStackEntryAsState()
                 val playerOpen = currentEntry?.destination?.route == AppRoutes.PLAYER ||
                     isInPipState.value || isPipTransitioningState.value
-                val messagesBlocked = updateRequirement != null || showOnboarding || playerOpen
+                val contentReady = InAppMessageContentGate.isReady(
+                    welcomeVisible = welcomeVisible,
+                    feedLoading = feedState is FeedState.Loading,
+                    moviesLoading = movieFeedState is MediaFeedState.Loading,
+                    channelsLoading = channelFeedState is ChannelFeedState.Loading,
+                )
+                val messagesBlocked =
+                    updateRequirement != null || showOnboarding || playerOpen || !contentReady
 
-                // Declared first so the gate is open before any show trigger runs.
+                // Declared first so the gate is set before any show trigger runs.
+                // Opening the gate calls check(), so no separate onAppStart()
+                // trigger is needed (that used to show cached messages too early).
                 LaunchedEffect(messagesBlocked) { messageController.setBlocked(messagesBlocked) }
-                LaunchedEffect(Unit) { messageController.onAppStart() }
                 LaunchedEffect(resumeTick) {
                     if (resumeTick > 0) messageController.onForeground()
                 }
